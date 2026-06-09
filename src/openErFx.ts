@@ -1,13 +1,27 @@
 const axios = require('axios');
 
 /** 基准 USD 的公开汇率 JSON（与入库日表同步任务使用同一地址） */
-const ER_API_LATEST_USD = 'https://open.er-api.com/v6/latest/USD';
+export const ER_API_LATEST_USD = 'https://open.er-api.com/v6/latest/USD';
+
+type RatesByCurrency = Record<string, number>;
+
+type LatestUsdRatesCache = {
+  rates: RatesByCurrency;
+  fetchedAt: number;
+};
+
+export type FxDailyRow = {
+  currency: string;
+  cny_per_unit: number;
+  usd_per_unit: number;
+  usd_cny: number;
+};
 
 /** 内存缓存：避免兜底拉接口过于频繁 */
-let latestUsdRatesCache = null;
+let latestUsdRatesCache: LatestUsdRatesCache | null = null;
 const RATES_CACHE_MS = 60 * 60 * 1000;
 
-function formatDateShanghai(isoOrMs = Date.now(), timeZone = 'Asia/Shanghai') {
+export function formatDateShanghai(isoOrMs: string | number | Date = Date.now(), timeZone = 'Asia/Shanghai'): string | null {
   const d = new Date(isoOrMs);
   if (!Number.isFinite(d.getTime())) {
     return null;
@@ -20,7 +34,11 @@ function formatDateShanghai(isoOrMs = Date.now(), timeZone = 'Asia/Shanghai') {
   }).format(d);
 }
 
-async function fetchUsdRatesLatest() {
+function isRatesPayload(value: unknown): value is RatesByCurrency {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export async function fetchUsdRatesLatest(): Promise<RatesByCurrency> {
   const now = Date.now();
   if (latestUsdRatesCache && now - latestUsdRatesCache.fetchedAt < RATES_CACHE_MS) {
     return latestUsdRatesCache.rates;
@@ -30,7 +48,7 @@ async function fetchUsdRatesLatest() {
   if (res.status !== 200 || !res.data || typeof res.data !== 'object') {
     throw new Error(`HTTP ${res.status}`);
   }
-  if (String(res.data.result || '').toLowerCase() !== 'success' || !res.data.rates || typeof res.data.rates !== 'object') {
+  if (String(res.data.result || '').toLowerCase() !== 'success' || !isRatesPayload(res.data.rates)) {
     throw new Error(`unexpected payload: ${JSON.stringify(res.data).slice(0, 200)}`);
   }
 
@@ -41,21 +59,20 @@ async function fetchUsdRatesLatest() {
 
 /**
  * 由 open.er-api `rates`（1 USD = rates[X] 个 X）生成按日入库行：每币种 1 单位 X 折合多少 CNY。
- * @returns {{ currency: string, cny_per_unit: number, usd_per_unit: number, usd_cny: number }[]}
  */
-function buildFxDailyRows(rates) {
+export function buildFxDailyRows(rates: RatesByCurrency): FxDailyRow[] {
   const rCny = rates.CNY ?? rates.CNH;
   if (typeof rCny !== 'number' || !Number.isFinite(rCny) || rCny <= 0) {
     throw new Error('rates 缺少有效 CNY/CNH');
   }
 
-  const out = [];
+  const out: FxDailyRow[] = [];
   for (const [code, r] of Object.entries(rates)) {
     const upper = String(code).toUpperCase();
     if (!Number.isFinite(r) || r <= 0) {
       continue;
     }
-    let cnyPer;
+    let cnyPer: number;
     if (upper === 'CNY') {
       cnyPer = 1;
     } else if (upper === 'CNH') {
@@ -78,7 +95,7 @@ function buildFxDailyRows(rates) {
 }
 
 /** 单次折算：1 单位 iso 折合多少 CNY（rates 为 USD 基准）。 */
-function cnyPerUnitFromUsdBaseRates(rates, iso) {
+export function cnyPerUnitFromUsdBaseRates(rates: RatesByCurrency, iso: string): number {
   const upper = String(iso).toUpperCase();
   const rCny = rates.CNY ?? rates.CNH;
   if (typeof rCny !== 'number' || !Number.isFinite(rCny) || rCny <= 0) {
@@ -101,15 +118,6 @@ function cnyPerUnitFromUsdBaseRates(rates, iso) {
   return rCny / r;
 }
 
-function invalidateUsdRatesCache() {
+export function invalidateUsdRatesCache(): void {
   latestUsdRatesCache = null;
 }
-
-module.exports = {
-  ER_API_LATEST_USD,
-  formatDateShanghai,
-  fetchUsdRatesLatest,
-  buildFxDailyRows,
-  cnyPerUnitFromUsdBaseRates,
-  invalidateUsdRatesCache
-};

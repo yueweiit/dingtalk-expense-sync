@@ -1,7 +1,7 @@
-const { Pool } = require('pg');
-const fs = require('fs');
-const path = require('path');
-const config = require('./config');
+import { Pool, PoolClient, QueryResult } from 'pg';
+import fs from 'fs';
+import path from 'path';
+import config from './config.js';
 
 const pool = new Pool({
   host: config.database.host,
@@ -14,13 +14,222 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000
 });
 
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   console.error('数据库连接池错误:', err);
 });
 
+interface ApprovalInstanceData {
+  businessId: string;
+  title?: string;
+  processCode?: string;
+  processType?: string;
+  status?: string;
+  originatorUserId?: string;
+  originatorDeptId?: string;
+  originatorDeptName?: string;
+  bizAction?: string;
+  createTime?: string;
+  cashierTaskId?: string;
+  cashierUserId?: string;
+  cashierStatus?: string;
+  cashierResult?: string;
+  cashierCompleteTime?: string;
+  flowResult?: string;
+  department?: string;
+  applyType?: string;
+  expenseType?: string;
+  region?: string;
+  operationExpenseType?: string;
+  description?: string;
+  beneficiary?: string;
+  amount?: number;
+  paymentTerms?: string;
+  currency?: string;
+  baseCurrencyAmount?: number;
+  paymentDate?: string;
+  applyDate?: string;
+  productionType?: string;
+  monthlyBudget?: number;
+  monthlyBudgetUsed?: number;
+  processInstanceId?: string;
+  rawData?: Record<string, unknown>;
+}
+
+interface OperationExpenseData {
+  processInstanceId?: string | null;
+  businessId: string;
+  requestDate?: string | null;
+  applicantDepartment?: string | null;
+  productionType?: string | null;
+  monthlyBudgetAmount?: number | null;
+  monthlyBudgetUsedAmount?: number | null;
+  applicationType?: string | null;
+  expenseType?: string | null;
+  executionRegion?: string | null;
+  operationExpense?: string | null;
+  employeeBenefitsExpense?: string | null;
+  bonusExpense?: string | null;
+  salaryExpense?: string | null;
+  administrativeExpense?: string | null;
+  vehicleUsageExpense?: string | null;
+  taxExpense?: string | null;
+  financeRelatedExpense?: string | null;
+  salesExpense?: string | null;
+  salesChannelCommissionExpense?: string | null;
+  salesTeamCustomerServiceExpense?: string | null;
+  otherSalesRelatedExpense?: string | null;
+  marketingAdvertisingExpense?: string | null;
+  matterDescription?: string | null;
+  beneficiary?: string | null;
+  amount?: number | null;
+  baseCurrencyAmount?: number | null;
+  paymentTerms?: string | null;
+  currency?: string | null;
+  paymentDate?: string | null;
+  keyVoucher?: string | null;
+  approvalCompletedAt?: string | null;
+  approvalStatus?: string | null;
+  currentNode?: string | null;
+  currentOwner?: string | null;
+  historicalApprovers?: string | null;
+  approvalNo?: string | null;
+  creatorName?: string | null;
+  sourceCreatedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  creatorDepartment?: string | null;
+  rawData?: Record<string, unknown>;
+}
+
+interface PurchaseExpenseData {
+  processInstanceId?: string | null;
+  businessId: string;
+  requestDate?: string | null;
+  applicantDepartment?: string | null;
+  productionType?: string | null;
+  monthlyBudgetAmount?: number | null;
+  monthlyBudgetUsedAmount?: number | null;
+  purchaseExpense?: string | null;
+  orderName?: string | null;
+  projectName?: string | null;
+  productName?: string | null;
+  ywOemImlPhoneCase?: string | null;
+  ywOemPhoneCase?: string | null;
+  ywOemTabletCase?: string | null;
+  ywOemSupport?: string | null;
+  ywMoldesOdm?: string | null;
+  consultingServices?: string | null;
+  tiktokOnlineStore?: string | null;
+  executionRegion?: string | null;
+  orderPurchase?: string | null;
+  expenseClassification?: string | null;
+  investmentPurchase?: string | null;
+  servicePurchase?: string | null;
+  mroClassification?: string | null;
+  productiveMro?: string | null;
+  nonProductiveMro?: string | null;
+  pdsClassification?: string | null;
+  pieceworkOutsourcing?: string | null;
+  logisticsTransportService?: string | null;
+  customsClearanceService?: string | null;
+  detailSummaryAmount?: number | null;
+  baseCurrencyAmount?: number | null;
+  keyVoucher?: string | null;
+  approvalCompletedAt?: string | null;
+  approvalStatus?: string | null;
+  currentNode?: string | null;
+  currentOwner?: string | null;
+  historicalApprovers?: string | null;
+  approvalNo?: string | null;
+  creatorName?: string | null;
+  sourceCreatedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  creatorDepartment?: string | null;
+  rawData?: Record<string, unknown>;
+}
+
+interface PurchaseItemData {
+  rowNo?: number;
+  itemName?: string;
+  imageUrl?: string;
+  itemCode?: string;
+  itemSpecification?: string;
+  quantity?: number;
+  inventory?: number;
+  unit?: string;
+  unitPrice?: number;
+  totalAmount?: number;
+  rawData?: Record<string, unknown>;
+}
+
+interface PurchaseProcessorData {
+  rowNo?: number;
+  processorName?: string;
+  processorPhone?: string;
+  odt?: string;
+  salesOrderNo?: string;
+  processingMaterial?: string;
+  quantity?: number;
+  unitPrice?: number;
+  totalAmount?: number;
+  specificationRequirementDescription?: string;
+  deliveryDate?: string;
+  rawData?: Record<string, unknown>;
+}
+
+interface PurchasePaymentData {
+  rowNo?: number;
+  beneficiary?: string;
+  amount?: number;
+  paymentTerms?: string;
+  currency?: string;
+  paymentDate?: string;
+  rawData?: Record<string, unknown>;
+}
+
+interface AttachmentData {
+  rowNo?: number;
+  attachmentType?: string;
+  fileName?: string;
+  fileUrl?: string;
+  rawData?: Record<string, unknown> | unknown;
+}
+
+interface FxRateRow {
+  currency: string;
+  cny_per_unit: number;
+  usd_per_unit: number;
+  usd_cny: number;
+}
+
+interface FxRateResult {
+  rate_date: string;
+  currency: string;
+  cny_per_unit: number;
+  usd_per_unit: number | null;
+  usd_cny: number | null;
+  source_url: string | null;
+  fetched_at: string;
+}
+
+interface PendingInstance {
+  business_id: string;
+  process_code: string;
+  raw_data: Record<string, unknown>;
+  process_instance_id: string | null;
+}
+
+interface ExpenseInstanceRow {
+  expense_type: string;
+  business_id: string;
+  process_instance_id: string | null;
+  raw_data: Record<string, unknown>;
+  process_code: string;
+  updated_at: string;
+}
+
 class Database {
-  async ensureProcessInstanceIdColumn() {
-    const client = await pool.connect();
+  async ensureProcessInstanceIdColumn(): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query(`
         ALTER TABLE approval_instances
@@ -41,8 +250,8 @@ class Database {
     }
   }
 
-  async ensureBaseCurrencyAmountColumn() {
-    const client = await pool.connect();
+  async ensureBaseCurrencyAmountColumn(): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query(`
         ALTER TABLE approval_instances
@@ -56,8 +265,8 @@ class Database {
     }
   }
 
-  async ensureSyncStateTable() {
-    const client = await pool.connect();
+  async ensureSyncStateTable(): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query(`
         CREATE TABLE IF NOT EXISTS sync_state (
@@ -71,16 +280,16 @@ class Database {
     }
   }
 
-  async ensureApprovalExpenseSchema() {
+  async ensureApprovalExpenseSchema(): Promise<void> {
     const sqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
     await pool.query(sql);
   }
 
-  async getSyncCursor(taskName) {
-    const client = await pool.connect();
+  async getSyncCursor(taskName: string): Promise<number | null> {
+    const client: PoolClient = await pool.connect();
     try {
-      const result = await client.query(
+      const result: QueryResult<{ last_success_ts: string }> = await client.query(
         `SELECT last_success_ts FROM sync_state WHERE task_name = $1`,
         [taskName]
       );
@@ -93,8 +302,8 @@ class Database {
     }
   }
 
-  async setSyncCursor(taskName, timestampMs) {
-    const client = await pool.connect();
+  async setSyncCursor(taskName: string, timestampMs: number): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query(
         `
@@ -112,8 +321,8 @@ class Database {
   }
 
   // 插入或更新审批实例
-  async upsertApprovalInstance(data) {
-    const client = await pool.connect();
+  async upsertApprovalInstance(data: ApprovalInstanceData): Promise<boolean> {
+    const client: PoolClient = await pool.connect();
     try {
       const query = `
         INSERT INTO approval_instances (
@@ -204,7 +413,8 @@ class Database {
 
       return true;
     } catch (error) {
-      console.error('数据库插入/更新失败:', error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('数据库插入/更新失败:', message);
       throw error;
     } finally {
       client.release();
@@ -212,15 +422,15 @@ class Database {
   }
 
   // 检查出纳是否已同意（COMPLETED + APPROVE）
-  async isCashierApproved(businessId) {
-    const client = await pool.connect();
+  async isCashierApproved(businessId: string): Promise<boolean> {
+    const client: PoolClient = await pool.connect();
     try {
       const query = `
         SELECT cashier_status, cashier_result
         FROM approval_instances
         WHERE business_id = $1
       `;
-      const result = await client.query(query, [businessId]);
+      const result: QueryResult<{ cashier_status: string; cashier_result: string }> = await client.query(query, [businessId]);
 
       if (result.rows.length === 0) {
         return false;
@@ -234,21 +444,21 @@ class Database {
   }
 
   // 获取最后更新时间
-  async getLastUpdateTime() {
-    const client = await pool.connect();
+  async getLastUpdateTime(): Promise<string | null> {
+    const client: PoolClient = await pool.connect();
     try {
       const query = `SELECT MAX(update_time) as last_update FROM approval_instances`;
-      const result = await client.query(query);
+      const result: QueryResult<{ last_update: string | null }> = await client.query(query);
       return result.rows[0]?.last_update || null;
     } finally {
       client.release();
     }
   }
 
-  async getPendingInstances(limit = 500) {
-    const client = await pool.connect();
+  async getPendingInstances(limit = 500): Promise<PendingInstance[]> {
+    const client: PoolClient = await pool.connect();
     try {
-      const result = await client.query(
+      const result: QueryResult<PendingInstance> = await client.query(
         `
           SELECT business_id, process_code, raw_data, process_instance_id
           FROM approval_instances
@@ -265,13 +475,13 @@ class Database {
   }
 
   /** 出纳已是 AGREE 但可能曾被错误跳过未更新 raw_data：按最久未更新时间抽样拉回钉钉刷新 */
-  async getStaleCashierAgreed(limit = 80) {
+  async getStaleCashierAgreed(limit = 80): Promise<PendingInstance[]> {
     if (!limit || limit <= 0) {
       return [];
     }
-    const client = await pool.connect();
+    const client: PoolClient = await pool.connect();
     try {
-      const result = await client.query(
+      const result: QueryResult<PendingInstance> = await client.query(
         `
           SELECT business_id, process_code, raw_data, process_instance_id
           FROM approval_instances
@@ -287,9 +497,9 @@ class Database {
     }
   }
 
-  getCashierActivityIdsForSql() {
+  getCashierActivityIdsForSql(): string[] {
     const map = config.dingtalk?.cashierActivityIdsByProcessCode;
-    const ids = [];
+    const ids: string[] = [];
     if (map && typeof map === 'object' && !Array.isArray(map)) {
       for (const value of Object.values(map)) {
         if (Array.isArray(value)) {
@@ -306,7 +516,7 @@ class Database {
     return [...new Set(ids.map((id) => String(id)).filter(Boolean))];
   }
 
-  expenseInstanceUnionSql(whereSql) {
+  expenseInstanceUnionSql(whereSql: string): string {
     return `
       SELECT *
       FROM (
@@ -334,11 +544,11 @@ class Database {
     `;
   }
 
-  async getPendingExpenseInstances(limit = 500) {
-    const client = await pool.connect();
+  async getPendingExpenseInstances(limit = 500): Promise<ExpenseInstanceRow[]> {
+    const client: PoolClient = await pool.connect();
     try {
       const cashierActivityIds = this.getCashierActivityIdsForSql();
-      const result = await client.query(
+      const result: QueryResult<ExpenseInstanceRow> = await client.query(
         `
           ${this.expenseInstanceUnionSql(`
             NOT EXISTS (
@@ -360,14 +570,14 @@ class Database {
     }
   }
 
-  async getStaleExpenseAgreed(limit = 80) {
+  async getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstanceRow[]> {
     if (!limit || limit <= 0) {
       return [];
     }
-    const client = await pool.connect();
+    const client: PoolClient = await pool.connect();
     try {
       const cashierActivityIds = this.getCashierActivityIdsForSql();
-      const result = await client.query(
+      const result: QueryResult<ExpenseInstanceRow> = await client.query(
         `
           ${this.expenseInstanceUnionSql(`
             EXISTS (
@@ -389,8 +599,8 @@ class Database {
     }
   }
 
-  async ensureFxRatesDailyTable() {
-    const client = await pool.connect();
+  async ensureFxRatesDailyTable(): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query(`
         CREATE TABLE IF NOT EXISTS fx_rates_daily (
@@ -420,10 +630,10 @@ class Database {
     }
   }
 
-  async countFxRatesForDate(rateDateStr) {
-    const client = await pool.connect();
+  async countFxRatesForDate(rateDateStr: string): Promise<number> {
+    const client: PoolClient = await pool.connect();
     try {
-      const r = await client.query(
+      const r: QueryResult<{ c: number }> = await client.query(
         `SELECT COUNT(*)::int AS c FROM fx_rates_daily WHERE rate_date = $1::date`,
         [rateDateStr]
       );
@@ -436,8 +646,8 @@ class Database {
   /**
    * 覆盖写入某日全量币种行（先删后插）。
    */
-  async replaceFxRatesForDate(rateDateStr, rows, sourceUrl) {
-    const client = await pool.connect();
+  async replaceFxRatesForDate(rateDateStr: string, rows: FxRateRow[], sourceUrl: string | null): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query(`DELETE FROM fx_rates_daily WHERE rate_date = $1::date`, [rateDateStr]);
@@ -459,16 +669,24 @@ class Database {
     }
   }
 
-  async getLatestFxRate(isoUpper, rateDateStr = null) {
-    const client = await pool.connect();
+  async getLatestFxRate(isoUpper: string, rateDateStr: string | null = null): Promise<FxRateResult | null> {
+    const client: PoolClient = await pool.connect();
     try {
-      const params = [String(isoUpper).toUpperCase()];
+      const params: unknown[] = [String(isoUpper).toUpperCase()];
       let whereDate = '';
       if (rateDateStr) {
         params.push(rateDateStr);
         whereDate = 'AND rate_date <= $2::date';
       }
-      const r = await client.query(
+      const r: QueryResult<{
+        rate_date: string;
+        currency: string;
+        cny_per_unit: string;
+        usd_per_unit: string | null;
+        usd_cny: string | null;
+        source_url: string | null;
+        fetched_at: string;
+      }> = await client.query(
         `
           SELECT rate_date::text AS rate_date,
                  currency,
@@ -505,10 +723,10 @@ class Database {
   /**
    * 取「提交日」可用的 cny_per_unit：优先 rate_date <= 提交日 的最新一条（节假日可沿用上一交易日）。
    */
-  async getCnyPerUnitForSubmissionDate(isoUpper, submissionDateYmd) {
-    const client = await pool.connect();
+  async getCnyPerUnitForSubmissionDate(isoUpper: string, submissionDateYmd: string): Promise<number | null> {
+    const client: PoolClient = await pool.connect();
     try {
-      const r = await client.query(
+      const r: QueryResult<{ cny_per_unit: string | number }> = await client.query(
         `
           SELECT cny_per_unit
           FROM fx_rates_daily
@@ -530,8 +748,8 @@ class Database {
 
   // ==================== approval_expense_* 表操作 ====================
 
-  async upsertOperationExpense(data) {
-    const client = await pool.connect();
+  async upsertOperationExpense(data: OperationExpenseData): Promise<number | undefined> {
+    const client: PoolClient = await pool.connect();
     try {
       const query = `
         INSERT INTO approval_expense_operation (
@@ -596,7 +814,7 @@ class Database {
           updated_at = CURRENT_TIMESTAMP
         RETURNING id
       `;
-      const result = await client.query(query, [
+      const result: QueryResult<{ id: number }> = await client.query(query, [
         data.processInstanceId?.substring(0, 128) || null,
         data.businessId,
         data.requestDate || null,
@@ -646,8 +864,8 @@ class Database {
     }
   }
 
-  async upsertPurchaseExpense(data) {
-    const client = await pool.connect();
+  async upsertPurchaseExpense(data: PurchaseExpenseData): Promise<number | undefined> {
+    const client: PoolClient = await pool.connect();
     try {
       const query = `
         INSERT INTO approval_expense_purchase (
@@ -716,7 +934,7 @@ class Database {
           updated_at = CURRENT_TIMESTAMP
         RETURNING id
       `;
-      const result = await client.query(query, [
+      const result: QueryResult<{ id: number }> = await client.query(query, [
         data.processInstanceId?.substring(0, 128) || null,
         data.businessId,
         data.requestDate || null,
@@ -768,8 +986,8 @@ class Database {
     }
   }
 
-  async replacePurchaseItems(purchaseId, items) {
-    const client = await pool.connect();
+  async replacePurchaseItems(purchaseId: number, items: PurchaseItemData[]): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query('DELETE FROM approval_expense_purchase_items WHERE purchase_id = $1', [purchaseId]);
       for (const item of items) {
@@ -801,8 +1019,8 @@ class Database {
     }
   }
 
-  async replacePurchaseProcessors(purchaseId, processors) {
-    const client = await pool.connect();
+  async replacePurchaseProcessors(purchaseId: number, processors: PurchaseProcessorData[]): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query('DELETE FROM approval_expense_purchase_processors WHERE purchase_id = $1', [purchaseId]);
       for (const p of processors) {
@@ -836,8 +1054,8 @@ class Database {
     }
   }
 
-  async replacePurchasePayments(purchaseId, payments) {
-    const client = await pool.connect();
+  async replacePurchasePayments(purchaseId: number, payments: PurchasePaymentData[]): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query('DELETE FROM approval_expense_purchase_payments WHERE purchase_id = $1', [purchaseId]);
       for (const p of payments) {
@@ -865,8 +1083,8 @@ class Database {
     }
   }
 
-  async replaceAttachments(parentType, parentId, attachments) {
-    const client = await pool.connect();
+  async replaceAttachments(parentType: string, parentId: number, attachments: AttachmentData[]): Promise<void> {
+    const client: PoolClient = await pool.connect();
     try {
       await client.query(
         'DELETE FROM approval_expense_attachments WHERE parent_type = $1 AND parent_id = $2',
@@ -897,8 +1115,8 @@ class Database {
   }
 
   // 检查business_id是否已存在
-  async existsByBusinessId(businessId) {
-    const client = await pool.connect();
+  async existsByBusinessId(businessId: string): Promise<boolean> {
+    const client: PoolClient = await pool.connect();
     try {
       const query = `SELECT 1 FROM approval_instances WHERE business_id = $1 LIMIT 1`;
       const result = await client.query(query, [businessId]);
@@ -909,11 +1127,11 @@ class Database {
   }
 
   // 关闭连接池
-  async close() {
+  async close(): Promise<void> {
     await pool.end();
   }
 }
 
 const db = new Database();
-module.exports = db;
-module.exports.pool = pool;
+export default db;
+export { pool };
