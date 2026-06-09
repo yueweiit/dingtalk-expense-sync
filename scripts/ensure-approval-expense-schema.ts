@@ -8,7 +8,7 @@ import database, { pool } from '../src/database.js';
 import logger from '../src/logger.js';
 
 async function main(): Promise<void> {
-  const sqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
+  const sqlPath = path.join(__dirname, '..', '..', 'sql', 'ensure_approval_expense_schema.sql');
   const sql = fs.readFileSync(sqlPath, 'utf8');
 
   await pool.query(sql);

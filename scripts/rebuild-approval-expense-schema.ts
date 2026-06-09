@@ -27,8 +27,8 @@ async function main(): Promise<void> {
     throw new Error('Refusing to drop approval_expense_* tables without --confirm=1');
   }
 
-  const rebuildSqlPath = path.join(__dirname, '..', 'sql', 'rebuild_approval_expense_schema.sql');
-  const ensureSqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
+  const rebuildSqlPath = path.join(__dirname, '..', '..', 'sql', 'rebuild_approval_expense_schema.sql');
+  const ensureSqlPath = path.join(__dirname, '..', '..', 'sql', 'ensure_approval_expense_schema.sql');
   const rebuildSql = fs.readFileSync(rebuildSqlPath, 'utf8');
   const ensureSql = fs.readFileSync(ensureSqlPath, 'utf8');
 

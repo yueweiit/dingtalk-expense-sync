@@ -94,7 +94,7 @@ function resolveTimeRange(args: Record<string, string>): { startMs: number; endM
 }
 
 async function ensureExpenseSchema(): Promise<void> {
-  const sqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
+  const sqlPath = path.join(__dirname, '..', '..', 'sql', 'ensure_approval_expense_schema.sql');
   const sql = fs.readFileSync(sqlPath, 'utf8');
   await pool.query(sql);
 }
