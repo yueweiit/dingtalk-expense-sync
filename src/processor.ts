@@ -7,6 +7,8 @@ export interface FormComponentValue {
   name?: string;
   value?: unknown;
   componentType?: string;
+  id?: string;
+  details?: FormComponentValue[][];
 }
 
 export interface Task {
@@ -154,6 +156,58 @@ class ApprovalProcessor {
       }
     }
     return null;
+  }
+
+  /**
+   * 提取TableField表格数据
+   * @param fc 表单组件值数组
+   * @param tableFieldId TableField的ID
+   * @returns 解析后的表格数据数组，或null
+   */
+  extractTableFieldData(
+    fc: FormComponentValue[] | undefined | null,
+    tableFieldId: string
+  ): Array<{ department: string; amount: number; note: string }> | null {
+    if (!fc || !Array.isArray(fc)) {
+      return null;
+    }
+
+    // 查找TableField
+    const tableField = fc.find(
+      (item) => item.componentType === 'TableField' && item.id === tableFieldId
+    );
+
+    if (!tableField || !tableField.details || !Array.isArray(tableField.details)) {
+      return null;
+    }
+
+    // 解析每一行数据
+    const rows: Array<{ department: string; amount: number; note: string }> = [];
+
+    for (const row of tableField.details) {
+      if (!Array.isArray(row)) continue;
+
+      let department = '';
+      let amount = 0;
+      let note = '';
+
+      for (const cell of row) {
+        if (cell.id === 'DDSelectField_YEOAPAJJFPC0') {
+          department = String(cell.value || '').trim();
+        } else if (cell.id === 'MoneyField_T2TFVV7BXN40') {
+          amount = this.normalizeNumber(cell.value) || 0;
+        } else if (cell.id === 'TextField_SZ57CIDK9J40') {
+          note = String(cell.value || '').trim();
+        }
+      }
+
+      // 只添加有部门和金额的有效行
+      if (department && amount > 0) {
+        rows.push({ department, amount, note });
+      }
+    }
+
+    return rows.length > 0 ? rows : null;
   }
 
   // 规范化数值字段，避免 "无"、"$263,570.94"、"74,101.60" 等导致numeric入库失败
@@ -382,6 +436,12 @@ class ApprovalProcessor {
       ? deptField.value
       : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
 
+    const operationExpense = this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出');
+    const isSalaryChina = operationExpense && String(operationExpense).includes('工资中国');
+    const salaryByDepartment = isSalaryChina
+      ? this.extractTableFieldData(fc, 'TableField_13B0RI3JBQXS0')
+      : null;
+
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
       applicantDepartment: department,
@@ -410,7 +470,8 @@ class ApprovalProcessor {
       paymentTerms: this.extractFormValue(fc, '付款条件Términos de pago') || this.extractFormValue(fc, '付款条件'),
       currency: this.extractFormValueLastNonEmpty(fc, '币种Moneda') || this.extractFormValue(fc, '币种'),
       paymentDate: this.extractFormValue(fc, '付款日期Fecha de pago') || this.extractFormValue(fc, '付款日期'),
-      keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证')
+      keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证'),
+      salaryByDepartment
     };
   }
 

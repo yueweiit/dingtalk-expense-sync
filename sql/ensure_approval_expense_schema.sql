@@ -51,10 +51,13 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     source_updated_at TIMESTAMP,
     creator_department VARCHAR(500),
 
+    salary_by_department JSONB,
     raw_data JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     id BIGSERIAL PRIMARY KEY,

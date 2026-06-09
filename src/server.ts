@@ -172,8 +172,32 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       )
     `;
 
-    /** 统计口径：优先本位币人民币，未折算时回退原币 amount（与「采购接口无金额」排查前一致） */
-    const amountRmbExpr = queryConfig.amountRmbExpr;
+    const params: unknown[] = [];
+    let paramIndex = 1;
+
+    /** 统计口径：优先本位币人民币；运营「工资中国」按 salary_by_department 拆到匹配部门 */
+    const isOperation = queryConfig.processKind === 'operation';
+    const isSalaryChinaExpr = `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`;
+    const salaryDeptMatchParam = isOperation ? paramIndex++ : null;
+    if (isOperation) {
+      params.push(deptMatch);
+    }
+    const amountRmbExpr = isOperation
+      ? `
+        CASE
+          WHEN ${isSalaryChinaExpr}
+          THEN COALESCE(
+            (
+              SELECT SUM((entry->>'amount')::numeric)
+              FROM jsonb_array_elements(COALESCE(salary_by_department, '[]'::jsonb)) AS entry
+              WHERE entry->>'department' ILIKE '%' || $${salaryDeptMatchParam} || '%'
+            ),
+            0
+          )
+          ELSE COALESCE(base_currency_amount, 0)
+        END
+      `
+      : queryConfig.amountRmbExpr;
 
     let query = isDebug
       ? `
@@ -198,9 +222,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       WHERE 1=1
     `;
 
-    const params: unknown[] = [];
-    let paramIndex = 1;
-
     if (flowStatusCompletedOnly) {
       query += ` AND approval_status = 'COMPLETED'`;
     }
@@ -222,12 +243,24 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     query += ` AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`;
 
     const deptCodeMode = isDeptCodeLike(deptMatch);
+    const nonSalaryDeptMatchExpr = isOperation
+      ? `(NOT ${isSalaryChinaExpr} AND `
+      : `(`;
+    const salaryDeptExistsExpr = `
+      (${isSalaryChinaExpr}
+        AND salary_by_department IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(salary_by_department) AS entry
+          WHERE entry->>'department' ILIKE '%' || $${salaryDeptMatchParam} || '%'
+        ))
+    `;
     if (deptCodeMode) {
       // 代码模式：要求是独立 token（边界可为开头/结尾/空格/下划线/连字符等），避免 "it" 命中无关文本。
-      query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ $${paramIndex++}`;
+      query += ` AND (${nonSalaryDeptMatchExpr}UPPER(COALESCE(${departmentExpr}, '')) ~ $${paramIndex++})${isOperation ? ` OR ${salaryDeptExistsExpr}` : ''})`;
       params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
     } else {
-      query += ` AND ${departmentExpr} ILIKE $${paramIndex++}`;
+      query += ` AND (${nonSalaryDeptMatchExpr}${departmentExpr} ILIKE $${paramIndex++})${isOperation ? ` OR ${salaryDeptExistsExpr}` : ''})`;
       params.push(`%${deptMatch}%`);
     }
 
@@ -352,7 +385,23 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
 
     const wantEcho = String(echo || '') === '1';
     const isDebug = String(debug || '') === '1';
-    const amountRmbExpr = queryConfig.amountRmbExpr;
+    const isOperation = queryConfig.processKind === 'operation';
+    const isSalaryChinaExpr = `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`;
+
+    // 工资中国感知的金额表达式：全部门查询时，对工资中国记录取 salary_by_department 所有条目之和
+    const amountRmbExpr = isOperation
+      ? `
+        CASE
+          WHEN ${isSalaryChinaExpr} AND salary_by_department IS NOT NULL
+          THEN COALESCE(
+            (SELECT SUM((entry->>'amount')::numeric)
+             FROM jsonb_array_elements(salary_by_department) AS entry),
+            0
+          )
+          ELSE COALESCE(base_currency_amount, 0)
+        END
+      `
+      : queryConfig.amountRmbExpr;
 
     let query = isDebug
       ? `
@@ -442,6 +491,40 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
           total: Number.parseFloat(row.total || 0).toFixed(2),
           count: Number(row.count || 0)
         };
+        if (isOperation) {
+          const whereClause = query.slice(query.indexOf('WHERE 1=1') + 'WHERE 1=1'.length);
+          const breakdownQuery = `
+            SELECT dept, COALESCE(SUM(amount), 0)::text AS total
+            FROM (
+              SELECT
+                COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+                COALESCE(base_currency_amount, 0) AS amount
+              FROM ${queryConfig.tableName}
+              WHERE NOT ${isSalaryChinaExpr}
+              ${whereClause}
+
+              UNION ALL
+
+              SELECT
+                COALESCE(NULLIF(TRIM(entry->>'department'), ''), 'Unknown') AS dept,
+                COALESCE((entry->>'amount')::numeric, 0) AS amount
+              FROM ${queryConfig.tableName},
+                   jsonb_array_elements(salary_by_department) AS entry
+              WHERE ${isSalaryChinaExpr}
+                AND salary_by_department IS NOT NULL
+              ${whereClause}
+            ) AS combined
+            GROUP BY dept
+            ORDER BY SUM(amount) DESC
+          `;
+          const breakdownResult = await client.query(breakdownQuery, params);
+          payload.breakdown = Object.fromEntries(
+            (breakdownResult.rows || []).map((breakdownRow: Record<string, unknown>) => [
+              String(breakdownRow.dept || 'Unknown'),
+              Number.parseFloat(String(breakdownRow.total || 0)).toFixed(2)
+            ])
+          );
+        }
         if (wantEcho) {
           payload.resolved = {
             deptMatch: '(all)',

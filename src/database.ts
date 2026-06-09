@@ -97,6 +97,7 @@ interface OperationExpenseData {
   sourceCreatedAt?: string | null;
   sourceUpdatedAt?: string | null;
   creatorDepartment?: string | null;
+  salaryByDepartment?: Array<{ department: string; amount: number; note?: string }> | null;
   rawData?: Record<string, unknown>;
 }
 
@@ -764,10 +765,11 @@ class Database {
           approval_completed_at, approval_status, current_node, current_owner,
           historical_approvers, approval_no, creator_name,
           source_created_at, source_updated_at, creator_department,
+          salary_by_department,
           raw_data
         ) VALUES (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
-          $24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
+          $24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43
         )
         ON CONFLICT (business_id) WHERE business_id IS NOT NULL DO UPDATE SET
           process_instance_id = COALESCE(EXCLUDED.process_instance_id, approval_expense_operation.process_instance_id),
@@ -810,6 +812,7 @@ class Database {
           source_created_at = EXCLUDED.source_created_at,
           source_updated_at = EXCLUDED.source_updated_at,
           creator_department = EXCLUDED.creator_department,
+          salary_by_department = EXCLUDED.salary_by_department,
           raw_data = EXCLUDED.raw_data,
           updated_at = CURRENT_TIMESTAMP
         RETURNING id
@@ -856,6 +859,7 @@ class Database {
         data.sourceCreatedAt || null,
         data.sourceUpdatedAt || null,
         data.creatorDepartment?.substring(0, 500) || null,
+        data.salaryByDepartment ? JSON.stringify(data.salaryByDepartment) : null,
         JSON.stringify(data.rawData || {})
       ]);
       return result.rows[0]?.id;
