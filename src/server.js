@@ -2,11 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const database = require('./database');
 const logger = require('./logger');
-const config = require('../config.json');
+const config = require('./config');
 const { normalizeCurrencyToIso } = require('./fxToCny');
 
 const app = express();
-const PORT = process.env.PORT || config.server?.port || 3002;
+const PORT = config.server.port;
 
 app.use(cors());
 app.use(express.json());
