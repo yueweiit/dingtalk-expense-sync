@@ -35,6 +35,7 @@ yarn.lock
 .VSCodeCounter *
 
 # Environment variables
+.env
 .env.local
 .env.*.local
 config.json

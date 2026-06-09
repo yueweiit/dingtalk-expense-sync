@@ -1,0 +1,110 @@
+/**
+ * Centralized configuration module
+ * Loads sensitive values from .env (via dotenv), non-sensitive from config.json
+ * Provides backward compatibility: falls back to config.json if env vars not set
+ */
+
+const path = require('path');
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+// Load .env from project root (works whether called from src/ or scripts/)
+const projectRoot = path.resolve(__dirname, '..');
+dotenv.config({ path: path.join(projectRoot, '.env') });
+
+// Load non-sensitive config from config.json (fallback)
+let fileConfig = {};
+try {
+  const configPath = path.join(projectRoot, 'config.json');
+  if (fs.existsSync(configPath)) {
+    fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch (error) {
+  // config.json is optional when all values are provided via env vars
+  console.warn('Warning: Could not load config.json:', error.message);
+}
+
+// Validate required secrets are present
+const requiredEnvVars = ['DB_PASSWORD', 'DINGTALK_APPKEY', 'DINGTALK_APPSECRET'];
+const missing = requiredEnvVars.filter(envVar => {
+  const value = process.env[envVar];
+  return !value || value.trim() === '';
+});
+
+if (missing.length > 0) {
+  // Check if ALL missing values exist in config.json as fallback
+  // Using AND logic: all missing vars must have config.json fallbacks
+  const hasJsonFallback = 
+    (!missing.includes('DB_PASSWORD') || fileConfig.database?.password) &&
+    (!missing.includes('DINGTALK_APPKEY') || fileConfig.dingtalk?.appkey) &&
+    (!missing.includes('DINGTALK_APPSECRET') || fileConfig.dingtalk?.appsecret);
+  
+  if (!hasJsonFallback) {
+    throw new Error(
+      `Missing required configuration: ${missing.join(', ')}\n` +
+      'Set these in .env file or provide them in config.json'
+    );
+  }
+}
+
+/**
+ * Parse JSON string from environment variable
+ * Returns undefined if value is empty or invalid JSON
+ */
+function parseJsonEnv(value) {
+  if (!value || typeof value !== 'string' || value.trim() === '') {
+    return undefined;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value; // Return as string if not valid JSON
+  }
+}
+
+/**
+ * Parse boolean from environment variable
+ * Handles 'true', 'false', '1', '0' (case-insensitive)
+ */
+function parseBooleanEnv(value, defaultValue) {
+  if (!value || typeof value !== 'string') {
+    return defaultValue;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') return true;
+  if (normalized === 'false' || normalized === '0') return false;
+  return defaultValue;
+}
+
+// Build configuration object with env vars taking precedence over config.json
+const config = Object.freeze({
+  database: Object.freeze({
+    host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
+    port: Number(process.env.DB_PORT) || fileConfig.database?.port || 5432,
+    database: process.env.DB_NAME || fileConfig.database?.database || 'dingtalk_approval',
+    user: process.env.DB_USER || fileConfig.database?.user || 'postgres',
+    password: process.env.DB_PASSWORD || fileConfig.database?.password,
+  }),
+  dingtalk: Object.freeze({
+    appkey: process.env.DINGTALK_APPKEY || fileConfig.dingtalk?.appkey,
+    appsecret: process.env.DINGTALK_APPSECRET || fileConfig.dingtalk?.appsecret,
+    cashierActivityIds: parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS) || fileConfig.dingtalk?.cashierActivityIds || [],
+    cashierActivityIdsByProcessCode: parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS_BY_PROCESS_CODE) || fileConfig.dingtalk?.cashierActivityIdsByProcessCode || {},
+    processCodes: parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) || fileConfig.dingtalk?.processCodes || [],
+  }),
+  scheduler: Object.freeze({
+    cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7 * * * *',
+    startTime: process.env.SCHEDULER_START_TIME || fileConfig.scheduler?.startTime || '2026-04-01T00:00:00+08:00',
+    compensationCron: process.env.SCHEDULER_COMPENSATION_CRON || fileConfig.scheduler?.compensationCron || '17 3 * * *',
+    fxRatesCron: process.env.SCHEDULER_FX_RATES_CRON || fileConfig.scheduler?.fxRatesCron || '5 0 * * *',
+    fxRatesTimezone: process.env.SCHEDULER_FX_RATES_TIMEZONE || fileConfig.scheduler?.fxRatesTimezone || 'Asia/Shanghai',
+    fxRatesRunOnStartup: parseBooleanEnv(process.env.SCHEDULER_FX_RATES_RUN_ON_STARTUP, fileConfig.scheduler?.fxRatesRunOnStartup ?? true),
+    pendingCompensationLimit: Number(process.env.SCHEDULER_PENDING_COMPENSATION_LIMIT) || fileConfig.scheduler?.pendingCompensationLimit || 500,
+    staleAgreedRefreshLimit: Number(process.env.SCHEDULER_STALE_AGREED_REFRESH_LIMIT) || fileConfig.scheduler?.staleAgreedRefreshLimit || 80,
+  }),
+  server: Object.freeze({
+    port: Number(process.env.PORT) || fileConfig.server?.port || 3002,
+  }),
+});
+
+module.exports = config;
