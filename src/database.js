@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-const config = require('../config.json');
+const config = require('./config');
 
 const pool = new Pool({
   host: config.database.host,
