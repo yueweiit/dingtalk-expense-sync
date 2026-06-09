@@ -1,16 +1,113 @@
-const database = require('./database');
-const logger = require('./logger');
-const config = require('./config');
-const { convertAmountToCny } = require('./fxToCny');
+import database from './database.js';
+import logger from './logger.js';
+import config from './config.js';
+import { convertAmountToCny } from './fxToCny.js';
+
+export interface FormComponentValue {
+  name?: string;
+  value?: unknown;
+  componentType?: string;
+}
+
+export interface Task {
+  taskId?: string;
+  userId?: string;
+  activityId?: string;
+  activityName?: string;
+  name?: string;
+  status?: string;
+  result?: string;
+  finishTime?: string | number;
+  createTime?: string | number;
+  startTime?: string | number;
+  userName?: string;
+}
+
+export interface ApprovalInstance {
+  businessId: string;
+  processInstanceId?: string | number;
+  title?: string;
+  processCode?: string;
+  processType?: string;
+  status?: string;
+  originatorUserId?: string;
+  originatorDeptId?: string;
+  originatorDeptName?: string;
+  bizAction?: string;
+  createTime?: string;
+  endTime?: string;
+  finishTime?: string;
+  approvalNo?: string;
+  approval_no?: string;
+  originatorUserName?: string;
+  originator_user_name?: string;
+  updateTime?: string;
+  modifyTime?: string;
+  tasks?: Task[];
+  formComponentValues?: FormComponentValue[];
+}
+
+interface ParsedFormData {
+  department: unknown;
+  applyType: unknown;
+  expenseType: unknown;
+  region: unknown;
+  operationExpenseType: unknown;
+  description: unknown;
+  beneficiary: unknown;
+  amount: unknown;
+  paymentTerms: unknown;
+  currency: unknown;
+  paymentDate: unknown;
+  applyDate: unknown;
+  productionType: unknown;
+  monthlyBudget: unknown;
+  monthlyBudgetUsed: unknown;
+}
+
+interface ApprovalMeta {
+  approvalCompletedAt: string | null;
+  approvalStatus: string | null;
+  currentNode: string | null;
+  currentOwner: string | null;
+  historicalApprovers: string | null;
+  approvalNo: string | null;
+  creatorName: string | null;
+  sourceCreatedAt: string | null;
+  sourceUpdatedAt: string | null;
+  creatorDepartment: string | null;
+}
+
+interface Attachment {
+  attachmentType: string;
+  fileName: string;
+  fileUrl: string;
+  rawData: Record<string, unknown> | unknown;
+}
+
+interface ProcessResult {
+  skipped?: boolean;
+  reason?: string;
+  success?: boolean;
+  businessId?: string;
+  failed?: boolean;
+  error?: string;
+}
+
+interface BatchProcessResult {
+  success: number;
+  skipped: number;
+  failed: number;
+  details: ProcessResult[];
+}
 
 class ApprovalProcessor {
   constructor() {
     // 出纳节点由 dingtalk.cashierActivityIds 指定（钉钉 task.activityId）
-    // 配置为空数组 [] 时：不做 activity 过滤，退回“任意人工节点”启发式（易误判，不推荐）
+    // 配置为空数组 [] 时：不做 activity 过滤，退回"任意人工节点"启发式（易误判，不推荐）
   }
 
-  /** @param {string|null|undefined} processCode 不同审批模板出纳节点 activityId 可能不同 */
-  getCashierActivityIds(processCode) {
+  getCashierActivityIds(processCode?: string | null): string[] {
     const map = config.dingtalk?.cashierActivityIdsByProcessCode;
     if (processCode && map && typeof map === 'object' && !Array.isArray(map)) {
       const mapped = map[processCode];
@@ -26,7 +123,7 @@ class ApprovalProcessor {
   }
 
   // 从表单值中提取字段（第一个匹配）
-  extractFormValue(formComponentValues, fieldName) {
+  extractFormValue(formComponentValues: FormComponentValue[] | undefined | null, fieldName: string): unknown {
     if (!formComponentValues || !Array.isArray(formComponentValues)) {
       return null;
     }
@@ -38,7 +135,7 @@ class ApprovalProcessor {
    * 采购等模板里常有多组同名控件（如明细里重复的「金额importe」「币种Moneda」），
    * 只取第一个会命中空行，导致 amount/currency 入库为 NULL。从后往前取最后一个非空值。
    */
-  extractFormValueLastNonEmpty(formComponentValues, fieldName) {
+  extractFormValueLastNonEmpty(formComponentValues: FormComponentValue[] | undefined | null, fieldName: string): unknown {
     if (!formComponentValues || !Array.isArray(formComponentValues)) {
       return null;
     }
@@ -60,7 +157,7 @@ class ApprovalProcessor {
   }
 
   // 规范化数值字段，避免 "无"、"$263,570.94"、"74,101.60" 等导致numeric入库失败
-  normalizeNumber(value) {
+  normalizeNumber(value: unknown): number | null {
     if (value === null || value === undefined) {
       return null;
     }
@@ -93,7 +190,7 @@ class ApprovalProcessor {
   }
 
   // 解析表单数据
-  parseFormData(formComponentValues) {
+  parseFormData(formComponentValues?: FormComponentValue[]): ParsedFormData {
     const amountFromDetail = this.extractFormValueLastNonEmpty(formComponentValues, '金额importe');
     const currencyFromDetail = this.extractFormValueLastNonEmpty(formComponentValues, '币种Moneda');
     const amountFromSummary = this.extractFormValue(formComponentValues, '明细汇总金额');
@@ -125,7 +222,7 @@ class ApprovalProcessor {
    * 出纳节点：只认 activityId；同一节点多版本任务时取「最近结束」的一条（REFUSE 必须能覆盖之前的 AGREE）。
    * 未完成则取 RUNNING。
    */
-  getCashierTask(tasks, processCode) {
+  getCashierTask(tasks: Task[] | undefined, processCode?: string | null): Task | null {
     if (!tasks || !Array.isArray(tasks)) {
       return null;
     }
@@ -149,7 +246,7 @@ class ApprovalProcessor {
       }
     }
 
-    const finishMs = (t) => {
+    const finishMs = (t: Task): number | null => {
       const v = t.finishTime;
       if (v == null) {
         return null;
@@ -160,7 +257,7 @@ class ApprovalProcessor {
 
     const finished = pool.filter((t) => finishMs(t) != null);
     if (finished.length > 0) {
-      return finished.sort((a, b) => finishMs(b) - finishMs(a))[0];
+      return finished.sort((a, b) => (finishMs(b) ?? 0) - (finishMs(a) ?? 0))[0];
     }
 
     const runningTask = pool.find((task) => task.status === 'RUNNING');
@@ -172,7 +269,7 @@ class ApprovalProcessor {
   }
 
   // 判断出纳是否已同意
-  isCashierApproved(cashierTask) {
+  isCashierApproved(cashierTask: Task | null): boolean {
     if (!cashierTask) {
       return false;
     }
@@ -181,15 +278,15 @@ class ApprovalProcessor {
   }
 
   // 从 tasks 中提取审批元数据
-  parseApprovalMeta(instance) {
+  parseApprovalMeta(instance: ApprovalInstance): ApprovalMeta {
     const tasks = Array.isArray(instance.tasks) ? instance.tasks : [];
     const userTasks = tasks.filter((t) => t && t.userId && t.userId !== 'bpms_system');
     const running = tasks.filter((t) => String(t?.status || '').toUpperCase() === 'RUNNING');
 
-    const taskTime = (t) => {
+    const taskTime = (t: Task): number => {
       const v = t.finishTime || t.createTime || t.startTime;
       if (v == null) return 0;
-      const n = typeof v === 'number' ? v : Date.parse(v);
+      const n = typeof v === 'number' ? v : Date.parse(String(v));
       return Number.isFinite(n) ? n : 0;
     };
 
@@ -216,11 +313,11 @@ class ApprovalProcessor {
   }
 
   // 从表单中提取附件/凭证
-  extractAttachments(formComponentValues) {
+  extractAttachments(formComponentValues?: FormComponentValue[]): Attachment[] {
     if (!formComponentValues || !Array.isArray(formComponentValues)) {
       return [];
     }
-    const attachments = [];
+    const attachments: Attachment[] = [];
     for (const item of formComponentValues) {
       const name = item?.name || '';
       if (!name.includes('关键凭证') && !name.includes('Comprobante') && !name.includes('附件') && !name.includes('Adjunto')) {
@@ -249,24 +346,24 @@ class ApprovalProcessor {
               rawData: v
             });
           } else if (v && typeof v === 'object') {
-            const url = v.url || v.fileUrl || v.downloadUrl || '';
+            const url = (v as Record<string, unknown>).url || (v as Record<string, unknown>).fileUrl || (v as Record<string, unknown>).downloadUrl || '';
             if (url) {
               attachments.push({
-                attachmentType: v.type || '关键凭证',
-                fileName: v.fileName || v.name || url.split('/').pop() || '',
-                fileUrl: url,
+                attachmentType: String((v as Record<string, unknown>).type || '关键凭证'),
+                fileName: String((v as Record<string, unknown>).fileName || (v as Record<string, unknown>).name || String(url).split('/').pop() || ''),
+                fileUrl: String(url),
                 rawData: v
               });
             }
           }
         }
       } else if (typeof value === 'object') {
-        const url = value.url || value.fileUrl || value.downloadUrl || '';
+        const url = (value as Record<string, unknown>).url || (value as Record<string, unknown>).fileUrl || (value as Record<string, unknown>).downloadUrl || '';
         if (url) {
           attachments.push({
-            attachmentType: value.type || '关键凭证',
-            fileName: value.fileName || value.name || url.split('/').pop() || '',
-            fileUrl: url,
+            attachmentType: String((value as Record<string, unknown>).type || '关键凭证'),
+            fileName: String((value as Record<string, unknown>).fileName || (value as Record<string, unknown>).name || String(url).split('/').pop() || ''),
+            fileUrl: String(url),
             rawData: value
           });
         }
@@ -276,7 +373,7 @@ class ApprovalProcessor {
   }
 
   // 解析运营支出全部字段（写入 approval_expense_operation）
-  parseOperationExpenseData(formComponentValues) {
+  parseOperationExpenseData(formComponentValues?: FormComponentValue[]): Record<string, unknown> {
     const fc = formComponentValues;
     const deptField = Array.isArray(fc)
       ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
@@ -318,7 +415,7 @@ class ApprovalProcessor {
   }
 
   // 解析采购支出全部字段（写入 approval_expense_purchase）
-  parsePurchaseExpenseData(formComponentValues) {
+  parsePurchaseExpenseData(formComponentValues?: FormComponentValue[]): Record<string, unknown> {
     const fc = formComponentValues;
     const deptField = Array.isArray(fc)
       ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
@@ -361,8 +458,8 @@ class ApprovalProcessor {
     };
   }
 
-  // 整单最终结果：只要任意人工节点拒绝即记为 REFUSE，便于数据库直接识别”被拒绝单”
-  deriveFlowResult(tasks) {
+  // 整单最终结果：只要任意人工节点拒绝即记为 REFUSE，便于数据库直接识别"被拒绝单"
+  deriveFlowResult(tasks?: Task[]): string {
     if (!Array.isArray(tasks) || tasks.length === 0) {
       return 'NONE';
     }
@@ -382,10 +479,10 @@ class ApprovalProcessor {
   }
 
   /**
-   * @param {object} instance 钉钉详情
-   * @param {{ force?: boolean }} options 保留兼容旧脚本参数；新表 upsert 始终覆盖刷新
+   * @param instance 钉钉详情
+   * @param options 保留兼容旧脚本参数；新表 upsert 始终覆盖刷新
    */
-  async processInstance(instance, options = {}) {
+  async processInstance(instance: ApprovalInstance, options: { force?: boolean } = {}): Promise<ProcessResult> {
     const businessId = instance.businessId;
 
     if (!businessId) {
@@ -397,7 +494,7 @@ class ApprovalProcessor {
     const formData = this.parseFormData(instance.formComponentValues);
 
     // 构造入库数据（processInstanceId 用于再次调用钉钉详情接口，与 businessId 不同）
-    const data = {
+    const data: Record<string, unknown> = {
       businessId,
       processInstanceId:
         instance.processInstanceId != null ? String(instance.processInstanceId).substring(0, 128) : null,
@@ -426,44 +523,44 @@ class ApprovalProcessor {
       const attachments = this.extractAttachments(instance.formComponentValues);
       const processType = instance.processType || data.processType || '';
 
-      if (processType.includes('运营') || processType.includes('杩愯惀')) {
+      if (String(processType).includes('运营') || String(processType).includes('杩愯惀')) {
         const opData = this.parseOperationExpenseData(instance.formComponentValues);
         const opAmount = opData.amount ?? data.amount;
         const opCurrency = opData.currency ?? data.currency;
         const opBaseCurrencyAmount = await convertAmountToCny({
           amount: opAmount,
           currencyLabel: opCurrency,
-          createTime: data.createTime
+          createTime: String(data.createTime || '')
         });
         const opId = await database.upsertOperationExpense({
           ...opData,
-          processInstanceId: data.processInstanceId,
+          processInstanceId: data.processInstanceId as string,
           businessId,
-          amount: opAmount,
-          baseCurrencyAmount: opBaseCurrencyAmount,
-          currency: opCurrency,
+          amount: opAmount as number,
+          baseCurrencyAmount: opBaseCurrencyAmount as number,
+          currency: opCurrency as string,
           ...meta,
-          rawData: instance
+          rawData: instance as unknown as Record<string, unknown>
         });
         if (opId) {
           await database.replaceAttachments('operation', opId, attachments);
         }
-      } else if (processType.includes('采购') || processType.includes('閲囪喘')) {
+      } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
         const pData = this.parsePurchaseExpenseData(instance.formComponentValues);
         const purchaseAmount = pData.detailSummaryAmount ?? data.amount;
         const purchaseCurrency = pData.currency ?? data.currency;
         const purchaseBaseCurrencyAmount = await convertAmountToCny({
           amount: purchaseAmount,
           currencyLabel: purchaseCurrency,
-          createTime: data.createTime
+          createTime: String(data.createTime || '')
         });
         const purchaseId = await database.upsertPurchaseExpense({
           ...pData,
-          processInstanceId: data.processInstanceId,
+          processInstanceId: data.processInstanceId as string,
           businessId,
-          baseCurrencyAmount: purchaseBaseCurrencyAmount,
+          baseCurrencyAmount: purchaseBaseCurrencyAmount as number,
           ...meta,
-          rawData: instance
+          rawData: instance as unknown as Record<string, unknown>
         });
         if (purchaseId) {
           await database.replaceAttachments('purchase', purchaseId, attachments);
@@ -473,12 +570,12 @@ class ApprovalProcessor {
           if (purchaseAmount != null || purchaseCurrency || data.beneficiary || data.paymentDate || data.paymentTerms) {
             payments.push({
               rowNo: 1,
-              beneficiary: data.beneficiary || null,
-              amount: purchaseAmount,
-              paymentTerms: data.paymentTerms || null,
-              currency: purchaseCurrency || null,
-              paymentDate: data.paymentDate || null,
-              rawData: null
+              beneficiary: data.beneficiary ? String(data.beneficiary) : undefined,
+              amount: purchaseAmount as number,
+              paymentTerms: data.paymentTerms ? String(data.paymentTerms) : undefined,
+              currency: purchaseCurrency ? String(purchaseCurrency) : undefined,
+              paymentDate: data.paymentDate ? String(data.paymentDate) : undefined,
+              rawData: undefined
             });
           }
           await database.replacePurchasePayments(purchaseId, payments);
@@ -486,8 +583,9 @@ class ApprovalProcessor {
       } else {
         return { skipped: true, reason: `unsupported process type: ${processType || 'unknown'}` };
       }
-    } catch (expenseErr) {
-      logger.warn(`实例 ${businessId} expense表写入失败: ${expenseErr.message}`);
+    } catch (expenseErr: unknown) {
+      const message = expenseErr instanceof Error ? expenseErr.message : String(expenseErr);
+      logger.warn(`实例 ${businessId} expense表写入失败: ${message}`);
       throw expenseErr;
     }
 
@@ -496,8 +594,8 @@ class ApprovalProcessor {
   }
 
   // 批量处理审批实例
-  async processInstances(instances, options = {}) {
-    const results = {
+  async processInstances(instances: ApprovalInstance[], options: { force?: boolean } = {}): Promise<BatchProcessResult> {
+    const results: BatchProcessResult = {
       success: 0,
       skipped: 0,
       failed: 0,
@@ -513,13 +611,14 @@ class ApprovalProcessor {
           results.success++;
         }
         results.details.push(result);
-      } catch (error) {
-        logger.error(`处理实例 ${instance.businessId} 失败: ${error.message}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`处理实例 ${instance.businessId} 失败: ${message}`);
         results.failed++;
         results.details.push({
           businessId: instance.businessId,
           failed: true,
-          error: error.message
+          error: message
         });
       }
     }
@@ -528,4 +627,4 @@ class ApprovalProcessor {
   }
 }
 
-module.exports = new ApprovalProcessor();
+export default new ApprovalProcessor();

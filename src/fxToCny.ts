@@ -1,17 +1,17 @@
-const logger = require('./logger');
-const database = require('./database');
-const {
+import logger from './logger.js';
+import database from './database.js';
+import {
   ER_API_LATEST_USD,
   formatDateShanghai,
   fetchUsdRatesLatest,
   cnyPerUnitFromUsdBaseRates
-} = require('./openErFx');
+} from './openErFx.js';
 
 /**
  * 将钉钉表单「币种」展示文案尽量映射为 ISO4217（三字母）。
  * 无法识别时返回 null（空字符串按人民币处理在 convertAmountToCny 内）。
  */
-function normalizeCurrencyToIso(label) {
+export function normalizeCurrencyToIso(label: unknown): string | null {
   if (label == null) {
     return null;
   }
@@ -144,17 +144,22 @@ function normalizeCurrencyToIso(label) {
   return null;
 }
 
-function roundMoney(n) {
+function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+interface ConvertAmountParams {
+  amount: unknown;
+  currencyLabel: unknown;
+  createTime: string | number | Date;
 }
 
 /**
  * 将原币金额折为人民币（本位币）。
  * 优先：`fx_rates_daily` 按提交日(Asia/Shanghai)取 `cny_per_unit`（<= 提交日的最近一条）。
  * 兜底：直接请求 open.er-api latest/USD（见 {@link ER_API_LATEST_USD}）。
- * @param {string|null|undefined} currencyLabel 对应表 `approval_instances.currency`
  */
-async function convertAmountToCny({ amount, currencyLabel, createTime }) {
+export async function convertAmountToCny({ amount, currencyLabel, createTime }: ConvertAmountParams): Promise<number | null> {
   if (amount == null) {
     return null;
   }
@@ -193,10 +198,9 @@ async function convertAmountToCny({ amount, currencyLabel, createTime }) {
       `日表无汇率(${iso}, ${submissionDay})，已兜底 ${ER_API_LATEST_USD}；建议跑定时任务或 npm run sync:fx-rates 写入 fx_rates_daily`
     );
     return roundMoney(n * cnyPerUnit);
-  } catch (e) {
-    logger.warn(`本位币折算失败(${iso}, ${submissionDay}): ${e.message}`);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    logger.warn(`本位币折算失败(${iso}, ${submissionDay}): ${message}`);
     return null;
   }
 }
-
-module.exports = { convertAmountToCny, normalizeCurrencyToIso };
