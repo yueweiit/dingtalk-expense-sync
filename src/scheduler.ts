@@ -1,19 +1,28 @@
-const cron = require('node-cron');
-const dingtalk = require('./dingtalk');
-const processor = require('./processor');
-const database = require('./database');
-const logger = require('./logger');
-const config = require('./config');
-const { resolveProcessInstanceFetchId } = require('./workflowIds');
-const {
+import cron from 'node-cron';
+import dingtalk from './dingtalk.js';
+import processor from './processor.js';
+import database from './database.js';
+import logger from './logger.js';
+import config from './config.js';
+import { resolveProcessInstanceFetchId } from './workflowIds.js';
+import {
   ER_API_LATEST_USD,
   formatDateShanghai,
   fetchUsdRatesLatest,
   buildFxDailyRows,
   invalidateUsdRatesCache
-} = require('./openErFx');
+} from './openErFx.js';
+
+interface InstanceIdWithMeta {
+  processInstanceId: string;
+  processCode: string;
+}
 
 class Scheduler {
+  private isRunning: boolean;
+  private isCompensating: boolean;
+  private isFxSyncing: boolean;
+
   constructor() {
     this.isRunning = false;
     this.isCompensating = false;
@@ -21,7 +30,7 @@ class Scheduler {
   }
 
   // 将配置时间或字符串时间转换为时间戳（毫秒）
-  toTimestamp(value) {
+  toTimestamp(value: string | number): number {
     if (typeof value === 'number') {
       return value;
     }
@@ -29,7 +38,7 @@ class Scheduler {
   }
 
   // 将时间戳格式化为北京时间字符串（Asia/Shanghai）
-  formatBeijingTime(timestamp) {
+  formatBeijingTime(timestamp: number): string {
     return new Intl.DateTimeFormat('zh-CN', {
       timeZone: 'Asia/Shanghai',
       hour12: false,
@@ -42,11 +51,11 @@ class Scheduler {
     }).format(new Date(timestamp));
   }
 
-  getFallbackStartTime() {
+  getFallbackStartTime(): number {
     return this.toTimestamp(config.scheduler.startTime);
   }
 
-  getProcessType(processCode) {
+  getProcessType(processCode: string): string {
     const processCodes = config.dingtalk.processCodes;
     const index = processCodes.indexOf(processCode);
     if (index === 0) {
@@ -57,10 +66,10 @@ class Scheduler {
     return '其他';
   }
 
-  async syncSingleProcess(processCode, start, end) {
+  async syncSingleProcess(processCode: string, start: number, end: number): Promise<InstanceIdWithMeta[]> {
     logger.info(`开始获取流程 ${processCode} 的实例`);
 
-    let totalInstanceIds = [];
+    let totalInstanceIds: InstanceIdWithMeta[] = [];
     let nextToken = 0;
     let pageCount = 0;
 
@@ -71,7 +80,7 @@ class Scheduler {
         break;
       }
 
-      queryResult.list.forEach(id => {
+      queryResult.list.forEach((id: string) => {
         totalInstanceIds.push({ processInstanceId: id, processCode });
       });
 
@@ -87,12 +96,12 @@ class Scheduler {
     return totalInstanceIds;
   }
 
-  getFxRatesTimezone() {
+  getFxRatesTimezone(): string {
     return config.scheduler?.fxRatesTimezone || 'Asia/Shanghai';
   }
 
   /** 拉取 open.er-api 并写入 fx_rates_daily（上海日历日 = 任务执行当日） */
-  async syncFxRatesDaily() {
+  async syncFxRatesDaily(): Promise<void> {
     if (this.isFxSyncing) {
       logger.warn('日汇率任务进行中，跳过本次');
       return;
@@ -110,15 +119,16 @@ class Scheduler {
       await database.replaceFxRatesForDate(rateDate, rows, ER_API_LATEST_USD);
       invalidateUsdRatesCache();
       logger.info(`日汇率已写入 fx_rates_daily: ${rateDate}，共 ${rows.length} 条币种`);
-    } catch (e) {
-      logger.error(`日汇率同步失败: ${e.message}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.error(`日汇率同步失败: ${message}`);
     } finally {
       this.isFxSyncing = false;
     }
   }
 
   /** 若当日尚无日表数据则拉一次，避免凌晨任务前审批入库失败 */
-  async maybeEnsureTodayFxRates() {
+  async maybeEnsureTodayFxRates(): Promise<void> {
     try {
       await database.ensureFxRatesDailyTable();
       const tz = this.getFxRatesTimezone();
@@ -131,12 +141,13 @@ class Scheduler {
         logger.warn(`fx_rates_daily 尚无 ${today} 数据，立即拉取一次…`);
         await this.syncFxRatesDaily();
       }
-    } catch (e) {
-      logger.warn(`检查/补写日汇率失败: ${e.message}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.warn(`检查/补写日汇率失败: ${message}`);
     }
   }
 
-  async processInstanceIdBatch(totalInstanceIds) {
+  async processInstanceIdBatch(totalInstanceIds: InstanceIdWithMeta[]): Promise<boolean> {
     if (totalInstanceIds.length === 0) {
       logger.info('当前时间范围内没有新的审批实例');
       return true;
@@ -152,7 +163,7 @@ class Scheduler {
       .filter((item) => item.instance)
       .map((item) => {
         const meta = metaById.get(item.id);
-        const instance = item.instance;
+        const instance = item.instance!;
         if (meta) {
           instance.processInstanceId = instance.processInstanceId || meta.processInstanceId;
           instance.processCode = instance.processCode || meta.processCode;
@@ -167,13 +178,13 @@ class Scheduler {
 
     logger.info(`成功获取 ${instances.length} 个实例详情`);
 
-    const results = await processor.processInstances(instances);
+    const results = await processor.processInstances(instances as unknown as import('./processor.js').ApprovalInstance[]);
     logger.info(`数据同步完成: 成功 ${results.success}, 跳过 ${results.skipped}, 失败 ${results.failed}`);
     return fetchFailures.length === 0 && results.failed === 0;
   }
 
   // 执行一次增量同步（按流程游标持久化）
-  async syncApprovals() {
+  async syncApprovals(): Promise<void> {
     if (this.isRunning) {
       logger.warn('上次任务尚未完成，跳过本次执行');
       return;
@@ -212,17 +223,19 @@ class Scheduler {
 
           // 仅流程同步成功时推进该流程游标，避免失败导致数据缺口
           await database.setSyncCursor(cursorKey, end);
-        } catch (error) {
+        } catch (error: unknown) {
           failedProcessCount++;
-          logger.error(`流程 ${processCode} 拉取失败，将继续下一个流程: ${error.message}`);
+          const message = error instanceof Error ? error.message : String(error);
+          logger.error(`流程 ${processCode} 拉取失败，将继续下一个流程: ${message}`);
         }
       }
 
       if (failedProcessCount > 0) {
         logger.warn(`本次有 ${failedProcessCount} 个流程拉取失败，已跳过失败流程继续执行`);
       }
-    } catch (error) {
-      logger.error(`同步审批数据失败: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`同步审批数据失败: ${message}`);
     } finally {
       this.isRunning = false;
       const duration = Date.now() - startTime;
@@ -230,8 +243,8 @@ class Scheduler {
     }
   }
 
-  // 每日补偿：只拉取数据库中“尚未出纳同意”的记录，防止漏同步
-  async compensatePendingApprovals() {
+  // 每日补偿：只拉取数据库中"尚未出纳同意"的记录，防止漏同步
+  async compensatePendingApprovals(): Promise<void> {
     if (this.isCompensating) {
       logger.warn('上次补偿任务尚未完成，跳过本次执行');
       return;
@@ -292,15 +305,16 @@ class Scheduler {
       const instances = instanceResults
         .filter((item) => item.instance)
         .map((item) => {
-          const instance = item.instance;
+          const instance = item.instance!;
           instance.processType = processTypeById.get(instance.businessId) || instance.processType || '其他';
           return instance;
         });
 
-      const results = await processor.processInstances(instances, { force: true });
+      const results = await processor.processInstances(instances as unknown as import('./processor.js').ApprovalInstance[], { force: true });
       logger.info(`补偿任务完成: 成功 ${results.success}, 跳过 ${results.skipped}, 失败 ${results.failed}`);
-    } catch (error) {
-      logger.error(`补偿任务失败: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`补偿任务失败: ${message}`);
     } finally {
       this.isCompensating = false;
       logger.info(`补偿任务耗时: ${Date.now() - taskStart}ms`);
@@ -308,7 +322,7 @@ class Scheduler {
   }
 
   // 启动定时任务
-  start() {
+  start(): void {
     const cronExpression = config.scheduler.cron;
     const compensationCron = config.scheduler.compensationCron || '17 3 * * *';
     const fxRatesCron = config.scheduler.fxRatesCron || '5 0 * * *';
@@ -336,25 +350,28 @@ class Scheduler {
 
     if (config.scheduler?.fxRatesRunOnStartup !== false) {
       logger.info('启动时执行一次日汇率同步…');
-      void this.syncFxRatesDaily().catch((e) => logger.warn(`启动日汇率同步: ${e.message}`));
+      void this.syncFxRatesDaily().catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        logger.warn(`启动日汇率同步: ${message}`);
+      });
     }
 
     // 立即执行一次
     logger.info('立即执行一次增量数据同步...');
-    this.syncApprovals();
+    void this.syncApprovals();
   }
 
   // 手动触发同步
-  async manualSync() {
+  async manualSync(): Promise<void> {
     logger.info('手动触发数据同步');
     await this.syncApprovals();
   }
 
   // 停止定时任务
-  async stop() {
+  async stop(): Promise<void> {
     logger.info('停止定时任务');
     await database.close();
   }
 }
 
-module.exports = new Scheduler();
+export default new Scheduler();

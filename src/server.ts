@@ -1,9 +1,9 @@
-const express = require('express');
-const cors = require('cors');
-const database = require('./database');
-const logger = require('./logger');
-const config = require('./config');
-const { normalizeCurrencyToIso } = require('./fxToCny');
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import database, { pool } from './database.js';
+import logger from './logger.js';
+import config from './config.js';
+import { normalizeCurrencyToIso } from './fxToCny.js';
 
 const app = express();
 const PORT = config.server.port;
@@ -11,8 +11,13 @@ const PORT = config.server.port;
 app.use(cors());
 app.use(express.json());
 
+interface MonthBucket {
+  year: string;
+  monthNum: number;
+}
+
 /** 支持 month=2026-04、2026-04-30、2026-4 等 */
-function parseMonthBucket(monthStr) {
+function parseMonthBucket(monthStr: unknown): MonthBucket | null {
   if (!monthStr || typeof monthStr !== 'string') {
     return null;
   }
@@ -29,7 +34,7 @@ function parseMonthBucket(monthStr) {
   return { year, monthNum };
 }
 
-function parseRateDate(value) {
+function parseRateDate(value: unknown): string | false | null {
   if (!value) {
     return null;
   }
@@ -45,7 +50,7 @@ function parseRateDate(value) {
  * 部门解析：优先 code/dept_code（精确匹配），否则使用 department 文本匹配。
  * 允许任意部门，不再限制固定白名单。
  */
-function resolveDeptMatch(req) {
+function resolveDeptMatch(req: Request): string | null {
   const { department, dept_code, code } = req.query;
   const codeRaw = (dept_code || code || '').toString().trim();
   if (codeRaw) {
@@ -64,7 +69,7 @@ function resolveDeptMatch(req) {
   return deptRaw || null;
 }
 
-function isDeptCodeLike(value) {
+function isDeptCodeLike(value: string | null): boolean {
   if (!value || typeof value !== 'string') {
     return false;
   }
@@ -74,7 +79,7 @@ function isDeptCodeLike(value) {
 }
 
 // 通用查询逻辑
-function inferExpenseKind(value) {
+function inferExpenseKind(value: unknown): string | null {
   const text = String(value || '').toLowerCase();
   if (text === 'operation' || text.includes('operation') || text.includes('运营') || text.includes('杩愯惀')) {
     return 'operation';
@@ -85,7 +90,14 @@ function inferExpenseKind(value) {
   return null;
 }
 
-function getExpenseQueryConfig(processKind) {
+interface ExpenseQueryConfig {
+  processKind: string;
+  tableName: string;
+  sourceAmountColumn: string;
+  amountRmbExpr: string;
+}
+
+function getExpenseQueryConfig(processKind: string): ExpenseQueryConfig {
   if (processKind === 'purchase') {
     return {
       processKind,
@@ -103,7 +115,7 @@ function getExpenseQueryConfig(processKind) {
   };
 }
 
-async function queryApproved(req, res, processKind) {
+async function queryApproved(req: Request, res: Response, processKind: string): Promise<void> {
   try {
     const {
       department,
@@ -135,11 +147,12 @@ async function queryApproved(req, res, processKind) {
     const wantEcho = String(echo || '') === '1';
 
     if (!deptMatch) {
-      const payload = { total: '0.00', count: 0, hint: '部门无法识别：请传 code/dept_code 或 department' };
+      const payload: Record<string, unknown> = { total: '0.00', count: 0, hint: '部门无法识别：请传 code/dept_code 或 department' };
       if (wantEcho) {
         payload.receivedQuery = req.query;
       }
-      return res.json(payload);
+      res.json(payload);
+      return;
     }
 
     const isDebug = String(debug || '') === '1';
@@ -185,7 +198,7 @@ async function queryApproved(req, res, processKind) {
       WHERE 1=1
     `;
 
-    const params = [];
+    const params: unknown[] = [];
     let paramIndex = 1;
 
     if (flowStatusCompletedOnly) {
@@ -198,7 +211,7 @@ async function queryApproved(req, res, processKind) {
       query += ` AND UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`;
     }
 
-    // 只要任意人工节点出现拒绝（REFUSE/REJECT），整单不应计入“已通过”
+    // 只要任意人工节点出现拒绝（REFUSE/REJECT），整单不应计入"已通过"
     query += `
       AND NOT EXISTS (
         SELECT 1
@@ -222,7 +235,7 @@ async function queryApproved(req, res, processKind) {
     if (month) {
       const bucket = parseMonthBucket(month);
       if (!bucket) {
-        const payload = {
+        const payload: Record<string, unknown> = {
           total: '0.00',
           count: 0,
           hint: 'month 格式无效，请用 2026-04 或 2026-04-30（仅需年月）'
@@ -230,7 +243,8 @@ async function queryApproved(req, res, processKind) {
         if (wantEcho) {
           payload.receivedQuery = req.query;
         }
-        return res.json(payload);
+        res.json(payload);
+        return;
       }
       const { year, monthNum } = bucket;
       const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
@@ -252,12 +266,12 @@ async function queryApproved(req, res, processKind) {
       }
     }
 
-    const client = await database.pool.connect();
+    const client = await pool.connect();
     try {
       if (!isDebug) {
         const result = await client.query(query, params);
         const row = result.rows[0] || { total: '0', count: 0 };
-        const payload = {
+        const payload: Record<string, unknown> = {
           total: Number.parseFloat(row.total || 0).toFixed(2),
           count: Number(row.count || 0)
         };
@@ -281,10 +295,10 @@ async function queryApproved(req, res, processKind) {
       query += ` ORDER BY ${timeColumn} DESC`;
       const result = await client.query(query, params);
       const rows = result.rows || [];
-      const total = rows.reduce((sum, r) => {
+      const total = rows.reduce((sum: number, r: Record<string, unknown>) => {
         return sum + Number(r.base_currency_amount || 0);
       }, 0);
-      const payload = {
+      const payload: Record<string, unknown> = {
         total: total.toFixed(2),
         count: rows.length,
         items: rows
@@ -306,14 +320,15 @@ async function queryApproved(req, res, processKind) {
     } finally {
       client.release();
     }
-  } catch (error) {
-    logger.error(`查询失败: ${error.message}`);
-    res.status(500).json({ total: '0', error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`查询失败: ${message}`);
+    res.status(500).json({ total: '0', error: message });
   }
 }
 
 // 查询全部门数据（不传 department）
-async function queryApprovedAll(req, res, processKind) {
+async function queryApprovedAll(req: Request, res: Response, processKind: string): Promise<void> {
   try {
     const {
       start_date,
@@ -361,7 +376,7 @@ async function queryApprovedAll(req, res, processKind) {
       WHERE 1=1
     `;
 
-    const params = [];
+    const params: unknown[] = [];
     let paramIndex = 1;
 
     if (flowStatusCompletedOnly) {
@@ -387,7 +402,7 @@ async function queryApprovedAll(req, res, processKind) {
     if (month) {
       const bucket = parseMonthBucket(month);
       if (!bucket) {
-        const payload = {
+        const payload: Record<string, unknown> = {
           total: '0.00',
           count: 0,
           hint: 'month 格式无效，请用 2026-04 或 2026-04-30（仅需年月）'
@@ -395,7 +410,8 @@ async function queryApprovedAll(req, res, processKind) {
         if (wantEcho) {
           payload.receivedQuery = req.query;
         }
-        return res.json(payload);
+        res.json(payload);
+        return;
       }
       const { year, monthNum } = bucket;
       const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
@@ -417,12 +433,12 @@ async function queryApprovedAll(req, res, processKind) {
       }
     }
 
-    const client = await database.pool.connect();
+    const client = await pool.connect();
     try {
       if (!isDebug) {
         const result = await client.query(query, params);
         const row = result.rows[0] || { total: '0', count: 0 };
-        const payload = {
+        const payload: Record<string, unknown> = {
           total: Number.parseFloat(row.total || 0).toFixed(2),
           count: Number(row.count || 0)
         };
@@ -446,10 +462,10 @@ async function queryApprovedAll(req, res, processKind) {
       query += ` ORDER BY ${timeColumn} DESC`;
       const result = await client.query(query, params);
       const rows = result.rows || [];
-      const total = rows.reduce((sum, r) => {
+      const total = rows.reduce((sum: number, r: Record<string, unknown>) => {
         return sum + Number(r.base_currency_amount || 0);
       }, 0);
-      const payload = {
+      const payload: Record<string, unknown> = {
         total: total.toFixed(2),
         count: rows.length,
         items: rows
@@ -471,34 +487,35 @@ async function queryApprovedAll(req, res, processKind) {
     } finally {
       client.release();
     }
-  } catch (error) {
-    logger.error(`全部门查询失败: ${error.message}`);
-    res.status(500).json({ total: '0', error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`全部门查询失败: ${message}`);
+    res.status(500).json({ total: '0', error: message });
   }
 }
 
 // 运营支出已提交审批统计（排除撤销、拒绝）
-app.get('/api/approvals/approved/operation', async (req, res) => {
+app.get('/api/approvals/approved/operation', async (req: Request, res: Response) => {
   await queryApproved(req, res, 'operation');
 });
 
 // 采购支出已提交审批统计（排除撤销、拒绝）
-app.get('/api/approvals/approved/purchase', async (req, res) => {
+app.get('/api/approvals/approved/purchase', async (req: Request, res: Response) => {
   await queryApproved(req, res, 'purchase');
 });
 
 // 运营支出全部门查询（不传 department，只传 start_date + end_date）
-app.get('/api/approvals/approved/operation/all', async (req, res) => {
+app.get('/api/approvals/approved/operation/all', async (req: Request, res: Response) => {
   await queryApprovedAll(req, res, 'operation');
 });
 
 // 采购支出全部门查询（不传 department，只传 start_date + end_date）
-app.get('/api/approvals/approved/purchase/all', async (req, res) => {
+app.get('/api/approvals/approved/purchase/all', async (req: Request, res: Response) => {
   await queryApprovedAll(req, res, 'purchase');
 });
 
 // 保留原有接口（同时支持运营和采购）
-app.get('/api/approvals/approved', async (req, res) => {
+app.get('/api/approvals/approved', async (req: Request, res: Response) => {
   const { process_type } = req.query;
   const processKind = inferExpenseKind(process_type);
   if (processKind) {
@@ -509,34 +526,36 @@ app.get('/api/approvals/approved', async (req, res) => {
 });
 
 // 健康检查
-app.get('/health', (req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // 启动服务器（启动前确保日汇率表存在，便于只跑 HTTP 的环境）
-app.get('/api/fx-rate', async (req, res) => {
+app.get('/api/fx-rate', async (req: Request, res: Response) => {
   try {
     const label = (req.query.currency || req.query.name || req.query.currency_name || 'CNY').toString().trim() || 'CNY';
 
     const iso = normalizeCurrencyToIso(label);
     if (!iso) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'unknown_currency',
         currency: label,
         message: '无法识别货币名称'
       });
+      return;
     }
 
     const rateDate = parseRateDate(req.query.date);
     if (rateDate === false) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'invalid_date',
         message: 'date 格式应为 YYYY-MM-DD'
       });
+      return;
     }
 
     if (iso === 'CNY') {
-      return res.json({
+      res.json({
         currency: label,
         isoCurrency: iso,
         targetCurrency: 'CNY',
@@ -550,21 +569,23 @@ app.get('/api/fx-rate', async (req, res) => {
         sourceUrl: 'builtin:CNY',
         fetchedAt: null
       });
+      return;
     }
 
     await database.ensureFxRatesDailyTable();
     const rate = await database.getLatestFxRate(iso, rateDate);
     if (!rate) {
-      return res.status(404).json({
+      res.status(404).json({
         error: 'rate_not_found',
         currency: label,
         isoCurrency: iso,
         date: rateDate,
         message: '数据库中没有对应汇率'
       });
+      return;
     }
 
-    return res.json({
+    res.json({
       currency: label,
       isoCurrency: iso,
       targetCurrency: 'CNY',
@@ -578,28 +599,31 @@ app.get('/api/fx-rate', async (req, res) => {
       sourceUrl: rate.source_url,
       fetchedAt: rate.fetched_at
     });
-  } catch (error) {
-    logger.error(`查询汇率失败: ${error.message}`);
-    return res.status(500).json({ error: 'query_fx_rate_failed', message: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`查询汇率失败: ${message}`);
+    res.status(500).json({ error: 'query_fx_rate_failed', message });
   }
 });
 
-async function startServer() {
+async function startServer(): Promise<void> {
   try {
     await database.ensureApprovalExpenseSchema();
     logger.info('已确保 approval_expense_* 表存在');
-  } catch (e) {
-    logger.error(`ensure approval_expense_* 失败: ${e.message}`);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    logger.error(`ensure approval_expense_* 失败: ${message}`);
   }
   try {
     await database.ensureFxRatesDailyTable();
     logger.info('已确保 fx_rates_daily 表存在');
-  } catch (e) {
-    logger.error(`ensure fx_rates_daily 失败: ${e.message}`);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    logger.error(`ensure fx_rates_daily 失败: ${message}`);
   }
   app.listen(PORT, () => {
     logger.info(`HTTP服务已启动，端口: ${PORT}`);
   });
 }
 
-module.exports = { app, startServer };
+export { app, startServer };
