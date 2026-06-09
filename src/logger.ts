@@ -1,18 +1,20 @@
-const winston = require('winston');
-const path = require('path');
+import winston from 'winston';
+import path from 'path';
 
 const baseFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.errors({ stack: true }),
-  winston.format.printf(({ timestamp, level, message, stack }) => {
+  winston.format.printf((info) => {
+    const { timestamp, level, message, stack } = info as { timestamp?: string; level: string; message: unknown; stack?: string };
+    const msg = String(message);
     if (stack) {
-      return `${timestamp} [${level.toUpperCase()}] ${message}\n${stack}`;
+      return `${timestamp} [${level.toUpperCase()}] ${msg}\n${stack}`;
     }
-    return `${timestamp} [${level.toUpperCase()}] ${message}`;
+    return `${timestamp} [${level.toUpperCase()}] ${msg}`;
   })
 );
 
-const consoleFormats = [
+const consoleFormats: winston.Logform.Format[] = [
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' })
 ];
 
@@ -21,11 +23,13 @@ if (process.stdout.isTTY) {
 }
 
 consoleFormats.push(
-  winston.format.printf(({ timestamp, level, message, stack }) => {
+  winston.format.printf((info) => {
+    const { timestamp, level, message, stack } = info as { timestamp?: string; level: string; message: unknown; stack?: string };
+    const msg = String(message);
     if (stack) {
-      return `${timestamp} [${level}] ${message}\n${stack}`;
+      return `${timestamp} [${level}] ${msg}\n${stack}`;
     }
-    return `${timestamp} [${level}] ${message}`;
+    return `${timestamp} [${level}] ${msg}`;
   })
 );
 
@@ -46,4 +50,4 @@ const logger = winston.createLogger({
   ]
 });
 
-module.exports = logger;
+export default logger;

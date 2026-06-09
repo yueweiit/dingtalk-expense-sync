@@ -4,28 +4,78 @@
  * Provides backward compatibility: falls back to config.json if env vars not set
  */
 
-const path = require('path');
-const fs = require('fs');
-const dotenv = require('dotenv');
+import path from 'path';
+import fs from 'fs';
+import dotenv from 'dotenv';
+
+interface DatabaseConfig {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string | undefined;
+}
+
+interface DingtalkConfig {
+  appkey: string | undefined;
+  appsecret: string | undefined;
+  cashierActivityIds: string[];
+  cashierActivityIdsByProcessCode: Record<string, string[]>;
+  processCodes: string[];
+}
+
+interface SchedulerConfig {
+  cron: string;
+  startTime: string;
+  compensationCron: string;
+  fxRatesCron: string;
+  fxRatesTimezone: string;
+  fxRatesRunOnStartup: boolean;
+  pendingCompensationLimit: number;
+  staleAgreedRefreshLimit: number;
+}
+
+interface ServerConfig {
+  port: number;
+}
+
+export interface Config {
+  database: Readonly<DatabaseConfig>;
+  dingtalk: Readonly<DingtalkConfig>;
+  scheduler: Readonly<SchedulerConfig>;
+  server: Readonly<ServerConfig>;
+}
+
+interface FileConfigShape {
+  database?: Partial<DatabaseConfig>;
+  dingtalk?: Partial<DingtalkConfig> & {
+    cashierActivityIds?: string[];
+    cashierActivityIdsByProcessCode?: Record<string, string[]>;
+    processCodes?: string[];
+  };
+  scheduler?: Partial<SchedulerConfig>;
+  server?: Partial<ServerConfig>;
+}
 
 // Load .env from project root (works whether called from src/ or scripts/)
 const projectRoot = path.resolve(__dirname, '..');
 dotenv.config({ path: path.join(projectRoot, '.env') });
 
 // Load non-sensitive config from config.json (fallback)
-let fileConfig = {};
+let fileConfig: FileConfigShape = {};
 try {
   const configPath = path.join(projectRoot, 'config.json');
   if (fs.existsSync(configPath)) {
-    fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')) as FileConfigShape;
   }
-} catch (error) {
+} catch (error: unknown) {
   // config.json is optional when all values are provided via env vars
-  console.warn('Warning: Could not load config.json:', error.message);
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn('Warning: Could not load config.json:', message);
 }
 
 // Validate required secrets are present
-const requiredEnvVars = ['DB_PASSWORD', 'DINGTALK_APPKEY', 'DINGTALK_APPSECRET'];
+const requiredEnvVars = ['DB_PASSWORD', 'DINGTALK_APPKEY', 'DINGTALK_APPSECRET'] as const;
 const missing = requiredEnvVars.filter(envVar => {
   const value = process.env[envVar];
   return !value || value.trim() === '';
@@ -51,7 +101,7 @@ if (missing.length > 0) {
  * Parse JSON string from environment variable
  * Returns undefined if value is empty or invalid JSON
  */
-function parseJsonEnv(value) {
+function parseJsonEnv(value: string | undefined): unknown {
   if (!value || typeof value !== 'string' || value.trim() === '') {
     return undefined;
   }
@@ -66,7 +116,7 @@ function parseJsonEnv(value) {
  * Parse boolean from environment variable
  * Handles 'true', 'false', '1', '0' (case-insensitive)
  */
-function parseBooleanEnv(value, defaultValue) {
+function parseBooleanEnv(value: string | undefined, defaultValue: boolean): boolean {
   if (!value || typeof value !== 'string') {
     return defaultValue;
   }
@@ -77,7 +127,7 @@ function parseBooleanEnv(value, defaultValue) {
 }
 
 // Build configuration object with env vars taking precedence over config.json
-const config = Object.freeze({
+const config: Config = Object.freeze({
   database: Object.freeze({
     host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
     port: Number(process.env.DB_PORT) || fileConfig.database?.port || 5432,
@@ -88,9 +138,9 @@ const config = Object.freeze({
   dingtalk: Object.freeze({
     appkey: process.env.DINGTALK_APPKEY || fileConfig.dingtalk?.appkey,
     appsecret: process.env.DINGTALK_APPSECRET || fileConfig.dingtalk?.appsecret,
-    cashierActivityIds: parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS) || fileConfig.dingtalk?.cashierActivityIds || [],
-    cashierActivityIdsByProcessCode: parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS_BY_PROCESS_CODE) || fileConfig.dingtalk?.cashierActivityIdsByProcessCode || {},
-    processCodes: parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) || fileConfig.dingtalk?.processCodes || [],
+    cashierActivityIds: (parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS) as string[] | undefined) || fileConfig.dingtalk?.cashierActivityIds || [],
+    cashierActivityIdsByProcessCode: (parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS_BY_PROCESS_CODE) as Record<string, string[]> | undefined) || fileConfig.dingtalk?.cashierActivityIdsByProcessCode || {},
+    processCodes: (parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) as string[] | undefined) || fileConfig.dingtalk?.processCodes || [],
   }),
   scheduler: Object.freeze({
     cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7 * * * *',
@@ -107,4 +157,4 @@ const config = Object.freeze({
   }),
 });
 
-module.exports = config;
+export default config;
