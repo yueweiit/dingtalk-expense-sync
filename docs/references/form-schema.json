@@ -1,8 +1,8 @@
 {
     "result": {
         "creatorUserId": "17600775501628783",
-        "gmtModified": "2026-06-09T11:55Z",
-        "formUuid": "FORM-12C03160-E599-4A19-9563-EAA76726967F",
+        "gmtModified": "2026-06-09T14:23Z",
+        "formUuid": "FORM-D96BA723-FCEF-417B-87D9-0CFAD3AE52CE",
         "bizType": "",
         "ownerIdType": "orgId",
         "formCode": "PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA",
@@ -329,11 +329,12 @@
                         "holidayOptions": [],
                         "options": [
                             "{\"value\":\"职工福利费 Gastos de beneficios laborales\",\"key\":\"option_1JT2UKH6GOE80\"}",
-                            "{\"value\":\"工资salario\",\"key\":\"option_1OLI49H48UGW0\"}",
+                            "{\"value\":\"工资墨西哥Salario en México\",\"key\":\"option_1OLI49H48UGW0\"}",
                             "{\"value\":\"奖金 Bonificaciones\",\"key\":\"option_M72KKO6PFF40\"}",
                             "{\"value\":\"管理费用Gastos administrativos\",\"key\":\"option_SY055X3QYGW0\"}",
                             "{\"extension\":{\"image\":\"\"},\"value\":\"车辆使用费gastos de uso de vehículo\",\"key\":\"option_E4FVU6P1UNS0\"}",
-                            "{\"extension\":{\"image\":\"\"},\"value\":\"税费Impuestos\",\"key\":\"option_HQSZ2BJYAKG0\"}"
+                            "{\"extension\":{\"image\":\"\"},\"value\":\"税费Impuestos\",\"key\":\"option_HQSZ2BJYAKG0\"}",
+                            "{\"value\":\"工资中国Salario en China\",\"key\":\"option_20JIQ8HWTM000\"}"
                         ],
                         "bizAlias": "",
                         "id": "DDSelectField_1CHIGP4L45K00",
@@ -398,10 +399,6 @@
                                     {
                                         "behavior": "NORMAL",
                                         "fieldId": "DDMultiSelectField_ZCB0DINS0400"
-                                    },
-                                    {
-                                        "behavior": "NORMAL",
-                                        "fieldId": "TableField_13B0RI3JBQXS0"
                                     }
                                 ]
                             },
@@ -518,6 +515,39 @@
                                     {
                                         "behavior": "NORMAL",
                                         "fieldId": "DDSelectField_1EXJ8EDPW0WW0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_20JIQ8HWTM000",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDMultiSelectField_ZCB0DINS0400"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TableField_13B0RI3JBQXS0"
                                     }
                                 ]
                             }
@@ -1037,7 +1067,7 @@
         "appUuid": "ding144583309b2fb01c35c2f4657eb6378f",
         "appType": 0,
         "visibleRange": "PRIVATE",
-        "listOrder": 1685,
+        "listOrder": 1704,
         "name": "运营支出 Gastos de Operación",
         "status": "PUBLISHED",
         "procType": "inner"
