@@ -1,0 +1,309 @@
+/**
+ * Sync DingTalk approval details directly into approval_expense_* tables.
+ *
+ * Examples:
+ *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04
+ *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --process=purchase
+ *   node scripts/sync-approval-expenses-from-dingtalk.js --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00
+ *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --department=IT --limit=100
+ *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --dry-run=1
+ */
+const fs = require('fs');
+const path = require('path');
+const dingtalk = require('../src/dingtalk');
+const processor = require('../src/processor');
+const database = require('../src/database');
+const config = require('../config.json');
+const { convertAmountToCny } = require('../src/fxToCny');
+
+function parseArgs(argv) {
+  const args = {};
+  for (const item of argv.slice(2)) {
+    if (!item.startsWith('--')) continue;
+    const [k, ...rest] = item.slice(2).split('=');
+    args[k] = rest.length ? rest.join('=') : '1';
+  }
+  return args;
+}
+
+function parseProcessArg(value) {
+  const text = String(value || 'all').trim().toLowerCase();
+  if (!text || text === 'all') return 'all';
+  if (text === 'operation' || text.includes('运营')) return 'operation';
+  if (text === 'purchase' || text.includes('采购')) return 'purchase';
+  throw new Error('--process must be all, operation, or purchase');
+}
+
+function getProcessKind(processCode) {
+  const processCodes = config.dingtalk?.processCodes || [];
+  const index = processCodes.indexOf(processCode);
+  if (index === 0) return 'operation';
+  if (index === 1) return 'purchase';
+  return 'other';
+}
+
+function getProcessType(processCode) {
+  const kind = getProcessKind(processCode);
+  if (kind === 'operation') return '运营支出';
+  if (kind === 'purchase') return '采购支出';
+  return '其他';
+}
+
+function normalizeNumber(value) {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const cleaned = text.replace(/\s+/g, '').replace(/,/g, '').replace(/[^\d.-]/g, '');
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+  const n = Number.parseFloat(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function resolveTimeRange(args) {
+  if (args.month) {
+    const m = String(args.month).trim().match(/^(\d{4})-(\d{1,2})$/);
+    if (!m) throw new Error('--month format must be YYYY-MM, for example 2026-04');
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    if (!year || month < 1 || month > 12) {
+      throw new Error('--month format must be YYYY-MM, for example 2026-04');
+    }
+    const mm = String(month).padStart(2, '0');
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      startMs: new Date(`${year}-${mm}-01T00:00:00+08:00`).getTime(),
+      endMs: new Date(`${year}-${mm}-${String(lastDay).padStart(2, '0')}T23:59:59.999+08:00`).getTime()
+    };
+  }
+
+  if (args.start && args.end) {
+    const startMs = new Date(args.start).getTime();
+    const endMs = new Date(args.end).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      throw new Error('--start/--end cannot be parsed as dates');
+    }
+    if (endMs < startMs) {
+      throw new Error('--end must be later than --start');
+    }
+    return { startMs, endMs };
+  }
+
+  throw new Error('Please pass --month=YYYY-MM or both --start=... --end=...');
+}
+
+async function ensureExpenseSchema() {
+  const sqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
+  const sql = fs.readFileSync(sqlPath, 'utf8');
+  await database.pool.query(sql);
+}
+
+async function collectInstanceIds(startMs, endMs, processFilter) {
+  const processCodes = config.dingtalk?.processCodes || [];
+  const items = [];
+
+  for (const processCode of processCodes) {
+    const kind = getProcessKind(processCode);
+    if (processFilter !== 'all' && kind !== processFilter) continue;
+
+    let nextToken = 0;
+    let page = 0;
+    do {
+      const result = await dingtalk.queryProcessInstanceIds(startMs, endMs, processCode, nextToken, 20);
+      const list = result?.list || [];
+      for (const id of list) {
+        items.push({ processInstanceId: String(id), processCode, kind });
+      }
+      page++;
+      console.log(`process=${kind} code=${processCode} page=${page} ids=${list.length}`);
+      nextToken = result?.nextToken || 0;
+      await dingtalk.sleep(150);
+    } while (nextToken && nextToken !== 0);
+  }
+
+  const seen = new Set();
+  return items.filter((item) => {
+    if (seen.has(item.processInstanceId)) return false;
+    seen.add(item.processInstanceId);
+    return true;
+  });
+}
+
+function getDepartmentText(instance, parsedData) {
+  return String(
+    parsedData?.applicantDepartment ||
+      instance.originatorDeptName ||
+      instance.rawData?.originatorDeptName ||
+      ''
+  );
+}
+
+async function writeExpenseInstance(instance, kind, options) {
+  const meta = processor.parseApprovalMeta(instance);
+  const attachments = processor.extractAttachments(instance.formComponentValues);
+
+  if (kind === 'operation') {
+    const opData = processor.parseOperationExpenseData(instance.formComponentValues);
+    const amount = opData.amount ?? normalizeNumber(processor.parseFormData(instance.formComponentValues).amount);
+    const currency = opData.currency ?? processor.parseFormData(instance.formComponentValues).currency;
+    const baseCurrencyAmount = await convertAmountToCny({
+      amount,
+      currencyLabel: currency,
+      createTime: instance.createTime
+    });
+    const id = await database.upsertOperationExpense({
+      ...opData,
+      processInstanceId: instance.processInstanceId || null,
+      businessId: instance.businessId,
+      amount,
+      currency,
+      baseCurrencyAmount,
+      ...meta,
+      rawData: instance
+    });
+    if (id) {
+      await database.replaceAttachments('operation', id, attachments);
+    }
+    return { id, amount, currency, baseCurrencyAmount, department: opData.applicantDepartment };
+  }
+
+  if (kind === 'purchase') {
+    const pData = processor.parsePurchaseExpenseData(instance.formComponentValues);
+    const formData = processor.parseFormData(instance.formComponentValues);
+    const amount = pData.detailSummaryAmount ?? normalizeNumber(formData.amount);
+    const currency = pData.currency ?? formData.currency;
+    const baseCurrencyAmount = await convertAmountToCny({
+      amount,
+      currencyLabel: currency,
+      createTime: instance.createTime
+    });
+    const id = await database.upsertPurchaseExpense({
+      ...pData,
+      processInstanceId: instance.processInstanceId || null,
+      businessId: instance.businessId,
+      baseCurrencyAmount,
+      ...meta,
+      rawData: instance
+    });
+    if (id) {
+      await database.replaceAttachments('purchase', id, attachments);
+    }
+    if (id) {
+      const payments = [];
+      if (amount != null || currency || formData.beneficiary || formData.paymentDate || formData.paymentTerms) {
+        payments.push({
+          rowNo: 1,
+          beneficiary: formData.beneficiary || null,
+          amount,
+          paymentTerms: formData.paymentTerms || null,
+          currency: currency || null,
+          paymentDate: formData.paymentDate || null,
+          rawData: null
+        });
+      }
+      await database.replacePurchasePayments(id, payments);
+    }
+    return { id, amount, currency, baseCurrencyAmount, department: pData.applicantDepartment };
+  }
+
+  return { skipped: true, reason: 'unsupported process kind' };
+}
+
+async function main() {
+  const args = parseArgs(process.argv);
+  const processFilter = parseProcessArg(args.process || args.processType || args.process_type);
+  const departmentFilter = String(args.department || '').trim().toLowerCase();
+  const businessIdFilter = String(args.businessId || args.business_id || '').trim();
+  const dryRun = String(args['dry-run'] || args.dryRun || '') === '1';
+  const limit = args.limit ? Number.parseInt(args.limit, 10) : null;
+  const { startMs, endMs } = resolveTimeRange(args);
+
+  await ensureExpenseSchema();
+  await database.ensureFxRatesDailyTable();
+
+  console.log(JSON.stringify({
+    sync: 'approval_expense_* from DingTalk',
+    startMs,
+    endMs,
+    process: processFilter,
+    department: departmentFilter || null,
+    businessId: businessIdFilter || null,
+    dryRun,
+    limit
+  }, null, 2));
+
+  let items = await collectInstanceIds(startMs, endMs, processFilter);
+  if (Number.isFinite(limit) && limit > 0) {
+    items = items.slice(0, limit);
+  }
+
+  let fetched = 0;
+  let written = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const item of items) {
+    try {
+      const instance = await dingtalk.getProcessInstance(item.processInstanceId);
+      fetched++;
+      instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
+      instance.processCode = instance.processCode || item.processCode;
+      instance.processType = instance.processType || getProcessType(item.processCode);
+
+      if (businessIdFilter && String(instance.businessId || '') !== businessIdFilter) {
+        skipped++;
+        await dingtalk.sleep(120);
+        continue;
+      }
+
+      const previewData = item.kind === 'purchase'
+        ? processor.parsePurchaseExpenseData(instance.formComponentValues)
+        : processor.parseOperationExpenseData(instance.formComponentValues);
+      const departmentText = getDepartmentText(instance, previewData).toLowerCase();
+      if (departmentFilter && !departmentText.includes(departmentFilter)) {
+        skipped++;
+        await dingtalk.sleep(120);
+        continue;
+      }
+
+      if (dryRun) {
+        console.log(JSON.stringify({
+          processInstanceId: item.processInstanceId,
+          businessId: instance.businessId,
+          kind: item.kind,
+          department: departmentText
+        }));
+        skipped++;
+        await dingtalk.sleep(120);
+        continue;
+      }
+
+      const result = await writeExpenseInstance(instance, item.kind, args);
+      if (result.skipped) {
+        skipped++;
+      } else {
+        written++;
+      }
+    } catch (e) {
+      failed++;
+      console.error(`failed processInstanceId=${item.processInstanceId}: ${e.message}`);
+    }
+    await dingtalk.sleep(120);
+  }
+
+  console.log(JSON.stringify({
+    instanceIds: items.length,
+    fetched,
+    written,
+    skipped,
+    failed
+  }, null, 2));
+
+  await database.close();
+}
+
+main().catch(async (e) => {
+  console.error(e);
+  await database.close().catch(() => {});
+  process.exit(1);
+});

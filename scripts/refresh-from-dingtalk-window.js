@@ -1,0 +1,227 @@
+/**
+ * 按钉钉「审批实例 ID 列表」时间窗口拉取真正的 processInstanceId，再拉详情入库。
+ * 适用于库里只有 business_id、raw_data 里没有 processInstanceId 导致 refresh-from-dingtalk.js 全失败的情况。
+ *
+ * 例（项目根目录执行）：
+ *   node scripts/refresh-from-dingtalk-window.js --month=2026-04 --department=IT
+ *   node scripts/refresh-from-dingtalk-window.js --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00 --department=IT
+ */
+const dingtalk = require('../src/dingtalk');
+const processor = require('../src/processor');
+const database = require('../src/database');
+const config = require('../config.json');
+
+function parseArgs(argv) {
+  const args = {};
+  for (const item of argv) {
+    if (!item.startsWith('--')) continue;
+    const [k, v] = item.slice(2).split('=');
+    args[k] = v ?? '';
+  }
+  return args;
+}
+
+function getProcessType(processCode) {
+  const processCodes = config.dingtalk.processCodes;
+  const index = processCodes.indexOf(processCode);
+  if (index === 0) return '运营支出';
+  if (index === 1) return '采购支出';
+  return '其他';
+}
+
+function extractDepartment(instance) {
+  const vals = instance.formComponentValues || [];
+  const f = vals.find((item) => item.name && item.name.includes('部门Departamento'));
+  return f && f.value != null ? String(f.value) : '';
+}
+
+function resolveTimeRange(args) {
+  if (args.month) {
+    const [y, m] = args.month.trim().split('-');
+    const yi = Number(y);
+    const mi = Number(m);
+    if (!yi || !mi || mi < 1 || mi > 12) {
+      throw new Error('month 格式应为 2026-04');
+    }
+    const lastDay = new Date(yi, mi, 0).getDate();
+    const startMs = new Date(`${y}-${String(mi).padStart(2, '0')}-01T00:00:00+08:00`).getTime();
+    const endMs = new Date(
+      `${y}-${String(mi).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+08:00`
+    ).getTime();
+    return { startMs, endMs };
+  }
+  if (args.start && args.end) {
+    const startMs = new Date(args.start).getTime();
+    const endMs = new Date(args.end).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      throw new Error('start/end 无法解析为日期');
+    }
+    return { startMs, endMs };
+  }
+  throw new Error('请指定 --month=2026-04 或同时指定 --start=... --end=...（ISO 时间字符串）');
+}
+
+async function collectInstanceIds(startMs, endMs) {
+  const items = [];
+  const processCodes = config.dingtalk.processCodes || [];
+
+  for (const processCode of processCodes) {
+    let nextToken = 0;
+    let page = 0;
+    do {
+      const queryResult = await dingtalk.queryProcessInstanceIds(startMs, endMs, processCode, nextToken);
+      if (!queryResult || !queryResult.list || queryResult.list.length === 0) {
+        break;
+      }
+      for (const id of queryResult.list) {
+        items.push({ processInstanceId: String(id), processCode });
+      }
+      page++;
+      nextToken = queryResult.nextToken;
+      console.log(`流程 ${processCode} 第${page}页: ${queryResult.list.length} 个实例 ID`);
+      await dingtalk.sleep(150);
+    } while (nextToken && nextToken !== 0);
+  }
+
+  const seen = new Set();
+  const unique = [];
+  for (const it of items) {
+    if (seen.has(it.processInstanceId)) continue;
+    seen.add(it.processInstanceId);
+    unique.push(it);
+  }
+  return unique;
+}
+
+async function loadBadPurchaseBusinessIds(startMs, endMs, limit) {
+  const maxRows = Math.min(5000, Math.max(1, Number(limit || 1000)));
+  const r = await database.pool.query(
+    `
+      SELECT business_id
+      FROM approval_instances
+      WHERE process_type = '采购支出'
+        AND create_time >= $1
+        AND create_time <= $2
+        AND (
+          process_instance_id IS NULL
+          OR department IS NULL
+          OR amount IS NULL
+          OR amount = 0
+          OR currency IS NULL
+          OR TRIM(COALESCE(currency, '')) = ''
+        )
+      ORDER BY create_time ASC
+      LIMIT $3
+    `,
+    [new Date(startMs), new Date(endMs), maxRows]
+  );
+  return new Set(r.rows.map((row) => String(row.business_id)));
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const deptKw = (args.department || '').trim();
+  const businessIdFilter = (args.businessId || args.business_id || '').trim();
+  const onlyBadPurchase = String(args.onlyBadPurchase || args.only_bad_purchase || '') === '1';
+
+  const { startMs, endMs } = resolveTimeRange(args);
+
+  await database.ensureProcessInstanceIdColumn();
+  await database.ensureBaseCurrencyAmountColumn();
+  const targetBusinessIds = onlyBadPurchase
+    ? await loadBadPurchaseBusinessIds(startMs, endMs, args.limit)
+    : new Set(businessIdFilter ? [businessIdFilter] : []);
+
+  console.log(
+    JSON.stringify(
+      {
+        message: '按时间窗口向钉钉查询实例 ID 列表（此处返回的即为详情接口所需的 processInstanceId）',
+        startMs,
+        endMs,
+        departmentFilter: deptKw || '(不过滤，窗口内全部写入)'
+      },
+      null,
+      2
+    )
+  );
+
+  const pairs = await collectInstanceIds(startMs, endMs);
+  console.log(
+    JSON.stringify(
+      {
+        uniqueInstanceCount: pairs.length,
+        targetBusinessIdCount: targetBusinessIds.size,
+        onlyBadPurchase
+      },
+      null,
+      2
+    )
+  );
+
+  if (!pairs.length) {
+    await database.close();
+    return;
+  }
+
+  let ok = 0;
+  let skippedDept = 0;
+  let skippedBusinessId = 0;
+  let skippedProcessor = 0;
+  let fetchFail = 0;
+
+  for (const { processInstanceId, processCode } of pairs) {
+    try {
+      const instance = await dingtalk.getProcessInstance(processInstanceId);
+      instance.processCode = instance.processCode || processCode;
+      instance.processType = getProcessType(processCode);
+
+      if (targetBusinessIds.size > 0 && !targetBusinessIds.has(String(instance.businessId || ''))) {
+        skippedBusinessId++;
+        await dingtalk.sleep(120);
+        continue;
+      }
+
+      if (deptKw) {
+        const d = extractDepartment(instance);
+        if (!d.toUpperCase().includes(deptKw.toUpperCase())) {
+          skippedDept++;
+          await dingtalk.sleep(120);
+          continue;
+        }
+      }
+
+      const r = await processor.processInstance(instance, { force: true });
+      if (r.skipped) {
+        skippedProcessor++;
+      } else {
+        ok++;
+      }
+    } catch (e) {
+      fetchFail++;
+      console.error(`实例 ${processInstanceId}: ${e.message}`);
+    }
+    await dingtalk.sleep(120);
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        uniqueIds: pairs.length,
+        upsertedOrUpdated: ok,
+        skippedBusinessIdMismatch: skippedBusinessId,
+        skippedDepartmentMismatch: skippedDept,
+        skippedByProcessor: skippedProcessor,
+        fetchOrProcessFail: fetchFail
+      },
+      null,
+      2
+    )
+  );
+
+  await database.close();
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

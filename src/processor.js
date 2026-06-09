@@ -1,0 +1,531 @@
+const database = require('./database');
+const logger = require('./logger');
+const config = require('../config.json');
+const { convertAmountToCny } = require('./fxToCny');
+
+class ApprovalProcessor {
+  constructor() {
+    // 出纳节点由 dingtalk.cashierActivityIds 指定（钉钉 task.activityId）
+    // 配置为空数组 [] 时：不做 activity 过滤，退回“任意人工节点”启发式（易误判，不推荐）
+  }
+
+  /** @param {string|null|undefined} processCode 不同审批模板出纳节点 activityId 可能不同 */
+  getCashierActivityIds(processCode) {
+    const map = config.dingtalk?.cashierActivityIdsByProcessCode;
+    if (processCode && map && typeof map === 'object' && !Array.isArray(map)) {
+      const mapped = map[processCode];
+      if (Array.isArray(mapped) && mapped.length > 0) {
+        return mapped.map((id) => String(id)).filter(Boolean);
+      }
+    }
+    const ids = config.dingtalk?.cashierActivityIds;
+    if (Array.isArray(ids)) {
+      return ids.map((id) => String(id)).filter(Boolean);
+    }
+    return ['1793_35c3'];
+  }
+
+  // 从表单值中提取字段（第一个匹配）
+  extractFormValue(formComponentValues, fieldName) {
+    if (!formComponentValues || !Array.isArray(formComponentValues)) {
+      return null;
+    }
+    const field = formComponentValues.find((item) => item.name && item.name.includes(fieldName));
+    return field ? field.value : null;
+  }
+
+  /**
+   * 采购等模板里常有多组同名控件（如明细里重复的「金额importe」「币种Moneda」），
+   * 只取第一个会命中空行，导致 amount/currency 入库为 NULL。从后往前取最后一个非空值。
+   */
+  extractFormValueLastNonEmpty(formComponentValues, fieldName) {
+    if (!formComponentValues || !Array.isArray(formComponentValues)) {
+      return null;
+    }
+    for (let i = formComponentValues.length - 1; i >= 0; i--) {
+      const item = formComponentValues[i];
+      if (!item || !item.name || !item.name.includes(fieldName)) {
+        continue;
+      }
+      const v = item.value;
+      if (v == null) {
+        continue;
+      }
+      const s = String(v).trim();
+      if (s) {
+        return v;
+      }
+    }
+    return null;
+  }
+
+  // 规范化数值字段，避免 "无"、"$263,570.94"、"74,101.60" 等导致numeric入库失败
+  normalizeNumber(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+
+    const text = String(value).trim();
+    if (!text) {
+      return null;
+    }
+
+    const invalidTexts = ['无', 'n/a', 'na', 'none', '-', '--'];
+    if (invalidTexts.includes(text.toLowerCase())) {
+      return null;
+    }
+
+    const normalized = text
+      .replace(/\s+/g, '')
+      .replace(/,/g, '')
+      .replace(/[$￥,]/g, '');
+
+    if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
+      return null;
+    }
+
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  // 解析表单数据
+  parseFormData(formComponentValues) {
+    const amountFromDetail = this.extractFormValueLastNonEmpty(formComponentValues, '金额importe');
+    const currencyFromDetail = this.extractFormValueLastNonEmpty(formComponentValues, '币种Moneda');
+    const amountFromSummary = this.extractFormValue(formComponentValues, '明细汇总金额');
+    const departmentField = Array.isArray(formComponentValues)
+      ? formComponentValues.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
+      : null;
+    const departmentFromComponent =
+      departmentField?.value != null && String(departmentField.value).trim() !== '' ? departmentField.value : null;
+    return {
+      department: departmentFromComponent ?? this.extractFormValue(formComponentValues, '部门Departamento'),
+      applyType: this.extractFormValue(formComponentValues, '申请类型Tipo de trámite'),
+      expenseType: this.extractFormValue(formComponentValues, '支出类型'),
+      region: this.extractFormValue(formComponentValues, '执行地区Región de ejecución'),
+      operationExpenseType: this.extractFormValue(formComponentValues, '管理支出Gastos de operación'),
+      description: this.extractFormValue(formComponentValues, '事项说明Explicación de asuntos'),
+      beneficiary: this.extractFormValue(formComponentValues, '收款人beneficiario'),
+      amount: amountFromDetail ?? amountFromSummary,
+      paymentTerms: this.extractFormValue(formComponentValues, '付款条件Términos de pago'),
+      currency: currencyFromDetail,
+      paymentDate: this.extractFormValue(formComponentValues, '付款日期Fecha de pago'),
+      applyDate: this.extractFormValue(formComponentValues, '申请日期'),
+      productionType: this.extractFormValue(formComponentValues, '生产/非生产'),
+      monthlyBudget: this.extractFormValue(formComponentValues, '本月预算金额'),
+      monthlyBudgetUsed: this.extractFormValue(formComponentValues, '本月预算已用金额')
+    };
+  }
+
+  /**
+   * 出纳节点：只认 activityId；同一节点多版本任务时取「最近结束」的一条（REFUSE 必须能覆盖之前的 AGREE）。
+   * 未完成则取 RUNNING。
+   */
+  getCashierTask(tasks, processCode) {
+    if (!tasks || !Array.isArray(tasks)) {
+      return null;
+    }
+
+    const userTasks = tasks.filter(task => task && task.userId && task.userId !== 'bpms_system');
+    if (!userTasks.length) {
+      return null;
+    }
+
+    const activityIds = this.getCashierActivityIds(processCode);
+    let pool = userTasks;
+    if (activityIds.length > 0) {
+      const filtered = userTasks.filter((task) => activityIds.includes(String(task.activityId)));
+      if (filtered.length > 0) {
+        pool = filtered;
+      } else {
+        logger.warn(
+          `tasks 中未找到与 cashierActivityIds 匹配的节点(processCode=${processCode || ''})，无法识别出纳；请核对 config.json`
+        );
+        return null;
+      }
+    }
+
+    const finishMs = (t) => {
+      const v = t.finishTime;
+      if (v == null) {
+        return null;
+      }
+      const n = typeof v === 'string' ? Date.parse(v) : Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const finished = pool.filter((t) => finishMs(t) != null);
+    if (finished.length > 0) {
+      return finished.sort((a, b) => finishMs(b) - finishMs(a))[0];
+    }
+
+    const runningTask = pool.find((task) => task.status === 'RUNNING');
+    if (runningTask) {
+      return runningTask;
+    }
+
+    return pool[pool.length - 1];
+  }
+
+  // 判断出纳是否已同意
+  isCashierApproved(cashierTask) {
+    if (!cashierTask) {
+      return false;
+    }
+    // 出纳同意的条件：任务状态为 COMPLETED 且结果为 AGREE
+    return cashierTask.status === 'COMPLETED' && cashierTask.result === 'AGREE';
+  }
+
+  // 从 tasks 中提取审批元数据
+  parseApprovalMeta(instance) {
+    const tasks = Array.isArray(instance.tasks) ? instance.tasks : [];
+    const userTasks = tasks.filter((t) => t && t.userId && t.userId !== 'bpms_system');
+    const running = tasks.filter((t) => String(t?.status || '').toUpperCase() === 'RUNNING');
+
+    const taskTime = (t) => {
+      const v = t.finishTime || t.createTime || t.startTime;
+      if (v == null) return 0;
+      const n = typeof v === 'number' ? v : Date.parse(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const historical = userTasks
+      .sort((a, b) => taskTime(a) - taskTime(b))
+      .map((t) => (t.userName || t.userId || '').trim())
+      .filter(Boolean);
+
+    const currentNode = running.map((t) => (t.activityName || t.name || '').trim()).filter(Boolean).join(', ') || null;
+    const currentOwner = running.map((t) => (t.userName || t.userId || '').trim()).filter(Boolean).join(', ') || null;
+
+    return {
+      approvalCompletedAt: instance.status === 'COMPLETED' ? (instance.endTime || instance.finishTime || null) : null,
+      approvalStatus: instance.status || null,
+      currentNode,
+      currentOwner,
+      historicalApprovers: historical.join(', ') || null,
+      approvalNo: instance.approvalNo || instance.approval_no || instance.businessId || null,
+      creatorName: instance.originatorUserName || instance.originator_user_name || instance.originatorUserId || null,
+      sourceCreatedAt: instance.createTime || null,
+      sourceUpdatedAt: instance.updateTime || instance.modifyTime || null,
+      creatorDepartment: instance.originatorDeptName || null
+    };
+  }
+
+  // 从表单中提取附件/凭证
+  extractAttachments(formComponentValues) {
+    if (!formComponentValues || !Array.isArray(formComponentValues)) {
+      return [];
+    }
+    const attachments = [];
+    for (const item of formComponentValues) {
+      const name = item?.name || '';
+      if (!name.includes('关键凭证') && !name.includes('Comprobante') && !name.includes('附件') && !name.includes('Adjunto')) {
+        continue;
+      }
+      const value = item.value;
+      if (!value) continue;
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed && (trimmed.startsWith('http') || trimmed.startsWith('/'))) {
+          attachments.push({
+            attachmentType: '关键凭证',
+            fileName: trimmed.split('/').pop() || trimmed,
+            fileUrl: trimmed,
+            rawData: item
+          });
+        }
+      } else if (Array.isArray(value)) {
+        for (const v of value) {
+          if (typeof v === 'string' && v.trim()) {
+            attachments.push({
+              attachmentType: '关键凭证',
+              fileName: v.trim().split('/').pop() || v.trim(),
+              fileUrl: v.trim(),
+              rawData: v
+            });
+          } else if (v && typeof v === 'object') {
+            const url = v.url || v.fileUrl || v.downloadUrl || '';
+            if (url) {
+              attachments.push({
+                attachmentType: v.type || '关键凭证',
+                fileName: v.fileName || v.name || url.split('/').pop() || '',
+                fileUrl: url,
+                rawData: v
+              });
+            }
+          }
+        }
+      } else if (typeof value === 'object') {
+        const url = value.url || value.fileUrl || value.downloadUrl || '';
+        if (url) {
+          attachments.push({
+            attachmentType: value.type || '关键凭证',
+            fileName: value.fileName || value.name || url.split('/').pop() || '',
+            fileUrl: url,
+            rawData: value
+          });
+        }
+      }
+    }
+    return attachments;
+  }
+
+  // 解析运营支出全部字段（写入 approval_expense_operation）
+  parseOperationExpenseData(formComponentValues) {
+    const fc = formComponentValues;
+    const deptField = Array.isArray(fc)
+      ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
+      : null;
+    const department = deptField?.value != null && String(deptField.value).trim() !== ''
+      ? deptField.value
+      : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+
+    return {
+      requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
+      applicantDepartment: department,
+      productionType: this.extractFormValue(fc, '生产/非生产Producción') || this.extractFormValue(fc, '生产/非生产'),
+      monthlyBudgetAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算金额Importe presupuestado')),
+      monthlyBudgetUsedAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算已用金额Importe utilizado')),
+      applicationType: this.extractFormValue(fc, '申请类型Tipo de trámite') || this.extractFormValue(fc, '申请类型'),
+      expenseType: this.extractFormValue(fc, '支出类型'),
+      executionRegion: this.extractFormValue(fc, '执行地区Región de ejecución') || this.extractFormValue(fc, '执行地区'),
+      operationExpense: this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出'),
+      employeeBenefitsExpense: this.extractFormValue(fc, '职工福利费Gastos de beneficios') || this.extractFormValue(fc, '职工福利费'),
+      bonusExpense: this.extractFormValue(fc, '奖金Bonificaciones') || this.extractFormValue(fc, '奖金'),
+      salaryExpense: this.extractFormValue(fc, '工资salario') || this.extractFormValue(fc, '工资'),
+      administrativeExpense: this.extractFormValue(fc, '管理费用Gastos administrativos') || this.extractFormValue(fc, '管理费用'),
+      vehicleUsageExpense: this.extractFormValue(fc, '车辆使用费gastos de uso') || this.extractFormValue(fc, '车辆使用费'),
+      taxExpense: this.extractFormValue(fc, '税费Impuestos') || this.extractFormValue(fc, '税费'),
+      financeRelatedExpense: this.extractFormValue(fc, '财务相关费用Gastos relacionados con finanzas') || this.extractFormValue(fc, '财务相关费用'),
+      salesExpense: this.extractFormValue(fc, '销售费用Gastos de venta') || this.extractFormValue(fc, '销售费用'),
+      salesChannelCommissionExpense: this.extractFormValue(fc, '销售渠道管理与佣金费用Gastos de gestión de canales') || this.extractFormValue(fc, '销售渠道管理'),
+      salesTeamCustomerServiceExpense: this.extractFormValue(fc, '销售团队与客户服务费用Gastos del equipo de ventas') || this.extractFormValue(fc, '销售团队'),
+      otherSalesRelatedExpense: this.extractFormValue(fc, '其他销售相关费用Otros gastos relacionados') || this.extractFormValue(fc, '其他销售'),
+      marketingAdvertisingExpense: this.extractFormValue(fc, '市场推广与广告费用Gastos de marketing') || this.extractFormValue(fc, '市场推广'),
+      matterDescription: this.extractFormValue(fc, '事项说明Explicación de asuntos') || this.extractFormValue(fc, '事项说明'),
+      beneficiary: this.extractFormValue(fc, '收款人beneficiario') || this.extractFormValue(fc, '收款人'),
+      amount: this.normalizeNumber(this.extractFormValueLastNonEmpty(fc, '金额importe') || this.extractFormValue(fc, '明细汇总金额')),
+      paymentTerms: this.extractFormValue(fc, '付款条件Términos de pago') || this.extractFormValue(fc, '付款条件'),
+      currency: this.extractFormValueLastNonEmpty(fc, '币种Moneda') || this.extractFormValue(fc, '币种'),
+      paymentDate: this.extractFormValue(fc, '付款日期Fecha de pago') || this.extractFormValue(fc, '付款日期'),
+      keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证')
+    };
+  }
+
+  // 解析采购支出全部字段（写入 approval_expense_purchase）
+  parsePurchaseExpenseData(formComponentValues) {
+    const fc = formComponentValues;
+    const deptField = Array.isArray(fc)
+      ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
+      : null;
+    const department = deptField?.value != null && String(deptField.value).trim() !== ''
+      ? deptField.value
+      : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+
+    return {
+      requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
+      applicantDepartment: department,
+      productionType: this.extractFormValue(fc, '生产/非生产Producción') || this.extractFormValue(fc, '生产/非生产'),
+      monthlyBudgetAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算金额Importe presupuestado')),
+      monthlyBudgetUsedAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算已用金额Importe utilizado')),
+      purchaseExpense: this.extractFormValue(fc, '采购支出Gastos de Compra') || this.extractFormValue(fc, '采购支出'),
+      orderName: this.extractFormValue(fc, '订单Pedido') || this.extractFormValue(fc, '订单'),
+      projectName: this.extractFormValue(fc, '项目Proyecto') || this.extractFormValue(fc, '项目'),
+      productName: this.extractFormValue(fc, '产品Producto') || this.extractFormValue(fc, '产品'),
+      ywOemImlPhoneCase: this.extractFormValue(fc, 'YW OEM IML'),
+      ywOemPhoneCase: this.extractFormValue(fc, 'YW OEM Phone Case'),
+      ywOemTabletCase: this.extractFormValue(fc, 'YW OEM Tablet Case'),
+      ywOemSupport: this.extractFormValue(fc, 'YW OEM Soporte') || this.extractFormValue(fc, '支架类'),
+      ywMoldesOdm: this.extractFormValue(fc, 'YW MOLDES ODM') || this.extractFormValue(fc, '模具ODM'),
+      consultingServices: this.extractFormValue(fc, '咨询服务Servicios De Consultoría') || this.extractFormValue(fc, '咨询服务'),
+      tiktokOnlineStore: this.extractFormValue(fc, 'Tiktok线上店铺'),
+      executionRegion: this.extractFormValue(fc, '执行地区Región de ejecución') || this.extractFormValue(fc, '执行地区'),
+      orderPurchase: this.extractFormValue(fc, '订单采购Compras por pedido') || this.extractFormValue(fc, '订单采购'),
+      expenseClassification: this.extractFormValue(fc, '费用分类Clasificación de gastos') || this.extractFormValue(fc, '费用分类'),
+      investmentPurchase: this.extractFormValue(fc, '投资采购Compra de inversión') || this.extractFormValue(fc, '投资采购'),
+      servicePurchase: this.extractFormValue(fc, '服务类采购Adquisiciones de servicios') || this.extractFormValue(fc, '服务类采购'),
+      mroClassification: this.extractFormValue(fc, 'MRO分类Clasificación MRO') || this.extractFormValue(fc, 'MRO分类'),
+      productiveMro: this.extractFormValue(fc, '生产性Productivo MRO') || this.extractFormValue(fc, '生产性'),
+      nonProductiveMro: this.extractFormValue(fc, '非生产性No productivo MRO') || this.extractFormValue(fc, '非生产性'),
+      pdsClassification: this.extractFormValue(fc, 'PDS分类Clasificación PDS') || this.extractFormValue(fc, 'PDS分类'),
+      pieceworkOutsourcing: this.extractFormValue(fc, '计件外包Outsourcing por pieza') || this.extractFormValue(fc, '计件外包'),
+      logisticsTransportService: this.extractFormValue(fc, '物流及运输服务Servicios de logística') || this.extractFormValue(fc, '物流'),
+      customsClearanceService: this.extractFormValue(fc, '清关服务Servicios de despacho aduanero') || this.extractFormValue(fc, '清关'),
+      detailSummaryAmount: this.normalizeNumber(this.extractFormValue(fc, '明细汇总金额Monto total detallado') || this.extractFormValue(fc, '明细汇总金额')),
+      keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证')
+    };
+  }
+
+  // 整单最终结果：只要任意人工节点拒绝即记为 REFUSE，便于数据库直接识别”被拒绝单”
+  deriveFlowResult(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      return 'NONE';
+    }
+    const userTasks = tasks.filter((task) => task && task.userId && task.userId !== 'bpms_system');
+    if (!userTasks.length) {
+      return 'NONE';
+    }
+    const hasRefuse = userTasks.some((task) => {
+      const r = String(task.result || '').toUpperCase();
+      return r === 'REFUSE' || r === 'REJECT';
+    });
+    if (hasRefuse) {
+      return 'REFUSE';
+    }
+    const hasAgree = userTasks.some((task) => String(task.result || '').toUpperCase() === 'AGREE');
+    return hasAgree ? 'AGREE' : 'NONE';
+  }
+
+  /**
+   * @param {object} instance 钉钉详情
+   * @param {{ force?: boolean }} options 保留兼容旧脚本参数；新表 upsert 始终覆盖刷新
+   */
+  async processInstance(instance, options = {}) {
+    const businessId = instance.businessId;
+
+    if (!businessId) {
+      logger.warn('实例缺少businessId，跳过');
+      return { skipped: true, reason: '缺少businessId' };
+    }
+
+    // 解析表单数据
+    const formData = this.parseFormData(instance.formComponentValues);
+
+    // 构造入库数据（processInstanceId 用于再次调用钉钉详情接口，与 businessId 不同）
+    const data = {
+      businessId,
+      processInstanceId:
+        instance.processInstanceId != null ? String(instance.processInstanceId).substring(0, 128) : null,
+      title: instance.title,
+      processCode: instance.processCode || null,
+      processType: instance.processType || null,
+      status: instance.status,
+      originatorUserId: instance.originatorUserId,
+      originatorDeptId: instance.originatorDeptId,
+      originatorDeptName: instance.originatorDeptName,
+      bizAction: instance.bizAction,
+      createTime: instance.createTime,
+      flowResult: this.deriveFlowResult(instance.tasks),
+      ...formData,
+      rawData: instance
+    };
+
+    // 转换金额和预算类字段为数字，无法识别时写入null
+    data.amount = this.normalizeNumber(data.amount);
+    data.monthlyBudget = this.normalizeNumber(data.monthlyBudget);
+    data.monthlyBudgetUsed = this.normalizeNumber(data.monthlyBudgetUsed);
+
+    // 同步写入 approval_expense_* 结构化表
+    try {
+      const meta = this.parseApprovalMeta(instance);
+      const attachments = this.extractAttachments(instance.formComponentValues);
+      const processType = instance.processType || data.processType || '';
+
+      if (processType.includes('运营') || processType.includes('杩愯惀')) {
+        const opData = this.parseOperationExpenseData(instance.formComponentValues);
+        const opAmount = opData.amount ?? data.amount;
+        const opCurrency = opData.currency ?? data.currency;
+        const opBaseCurrencyAmount = await convertAmountToCny({
+          amount: opAmount,
+          currencyLabel: opCurrency,
+          createTime: data.createTime
+        });
+        const opId = await database.upsertOperationExpense({
+          ...opData,
+          processInstanceId: data.processInstanceId,
+          businessId,
+          amount: opAmount,
+          baseCurrencyAmount: opBaseCurrencyAmount,
+          currency: opCurrency,
+          ...meta,
+          rawData: instance
+        });
+        if (opId) {
+          await database.replaceAttachments('operation', opId, attachments);
+        }
+      } else if (processType.includes('采购') || processType.includes('閲囪喘')) {
+        const pData = this.parsePurchaseExpenseData(instance.formComponentValues);
+        const purchaseAmount = pData.detailSummaryAmount ?? data.amount;
+        const purchaseCurrency = pData.currency ?? data.currency;
+        const purchaseBaseCurrencyAmount = await convertAmountToCny({
+          amount: purchaseAmount,
+          currencyLabel: purchaseCurrency,
+          createTime: data.createTime
+        });
+        const purchaseId = await database.upsertPurchaseExpense({
+          ...pData,
+          processInstanceId: data.processInstanceId,
+          businessId,
+          baseCurrencyAmount: purchaseBaseCurrencyAmount,
+          ...meta,
+          rawData: instance
+        });
+        if (purchaseId) {
+          await database.replaceAttachments('purchase', purchaseId, attachments);
+        }
+        if (purchaseId) {
+          const payments = [];
+          if (purchaseAmount != null || purchaseCurrency || data.beneficiary || data.paymentDate || data.paymentTerms) {
+            payments.push({
+              rowNo: 1,
+              beneficiary: data.beneficiary || null,
+              amount: purchaseAmount,
+              paymentTerms: data.paymentTerms || null,
+              currency: purchaseCurrency || null,
+              paymentDate: data.paymentDate || null,
+              rawData: null
+            });
+          }
+          await database.replacePurchasePayments(purchaseId, payments);
+        }
+      } else {
+        return { skipped: true, reason: `unsupported process type: ${processType || 'unknown'}` };
+      }
+    } catch (expenseErr) {
+      logger.warn(`实例 ${businessId} expense表写入失败: ${expenseErr.message}`);
+      throw expenseErr;
+    }
+
+    logger.info(`实例 ${businessId} 处理成功`);
+    return { success: true, businessId };
+  }
+
+  // 批量处理审批实例
+  async processInstances(instances, options = {}) {
+    const results = {
+      success: 0,
+      skipped: 0,
+      failed: 0,
+      details: []
+    };
+
+    for (const instance of instances) {
+      try {
+        const result = await this.processInstance(instance, options);
+        if (result.skipped) {
+          results.skipped++;
+        } else {
+          results.success++;
+        }
+        results.details.push(result);
+      } catch (error) {
+        logger.error(`处理实例 ${instance.businessId} 失败: ${error.message}`);
+        results.failed++;
+        results.details.push({
+          businessId: instance.businessId,
+          failed: true,
+          error: error.message
+        });
+      }
+    }
+
+    return results;
+  }
+}
+
+module.exports = new ApprovalProcessor();
