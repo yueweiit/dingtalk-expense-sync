@@ -9,7 +9,7 @@
 const dingtalk = require('../src/dingtalk');
 const processor = require('../src/processor');
 const database = require('../src/database');
-const config = require('../config.json');
+const config = require('../src/config');
 
 function parseArgs(argv) {
   const args = {};

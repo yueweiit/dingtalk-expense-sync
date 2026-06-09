@@ -13,7 +13,7 @@
  */
 const database = require('../src/database');
 const dingtalk = require('../src/dingtalk');
-const config = require('../config.json');
+const config = require('../src/config');
 const { convertAmountToCny } = require('../src/fxToCny');
 const { resolveProcessInstanceFetchId } = require('../src/workflowIds');
 

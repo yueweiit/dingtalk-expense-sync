@@ -3,7 +3,7 @@
  * 用法：node scripts/diag-purchase-null-base.js [--dingtalk=1]  后一项会拉 2 条钉钉详情对比
  */
 const { Pool } = require('pg');
-const config = require('../config.json');
+const config = require('../src/config');
 
 const pool = new Pool(config.database);
 const wantDingtalk = process.argv.includes('--dingtalk=1');

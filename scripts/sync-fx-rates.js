@@ -10,7 +10,7 @@ const {
   buildFxDailyRows,
   invalidateUsdRatesCache
 } = require('../src/openErFx');
-const config = require('../config.json');
+const config = require('../src/config');
 
 async function main() {
   const tz = config.scheduler?.fxRatesTimezone || 'Asia/Shanghai';
