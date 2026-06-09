@@ -3,7 +3,7 @@ const dingtalk = require('./dingtalk');
 const processor = require('./processor');
 const database = require('./database');
 const logger = require('./logger');
-const config = require('../config.json');
+const config = require('./config');
 const { resolveProcessInstanceFetchId } = require('./workflowIds');
 const {
   ER_API_LATEST_USD,
