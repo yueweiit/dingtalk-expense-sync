@@ -11,14 +11,14 @@
  *   node scripts/backfill-approval-expense-schema.js --processType=采购支出 --limit=100
  *   node scripts/backfill-approval-expense-schema.js --dry-run=1 --limit=5
  */
-const database = require('../src/database');
-const dingtalk = require('../src/dingtalk');
-const config = require('../src/config');
-const { convertAmountToCny } = require('../src/fxToCny');
-const { resolveProcessInstanceFetchId } = require('../src/workflowIds');
+import database, { pool } from '../src/database.js';
+import dingtalk from '../src/dingtalk.js';
+import config from '../src/config.js';
+import { convertAmountToCny } from '../src/fxToCny.js';
+import { resolveProcessInstanceFetchId } from '../src/workflowIds.js';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const arg of argv.slice(2)) {
     const m = String(arg).match(/^--([^=]+)(?:=(.*))?$/);
     if (m) {
@@ -28,19 +28,19 @@ function parseArgs(argv) {
   return args;
 }
 
-function asObject(value) {
+function asObject(value: unknown): Record<string, unknown> {
   if (value == null) return {};
-  if (typeof value === 'object') return value;
-  try { return JSON.parse(value); } catch { return {}; }
+  if (typeof value === 'object') return value as Record<string, unknown>;
+  try { return JSON.parse(String(value)); } catch { return {}; }
 }
 
-function asArray(value) {
+function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function compact(value, maxLen = null) {
+function compact(value: unknown, maxLen: number | null = null): string | null {
   if (value == null) return null;
-  let text;
+  let text: string;
   if (typeof value === 'string') {
     text = value.trim();
   } else if (typeof value === 'number' || typeof value === 'boolean') {
@@ -52,40 +52,41 @@ function compact(value, maxLen = null) {
   return maxLen ? text.substring(0, maxLen) : text;
 }
 
-function norm(value) {
+function norm(value: unknown): string {
   return compact(value)
     ?.normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, '')
     .toLowerCase() || '';
 }
 
-function nameMatches(name, tokens) {
+function nameMatches(name: unknown, tokens: string[]): boolean {
   const n = norm(name);
   return tokens.some((token) => n.includes(norm(token)));
 }
 
-function parseJsonMaybe(value) {
+function parseJsonMaybe(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const text = value.trim();
   if (!text || !/^[\[{]/.test(text)) return value;
   try { return JSON.parse(text); } catch { return value; }
 }
 
-function componentValue(item) {
+function componentValue(item: unknown): unknown {
   if (!item || typeof item !== 'object') return null;
-  if (item.value != null) return parseJsonMaybe(item.value);
-  if (item.extValue != null) return parseJsonMaybe(item.extValue);
+  const obj = item as Record<string, unknown>;
+  if (obj.value != null) return parseJsonMaybe(obj.value);
+  if (obj.extValue != null) return parseJsonMaybe(obj.extValue);
   return null;
 }
 
-function formComponents(raw) {
+function formComponents(raw: unknown): unknown[] {
   return asArray(asObject(raw).formComponentValues);
 }
 
-function findValue(components, tokens) {
+function findValue(components: unknown[], tokens: string[]): unknown {
   for (const item of components) {
-    if (nameMatches(item?.name, tokens)) {
+    if (nameMatches((item as Record<string, unknown>)?.name, tokens)) {
       const value = componentValue(item);
       if (compact(value) != null) return value;
     }
@@ -93,10 +94,10 @@ function findValue(components, tokens) {
   return null;
 }
 
-function findLastValue(components, tokens) {
+function findLastValue(components: unknown[], tokens: string[]): unknown {
   for (let i = components.length - 1; i >= 0; i--) {
     const item = components[i];
-    if (nameMatches(item?.name, tokens)) {
+    if (nameMatches((item as Record<string, unknown>)?.name, tokens)) {
       const value = componentValue(item);
       if (compact(value) != null) return value;
     }
@@ -104,13 +105,13 @@ function findLastValue(components, tokens) {
   return null;
 }
 
-function findDepartment(components, fallback) {
-  if (compact(fallback)) return fallback;
-  const deptField = components.find((item) => norm(item?.componentType) === 'departmentfield');
-  return componentValue(deptField) || findValue(components, ['Departamento Solicitante', '申请部门', '部门']);
+function findDepartment(components: unknown[], fallback: unknown): string | null {
+  if (compact(fallback)) return String(fallback);
+  const deptField = components.find((item) => norm((item as Record<string, unknown>)?.componentType) === 'departmentfield');
+  return String(componentValue(deptField) || findValue(components, ['Departamento Solicitante', '申请部门', '部门']) || '');
 }
 
-function normalizeNumber(value) {
+function normalizeNumber(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   const text = compact(value);
@@ -121,7 +122,7 @@ function normalizeNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeDate(value) {
+function normalizeDate(value: unknown): string | null {
   if (value == null) return null;
   if (value instanceof Date && Number.isFinite(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -135,48 +136,48 @@ function normalizeDate(value) {
   return null;
 }
 
-function dateFromBusinessId(businessId) {
+function dateFromBusinessId(businessId: unknown): string | null {
   const text = compact(businessId);
   const m = text && text.match(/^(\d{4})(\d{2})(\d{2})/);
   if (!m) return null;
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
-function dayRangeMs(dateText) {
+function dayRangeMs(dateText: string): { startMs: number; endMs: number } | null {
   const startMs = new Date(`${dateText}T00:00:00+08:00`).getTime();
   const endMs = new Date(`${dateText}T23:59:59.999+08:00`).getTime();
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
   return { startMs, endMs };
 }
 
-function addDays(dateText, days) {
+function addDays(dateText: string, days: number): string | null {
   const ms = new Date(`${dateText}T00:00:00+08:00`).getTime();
   if (!Number.isFinite(ms)) return null;
   const next = new Date(ms + days * 24 * 60 * 60 * 1000);
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(next);
 }
 
-function taskTime(task) {
+function taskTime(task: Record<string, unknown>): number {
   const value = task?.finishTime || task?.createTime || task?.startTime;
   if (value == null) return 0;
-  const n = typeof value === 'number' ? value : Date.parse(value);
+  const n = typeof value === 'number' ? value : Date.parse(String(value));
   return Number.isFinite(n) ? n : 0;
 }
 
-function approvalMeta(raw) {
+function approvalMeta(raw: unknown): Record<string, unknown> {
   const obj = asObject(raw);
   const tasks = asArray(obj.tasks);
-  const userTasks = tasks.filter((t) => t && t.userId && t.userId !== 'bpms_system');
-  const running = tasks.filter((t) => String(t?.status || '').toUpperCase() === 'RUNNING');
+  const userTasks = tasks.filter((t) => t && (t as Record<string, unknown>).userId && (t as Record<string, unknown>).userId !== 'bpms_system');
+  const running = tasks.filter((t) => String((t as Record<string, unknown>)?.status || '').toUpperCase() === 'RUNNING');
   const historical = userTasks
-    .sort((a, b) => taskTime(a) - taskTime(b))
-    .map((t) => compact(t.userName || t.userId))
+    .sort((a, b) => taskTime(a as Record<string, unknown>) - taskTime(b as Record<string, unknown>))
+    .map((t) => compact((t as Record<string, unknown>).userName || (t as Record<string, unknown>).userId))
     .filter(Boolean);
 
   return {
     approvalNo: obj.approvalNo || obj.approval_no || obj.businessId,
-    currentNode: running.map((t) => compact(t.activityName || t.name)).filter(Boolean).join(', ') || null,
-    currentOwner: running.map((t) => compact(t.userName || t.userId)).filter(Boolean).join(', ') || null,
+    currentNode: running.map((t) => compact((t as Record<string, unknown>).activityName || (t as Record<string, unknown>).name)).filter(Boolean).join(', ') || null,
+    currentOwner: running.map((t) => compact((t as Record<string, unknown>).userName || (t as Record<string, unknown>).userId)).filter(Boolean).join(', ') || null,
     historicalApprovers: historical.join(', ') || null,
     approvalCompletedAt: obj.status === 'COMPLETED' ? (obj.endTime || obj.finishTime || null) : null,
     approvalStatus: obj.status || null,
@@ -187,40 +188,40 @@ function approvalMeta(raw) {
   };
 }
 
-function labelFromRow(rowObj, tokens) {
+function labelFromRow(rowObj: unknown, tokens: string[]): unknown {
   if (!rowObj || typeof rowObj !== 'object') return null;
-  for (const [key, rawValue] of Object.entries(rowObj)) {
+  for (const [key, rawValue] of Object.entries(rowObj as Record<string, unknown>)) {
     if (!nameMatches(key, tokens)) continue;
     if (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
-      return rawValue.value ?? rawValue.label ?? rawValue.text ?? rawValue.name ?? rawValue;
+      return (rawValue as Record<string, unknown>).value ?? (rawValue as Record<string, unknown>).label ?? (rawValue as Record<string, unknown>).text ?? (rawValue as Record<string, unknown>).name ?? rawValue;
     }
     return rawValue;
   }
   return null;
 }
 
-function extractTableRows(components, tableTokens) {
-  const rows = [];
+function extractTableRows(components: unknown[], tableTokens: string[]): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
   for (const item of components) {
-    const type = norm(item?.componentType);
+    const type = norm((item as Record<string, unknown>)?.componentType);
     const value = componentValue(item);
     const looksLikeTable = type.includes('table') || type.includes('detail') || Array.isArray(value);
     if (!looksLikeTable) continue;
-    if (tableTokens.length && !nameMatches(item?.name, tableTokens)) continue;
+    if (tableTokens.length && !nameMatches((item as Record<string, unknown>)?.name, tableTokens)) continue;
     const parsed = parseJsonMaybe(value);
     if (Array.isArray(parsed)) {
       for (const row of parsed) {
-        if (row && typeof row === 'object') rows.push(row);
+        if (row && typeof row === 'object') rows.push(row as Record<string, unknown>);
       }
     }
   }
   return rows;
 }
 
-function extractAttachments(components) {
-  const attachments = [];
+function extractAttachments(components: unknown[]): Array<Record<string, unknown>> {
+  const attachments: Array<Record<string, unknown>> = [];
   for (const item of components) {
-    const name = item?.name || '';
+    const name = (item as Record<string, unknown>)?.name || '';
     if (!nameMatches(name, ['关键凭证', 'Comprobante', '附件', 'Adjunto'])) continue;
     const value = componentValue(item);
     if (!value) continue;
@@ -235,19 +236,19 @@ function extractAttachments(components) {
         if (typeof v === 'string' && v.trim()) {
           attachments.push({ attachmentType: '关键凭证', fileName: v.trim().split('/').pop() || v.trim(), fileUrl: v.trim(), rawData: v });
         } else if (v && typeof v === 'object') {
-          const url = v.url || v.fileUrl || v.downloadUrl || '';
-          if (url) attachments.push({ attachmentType: v.type || '关键凭证', fileName: v.fileName || v.name || url.split('/').pop() || '', fileUrl: url, rawData: v });
+          const url = (v as Record<string, unknown>).url || (v as Record<string, unknown>).fileUrl || (v as Record<string, unknown>).downloadUrl || '';
+          if (url) attachments.push({ attachmentType: (v as Record<string, unknown>).type || '关键凭证', fileName: (v as Record<string, unknown>).fileName || (v as Record<string, unknown>).name || String(url).split('/').pop() || '', fileUrl: url, rawData: v });
         }
       }
     } else if (typeof value === 'object') {
-      const url = value.url || value.fileUrl || value.downloadUrl || '';
-      if (url) attachments.push({ attachmentType: value.type || '关键凭证', fileName: value.fileName || value.name || url.split('/').pop() || '', fileUrl: url, rawData: value });
+      const url = (value as Record<string, unknown>).url || (value as Record<string, unknown>).fileUrl || (value as Record<string, unknown>).downloadUrl || '';
+      if (url) attachments.push({ attachmentType: (value as Record<string, unknown>).type || '关键凭证', fileName: (value as Record<string, unknown>).fileName || (value as Record<string, unknown>).name || String(url).split('/').pop() || '', fileUrl: url, rawData: value });
     }
   }
   return attachments;
 }
 
-function buildPurchaseItemRows(components) {
+function buildPurchaseItemRows(components: unknown[]): Array<Record<string, unknown>> {
   const rows = extractTableRows(components, ['Desglose de los gastos', '需求明细']);
   return rows.map((raw, index) => ({
     rowNo: index + 1,
@@ -264,7 +265,7 @@ function buildPurchaseItemRows(components) {
   }));
 }
 
-function buildProcessorRows(components) {
+function buildProcessorRows(components: unknown[]): Array<Record<string, unknown>> {
   const rows = extractTableRows(components, ['procesadores', '加工商明细']);
   return rows.map((raw, index) => ({
     rowNo: index + 1,
@@ -282,7 +283,7 @@ function buildProcessorRows(components) {
   }));
 }
 
-function buildPaymentRows(components) {
+function buildPaymentRows(components: unknown[]): Array<Record<string, unknown>> {
   const amount = normalizeNumber(findLastValue(components, ['importe', '金额']));
   const currency = compact(findLastValue(components, ['Moneda', '币种']), 32);
   const beneficiary = compact(findLastValue(components, ['beneficiario', '收款人']), 500);
@@ -295,7 +296,7 @@ function buildPaymentRows(components) {
   return [];
 }
 
-function parseRow(row) {
+function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   const raw = asObject(row.raw_data);
   const components = formComponents(raw);
   const meta = approvalMeta(raw);
@@ -304,7 +305,7 @@ function parseRow(row) {
   const isPurchase = typeText.includes(norm('采购')) || typeText.includes('purchase');
 
   // 通用字段
-  const common = {
+  const common: Record<string, unknown> = {
     ...meta,
     requestDate: normalizeDate(findValue(components, ['Fecha de solicitud', '申请日期'])) || normalizeDate(row.create_time),
     applicantDepartment: findDepartment(components, row.originator_dept_name || row.department),
@@ -383,15 +384,15 @@ function parseRow(row) {
   };
 }
 
-async function findDingtalkInstanceByBusinessId(row, cache) {
+async function findDingtalkInstanceByBusinessId(row: Record<string, unknown>, cache: Map<string, { candidates: string[]; detailsByBusinessId: Map<string, Record<string, unknown>>; scanned: boolean }>): Promise<Record<string, unknown> | null> {
   const processCode = compact(row.process_code, 64);
   const businessId = compact(row.business_id, 64);
   const dateText = normalizeDate(row.create_time) || dateFromBusinessId(businessId);
   if (!businessId || !dateText) return null;
 
   const configuredCodes = Array.isArray(config.dingtalk?.processCodes) ? config.dingtalk.processCodes : [];
-  const processCodes = [...new Set([processCode, ...configuredCodes].filter(Boolean))];
-  const dates = [...new Set([addDays(dateText, -1), dateText, addDays(dateText, 1)].filter(Boolean))];
+  const processCodes = [...new Set([processCode, ...configuredCodes].filter(Boolean) as string[])];
+  const dates = [...new Set([addDays(dateText, -1), dateText, addDays(dateText, 1)].filter(Boolean) as string[])];
 
   for (const code of processCodes) {
     for (const day of dates) {
@@ -399,7 +400,7 @@ async function findDingtalkInstanceByBusinessId(row, cache) {
       if (!range) continue;
       const cacheKey = `${code}:${day}`;
       if (!cache.has(cacheKey)) {
-        const candidates = [];
+        const candidates: string[] = [];
         let nextToken = 0;
         do {
           const result = await dingtalk.queryProcessInstanceIds(range.startMs, range.endMs, code, nextToken, 20);
@@ -409,8 +410,8 @@ async function findDingtalkInstanceByBusinessId(row, cache) {
         } while (nextToken && nextToken !== 0);
         cache.set(cacheKey, { candidates, detailsByBusinessId: new Map(), scanned: false });
       }
-      const entry = cache.get(cacheKey);
-      if (entry.detailsByBusinessId.has(businessId)) return entry.detailsByBusinessId.get(businessId);
+      const entry = cache.get(cacheKey)!;
+      if (entry.detailsByBusinessId.has(businessId)) return entry.detailsByBusinessId.get(businessId) || null;
       if (entry.scanned) continue;
       for (const pid of entry.candidates) {
         const instance = await dingtalk.getProcessInstance(pid);
@@ -419,13 +420,13 @@ async function findDingtalkInstanceByBusinessId(row, cache) {
         if (String(instance?.businessId || '') === businessId) return instance;
       }
       entry.scanned = true;
-      if (entry.detailsByBusinessId.has(businessId)) return entry.detailsByBusinessId.get(businessId);
+      if (entry.detailsByBusinessId.has(businessId)) return entry.detailsByBusinessId.get(businessId) || null;
     }
   }
   return null;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const limit = args.limit ? Number.parseInt(args.limit, 10) : null;
   const dryRun = String(args['dry-run'] || args.dryRun || '') === '1';
@@ -434,14 +435,14 @@ async function main() {
   const processType = args.processType || args.process_type || null;
   const businessId = args.businessId || args.business_id || null;
 
-  const conditions = [];
-  const params = [];
+  const conditions: string[] = [];
+  const params: unknown[] = [];
   if (processType) { params.push(processType); conditions.push(`process_type = $${params.length}`); }
   if (businessId) { params.push(businessId); conditions.push(`business_id = $${params.length}`); }
   const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const limitSql = Number.isFinite(limit) && limit > 0 ? `LIMIT ${limit}` : '';
+  const limitSql = Number.isFinite(limit) && limit && limit > 0 ? `LIMIT ${limit}` : '';
 
-  const client = await database.pool.connect();
+  const client = await pool.connect();
   try {
     const { rows } = await client.query(
       `SELECT * FROM approval_instances ${whereSql} ORDER BY create_time ASC NULLS LAST, id ASC ${limitSql}`,
@@ -451,14 +452,14 @@ async function main() {
     let ok = 0;
     let fetchFailed = 0;
     let resolvedByWindow = 0;
-    const windowCache = new Map();
+    const windowCache = new Map<string, { candidates: string[]; detailsByBusinessId: Map<string, Record<string, unknown>>; scanned: boolean }>();
 
     for (const row of rows) {
       let sourceRow = row;
       if (fromDingtalk) {
         const fetchId = resolveProcessInstanceFetchId(row.raw_data, row.business_id, row.process_instance_id);
         try {
-          let instance = null;
+          let instance: Record<string, unknown> | null = null;
           if (fetchId !== row.business_id) {
             instance = await dingtalk.getProcessInstance(fetchId);
           } else if (resolveByWindow) {
@@ -476,9 +477,10 @@ async function main() {
             create_time: instance.createTime || row.create_time
           };
           await dingtalk.sleep(120);
-        } catch (e) {
+        } catch (e: unknown) {
           fetchFailed++;
-          console.error(`fetch failed business_id=${row.business_id}, fetchId=${fetchId}: ${e.message}`);
+          const message = e instanceof Error ? e.message : String(e);
+          console.error(`fetch failed business_id=${row.business_id}, fetchId=${fetchId}: ${message}`);
           continue;
         }
       }
@@ -490,10 +492,10 @@ async function main() {
           type: parsed.type,
           amount: parsed.amount,
           currency: parsed.currency,
-          items: parsed.items?.length || 0,
-          processors: parsed.processors?.length || 0,
-          payments: parsed.payments?.length || 0,
-          attachments: parsed.attachments?.length || 0
+          items: (parsed.items as unknown[])?.length || 0,
+          processors: (parsed.processors as unknown[])?.length || 0,
+          payments: (parsed.payments as unknown[])?.length || 0,
+          attachments: (parsed.attachments as unknown[])?.length || 0
         }, null, 2));
         ok++;
         continue;
@@ -509,20 +511,20 @@ async function main() {
         ? await convertAmountToCny({ amount: amountForFx, currencyLabel: currencyForFx, createTime: createTimeForFx })
         : null;
 
-      let expenseId;
+      let expenseId: number | undefined;
       if (parsed.type === 'purchase') {
-        expenseId = await database.upsertPurchaseExpense({ ...parsed, baseCurrencyAmount });
+        expenseId = await database.upsertPurchaseExpense({ ...parsed, baseCurrencyAmount } as any);
         if (expenseId) {
-          if (parsed.items.length > 0) await database.replacePurchaseItems(expenseId, parsed.items);
-          if (parsed.processors.length > 0) await database.replacePurchaseProcessors(expenseId, parsed.processors);
-          if (parsed.payments.length > 0) await database.replacePurchasePayments(expenseId, parsed.payments);
+          if ((parsed.items as unknown[]).length > 0) await database.replacePurchaseItems(expenseId, parsed.items as any);
+          if ((parsed.processors as unknown[]).length > 0) await database.replacePurchaseProcessors(expenseId, parsed.processors as any);
+          if ((parsed.payments as unknown[]).length > 0) await database.replacePurchasePayments(expenseId, parsed.payments as any);
         }
       } else {
-        expenseId = await database.upsertOperationExpense({ ...parsed, baseCurrencyAmount });
+        expenseId = await database.upsertOperationExpense({ ...parsed, baseCurrencyAmount } as any);
       }
 
-      if (expenseId && parsed.attachments.length > 0) {
-        await database.replaceAttachments(parsed.type, expenseId, parsed.attachments);
+      if (expenseId && (parsed.attachments as unknown[]).length > 0) {
+        await database.replaceAttachments(String(parsed.type), expenseId, parsed.attachments as any);
       }
 
       ok++;
@@ -542,7 +544,9 @@ async function main() {
   }
 }
 
-main().catch((e) => {
+main().catch((e: unknown) => {
   console.error(e);
   process.exit(1);
 });
+
+

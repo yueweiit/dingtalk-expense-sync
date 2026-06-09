@@ -7,12 +7,12 @@
  * Example:
  *   node scripts/rebuild-approval-expense-schema.js --confirm=1
  */
-const fs = require('fs');
-const path = require('path');
-const database = require('../src/database');
+import fs from 'fs';
+import path from 'path';
+import database, { pool } from '../src/database.js';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const item of argv.slice(2)) {
     if (!item.startsWith('--')) continue;
     const [k, v] = item.slice(2).split('=');
@@ -21,7 +21,7 @@ function parseArgs(argv) {
   return args;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   if (String(args.confirm || '') !== '1') {
     throw new Error('Refusing to drop approval_expense_* tables without --confirm=1');
@@ -32,21 +32,23 @@ async function main() {
   const rebuildSql = fs.readFileSync(rebuildSqlPath, 'utf8');
   const ensureSql = fs.readFileSync(ensureSqlPath, 'utf8');
 
-  await database.pool.query('BEGIN');
+  await pool.query('BEGIN');
   try {
-    await database.pool.query(rebuildSql);
-    await database.pool.query(ensureSql);
-    await database.pool.query('COMMIT');
+    await pool.query(rebuildSql);
+    await pool.query(ensureSql);
+    await pool.query('COMMIT');
     console.log('OK: rebuilt standalone approval_expense_* schema');
   } catch (e) {
-    await database.pool.query('ROLLBACK').catch(() => {});
+    await pool.query('ROLLBACK').catch(() => {});
     throw e;
   } finally {
     await database.close();
   }
 }
 
-main().catch((e) => {
+main().catch((e: unknown) => {
   console.error(e);
   process.exit(1);
 });
+
+

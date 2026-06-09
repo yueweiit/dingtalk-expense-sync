@@ -1,8 +1,9 @@
-const database = require('../src/database');
-const processor = require('../src/processor');
+import database, { pool } from '../src/database.js';
+import processor from '../src/processor.js';
+import type { PoolClient } from 'pg';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const item of argv) {
     if (!item.startsWith('--')) continue;
     const [k, v] = item.slice(2).split('=');
@@ -11,21 +12,21 @@ function parseArgs(argv) {
   return args;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const month = args.month || '';
   const department = args.department || '';
   const processType = args.processType || '';
   const dryRun = String(args.dryRun || '').toLowerCase() === 'true';
 
-  const client = await database.pool.connect();
+  const client: PoolClient = await pool.connect();
   try {
     let query = `
       SELECT business_id, process_code, raw_data, cashier_task_id, cashier_user_id, cashier_status, cashier_result, cashier_complete_time
       FROM approval_instances
       WHERE raw_data IS NOT NULL
     `;
-    const params = [];
+    const params: unknown[] = [];
     let i = 1;
 
     if (department) {
@@ -108,7 +109,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error(err);
   process.exit(1);
 });
+
+

@@ -2,17 +2,17 @@
  * 为历史数据补写 base_currency_amount（按 create_time 北京时间取历史汇率）。
  * 例：npm run backfill:base-currency
  */
-const database = require('../src/database');
-const { convertAmountToCny } = require('../src/fxToCny');
+import database, { pool } from '../src/database.js';
+import { convertAmountToCny } from '../src/fxToCny.js';
 
 const BATCH = 80;
 
-async function main() {
+async function main(): Promise<void> {
   await database.ensureBaseCurrencyAmountColumn();
 
   let updated = 0;
   for (;;) {
-    const r = await database.pool.query(
+    const r = await pool.query(
       `
         SELECT business_id, amount, currency, create_time
         FROM approval_instances
@@ -32,7 +32,7 @@ async function main() {
         currencyLabel: row.currency,
         createTime: row.create_time
       });
-      await database.pool.query(
+      await pool.query(
         `
           UPDATE approval_instances
           SET base_currency_amount = $2,
@@ -51,7 +51,9 @@ async function main() {
   await database.close();
 }
 
-main().catch((e) => {
+main().catch((e: unknown) => {
   console.error(e);
   process.exit(1);
 });
+
+

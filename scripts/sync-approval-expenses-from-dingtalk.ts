@@ -8,16 +8,17 @@
  *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --department=IT --limit=100
  *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --dry-run=1
  */
-const fs = require('fs');
-const path = require('path');
-const dingtalk = require('../src/dingtalk');
-const processor = require('../src/processor');
-const database = require('../src/database');
-const config = require('../src/config');
-const { convertAmountToCny } = require('../src/fxToCny');
+import fs from 'fs';
+import path from 'path';
+import dingtalk from '../src/dingtalk.js';
+import processor from '../src/processor.js';
+import database, { pool } from '../src/database.js';
+import config from '../src/config.js';
+import { convertAmountToCny } from '../src/fxToCny.js';
+import type { ApprovalInstance } from '../src/processor.js';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const item of argv.slice(2)) {
     if (!item.startsWith('--')) continue;
     const [k, ...rest] = item.slice(2).split('=');
@@ -26,7 +27,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function parseProcessArg(value) {
+function parseProcessArg(value: string): string {
   const text = String(value || 'all').trim().toLowerCase();
   if (!text || text === 'all') return 'all';
   if (text === 'operation' || text.includes('运营')) return 'operation';
@@ -34,7 +35,7 @@ function parseProcessArg(value) {
   throw new Error('--process must be all, operation, or purchase');
 }
 
-function getProcessKind(processCode) {
+function getProcessKind(processCode: string): string {
   const processCodes = config.dingtalk?.processCodes || [];
   const index = processCodes.indexOf(processCode);
   if (index === 0) return 'operation';
@@ -42,14 +43,14 @@ function getProcessKind(processCode) {
   return 'other';
 }
 
-function getProcessType(processCode) {
+function getProcessType(processCode: string): string {
   const kind = getProcessKind(processCode);
   if (kind === 'operation') return '运营支出';
   if (kind === 'purchase') return '采购支出';
   return '其他';
 }
 
-function normalizeNumber(value) {
+function normalizeNumber(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   const text = String(value).trim();
@@ -60,7 +61,7 @@ function normalizeNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function resolveTimeRange(args) {
+function resolveTimeRange(args: Record<string, string>): { startMs: number; endMs: number } {
   if (args.month) {
     const m = String(args.month).trim().match(/^(\d{4})-(\d{1,2})$/);
     if (!m) throw new Error('--month format must be YYYY-MM, for example 2026-04');
@@ -92,15 +93,15 @@ function resolveTimeRange(args) {
   throw new Error('Please pass --month=YYYY-MM or both --start=... --end=...');
 }
 
-async function ensureExpenseSchema() {
+async function ensureExpenseSchema(): Promise<void> {
   const sqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
   const sql = fs.readFileSync(sqlPath, 'utf8');
-  await database.pool.query(sql);
+  await pool.query(sql);
 }
 
-async function collectInstanceIds(startMs, endMs, processFilter) {
+async function collectInstanceIds(startMs: number, endMs: number, processFilter: string): Promise<Array<{ processInstanceId: string; processCode: string; kind: string }>> {
   const processCodes = config.dingtalk?.processCodes || [];
-  const items = [];
+  const items: Array<{ processInstanceId: string; processCode: string; kind: string }> = [];
 
   for (const processCode of processCodes) {
     const kind = getProcessKind(processCode);
@@ -121,7 +122,7 @@ async function collectInstanceIds(startMs, endMs, processFilter) {
     } while (nextToken && nextToken !== 0);
   }
 
-  const seen = new Set();
+  const seen = new Set<string>();
   return items.filter((item) => {
     if (seen.has(item.processInstanceId)) return false;
     seen.add(item.processInstanceId);
@@ -129,61 +130,61 @@ async function collectInstanceIds(startMs, endMs, processFilter) {
   });
 }
 
-function getDepartmentText(instance, parsedData) {
+function getDepartmentText(instance: Record<string, unknown>, parsedData: Record<string, unknown>): string {
   return String(
     parsedData?.applicantDepartment ||
       instance.originatorDeptName ||
-      instance.rawData?.originatorDeptName ||
+      (instance.rawData as Record<string, unknown>)?.originatorDeptName ||
       ''
   );
 }
 
-async function writeExpenseInstance(instance, kind, options) {
-  const meta = processor.parseApprovalMeta(instance);
-  const attachments = processor.extractAttachments(instance.formComponentValues);
+async function writeExpenseInstance(instance: Record<string, unknown>, kind: string, options: Record<string, string>): Promise<{ skipped?: boolean; id?: number }> {
+  const meta = processor.parseApprovalMeta(instance as unknown as ApprovalInstance);
+  const attachments = processor.extractAttachments((instance as unknown as ApprovalInstance).formComponentValues);
 
   if (kind === 'operation') {
-    const opData = processor.parseOperationExpenseData(instance.formComponentValues);
-    const amount = opData.amount ?? normalizeNumber(processor.parseFormData(instance.formComponentValues).amount);
-    const currency = opData.currency ?? processor.parseFormData(instance.formComponentValues).currency;
+    const opData = processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
+    const amount = opData.amount ?? normalizeNumber(processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).amount);
+    const currency = opData.currency ?? processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).currency;
     const baseCurrencyAmount = await convertAmountToCny({
       amount,
       currencyLabel: currency,
-      createTime: instance.createTime
+      createTime: String(instance.createTime || '')
     });
     const id = await database.upsertOperationExpense({
       ...opData,
-      processInstanceId: instance.processInstanceId || null,
-      businessId: instance.businessId,
-      amount,
-      currency,
-      baseCurrencyAmount,
+      processInstanceId: String(instance.processInstanceId || ''),
+      businessId: String(instance.businessId),
+      amount: amount as number,
+      currency: currency as string,
+      baseCurrencyAmount: baseCurrencyAmount as number,
       ...meta,
-      rawData: instance
+      rawData: instance as unknown as Record<string, unknown>
     });
     if (id) {
       await database.replaceAttachments('operation', id, attachments);
     }
-    return { id, amount, currency, baseCurrencyAmount, department: opData.applicantDepartment };
+    return { id, amount: amount as number, currency: currency as string, baseCurrencyAmount: baseCurrencyAmount as number, department: opData.applicantDepartment } as unknown as { skipped?: boolean; id?: number };
   }
 
   if (kind === 'purchase') {
-    const pData = processor.parsePurchaseExpenseData(instance.formComponentValues);
-    const formData = processor.parseFormData(instance.formComponentValues);
+    const pData = processor.parsePurchaseExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
+    const formData = processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues);
     const amount = pData.detailSummaryAmount ?? normalizeNumber(formData.amount);
     const currency = pData.currency ?? formData.currency;
     const baseCurrencyAmount = await convertAmountToCny({
       amount,
       currencyLabel: currency,
-      createTime: instance.createTime
+      createTime: String(instance.createTime || '')
     });
     const id = await database.upsertPurchaseExpense({
       ...pData,
-      processInstanceId: instance.processInstanceId || null,
-      businessId: instance.businessId,
-      baseCurrencyAmount,
+      processInstanceId: String(instance.processInstanceId || ''),
+      businessId: String(instance.businessId),
+      baseCurrencyAmount: baseCurrencyAmount as number,
       ...meta,
-      rawData: instance
+      rawData: instance as unknown as Record<string, unknown>
     });
     if (id) {
       await database.replaceAttachments('purchase', id, attachments);
@@ -193,23 +194,23 @@ async function writeExpenseInstance(instance, kind, options) {
       if (amount != null || currency || formData.beneficiary || formData.paymentDate || formData.paymentTerms) {
         payments.push({
           rowNo: 1,
-          beneficiary: formData.beneficiary || null,
-          amount,
-          paymentTerms: formData.paymentTerms || null,
-          currency: currency || null,
-          paymentDate: formData.paymentDate || null,
-          rawData: null
+          beneficiary: formData.beneficiary ? String(formData.beneficiary) : undefined,
+          amount: amount as number,
+          paymentTerms: formData.paymentTerms ? String(formData.paymentTerms) : undefined,
+          currency: currency ? String(currency) : undefined,
+          paymentDate: formData.paymentDate ? String(formData.paymentDate) : undefined,
+          rawData: undefined
         });
       }
       await database.replacePurchasePayments(id, payments);
     }
-    return { id, amount, currency, baseCurrencyAmount, department: pData.applicantDepartment };
+    return { id, amount: amount as number, currency: currency as string, baseCurrencyAmount: baseCurrencyAmount as number, department: pData.applicantDepartment } as unknown as { skipped?: boolean; id?: number };
   }
 
-  return { skipped: true, reason: 'unsupported process kind' };
+  return { skipped: true };
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const processFilter = parseProcessArg(args.process || args.processType || args.process_type);
   const departmentFilter = String(args.department || '').trim().toLowerCase();
@@ -233,7 +234,7 @@ async function main() {
   }, null, 2));
 
   let items = await collectInstanceIds(startMs, endMs, processFilter);
-  if (Number.isFinite(limit) && limit > 0) {
+  if (Number.isFinite(limit) && limit && limit > 0) {
     items = items.slice(0, limit);
   }
 
@@ -257,8 +258,8 @@ async function main() {
       }
 
       const previewData = item.kind === 'purchase'
-        ? processor.parsePurchaseExpenseData(instance.formComponentValues)
-        : processor.parseOperationExpenseData(instance.formComponentValues);
+        ? processor.parsePurchaseExpenseData((instance as unknown as ApprovalInstance).formComponentValues)
+        : processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
       const departmentText = getDepartmentText(instance, previewData).toLowerCase();
       if (departmentFilter && !departmentText.includes(departmentFilter)) {
         skipped++;
@@ -284,9 +285,10 @@ async function main() {
       } else {
         written++;
       }
-    } catch (e) {
+    } catch (e: unknown) {
       failed++;
-      console.error(`failed processInstanceId=${item.processInstanceId}: ${e.message}`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`failed processInstanceId=${item.processInstanceId}: ${message}`);
     }
     await dingtalk.sleep(120);
   }
@@ -302,8 +304,10 @@ async function main() {
   await database.close();
 }
 
-main().catch(async (e) => {
+main().catch(async (e: unknown) => {
   console.error(e);
   await database.close().catch(() => {});
   process.exit(1);
 });
+
+

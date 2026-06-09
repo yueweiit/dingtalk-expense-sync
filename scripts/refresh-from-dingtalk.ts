@@ -3,14 +3,15 @@
  * 若日志提示「仍用 business_id 兜底」且 HTTP 400：请改用 refresh-from-dingtalk-window.js 按时间窗口拉列表 ID。
  * 例：node scripts/refresh-from-dingtalk.js --department=IT --limit=200
  */
-const dingtalk = require('../src/dingtalk');
-const processor = require('../src/processor');
-const database = require('../src/database');
-const config = require('../src/config');
-const { resolveProcessInstanceFetchId } = require('../src/workflowIds');
+import dingtalk from '../src/dingtalk.js';
+import processor from '../src/processor.js';
+import database, { pool } from '../src/database.js';
+import config from '../src/config.js';
+import { resolveProcessInstanceFetchId } from '../src/workflowIds.js';
+import type { ApprovalInstance } from '../src/processor.js';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const item of argv) {
     if (!item.startsWith('--')) continue;
     const [k, v] = item.slice(2).split('=');
@@ -19,7 +20,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function getProcessType(processCode) {
+function getProcessType(processCode: string): string {
   const processCodes = config.dingtalk.processCodes;
   const index = processCodes.indexOf(processCode);
   if (index === 0) return '运营支出';
@@ -27,7 +28,7 @@ function getProcessType(processCode) {
   return '其他';
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const department = args.department || '';
   const limit = Math.min(500, Math.max(1, Number(args.limit || 200)));
@@ -41,11 +42,11 @@ async function main() {
   await database.ensureProcessInstanceIdColumn();
   await database.ensureBaseCurrencyAmountColumn();
 
-  const client = await database.pool.connect();
+  const client = await pool.connect();
   let rows;
   try {
     let sql = `SELECT business_id, process_code, raw_data, process_instance_id FROM approval_instances WHERE department LIKE $1`;
-    const params = [`%${department}%`];
+    const params: unknown[] = [`%${department}%`];
     if (processTypeFilter) {
       sql += ` AND process_type = $2`;
       params.push(processTypeFilter);
@@ -92,12 +93,12 @@ async function main() {
   const instances = instanceResults
     .filter((item) => item.instance)
     .map((item) => {
-      const instance = item.instance;
+      const instance = item.instance!;
       instance.processType = processTypeById.get(instance.businessId) || instance.processType || '其他';
       return instance;
     });
 
-  const results = await processor.processInstances(instances, { force: true });
+  const results = await processor.processInstances(instances as unknown as ApprovalInstance[], { force: true });
   console.log(
     JSON.stringify(
       {
@@ -116,7 +117,9 @@ async function main() {
   await database.close();
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error(err);
   process.exit(1);
 });
+
+

@@ -5,12 +5,12 @@
  * 例：node scripts/reparse-amount-from-raw.js
  *     node scripts/reparse-amount-from-raw.js --processType=采购支出
  */
-const database = require('../src/database');
-const processor = require('../src/processor');
-const { convertAmountToCny } = require('../src/fxToCny');
+import database, { pool } from '../src/database.js';
+import processor from '../src/processor.js';
+import { convertAmountToCny } from '../src/fxToCny.js';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const item of argv) {
     if (!item.startsWith('--')) continue;
     const [k, v] = item.slice(2).split('=');
@@ -19,14 +19,14 @@ function parseArgs(argv) {
   return args;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const processType = args.processType || '采购支出';
   const limit = Math.min(5000, Math.max(1, Number(args.limit || 2000)));
 
   await database.ensureBaseCurrencyAmountColumn();
 
-  const r = await database.pool.query(
+  const r = await pool.query(
     `
       SELECT business_id, raw_data, create_time
       FROM approval_instances
@@ -64,7 +64,7 @@ async function main() {
         currencyLabel: currency,
         createTime: row.create_time
       });
-      await database.pool.query(
+      await pool.query(
         `
           UPDATE approval_instances
           SET amount = COALESCE($2, amount),
@@ -76,9 +76,10 @@ async function main() {
         [row.business_id, amount, currency || null, base]
       );
       ok++;
-    } catch (e) {
+    } catch (e: unknown) {
       fail++;
-      console.error(`${row.business_id}: ${e.message}`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`${row.business_id}: ${message}`);
     }
   }
 
@@ -92,7 +93,9 @@ async function main() {
   await database.close();
 }
 
-main().catch((e) => {
+main().catch((e: unknown) => {
   console.error(e);
   process.exit(1);
 });
+
+

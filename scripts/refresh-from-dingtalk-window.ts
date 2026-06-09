@@ -6,13 +6,14 @@
  *   node scripts/refresh-from-dingtalk-window.js --month=2026-04 --department=IT
  *   node scripts/refresh-from-dingtalk-window.js --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00 --department=IT
  */
-const dingtalk = require('../src/dingtalk');
-const processor = require('../src/processor');
-const database = require('../src/database');
-const config = require('../src/config');
+import dingtalk from '../src/dingtalk.js';
+import processor from '../src/processor.js';
+import database, { pool } from '../src/database.js';
+import config from '../src/config.js';
+import type { ApprovalInstance } from '../src/processor.js';
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (const item of argv) {
     if (!item.startsWith('--')) continue;
     const [k, v] = item.slice(2).split('=');
@@ -21,7 +22,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function getProcessType(processCode) {
+function getProcessType(processCode: string): string {
   const processCodes = config.dingtalk.processCodes;
   const index = processCodes.indexOf(processCode);
   if (index === 0) return '运营支出';
@@ -29,13 +30,13 @@ function getProcessType(processCode) {
   return '其他';
 }
 
-function extractDepartment(instance) {
-  const vals = instance.formComponentValues || [];
-  const f = vals.find((item) => item.name && item.name.includes('部门Departamento'));
+function extractDepartment(instance: Record<string, unknown>): string {
+  const vals = (instance.formComponentValues as Array<Record<string, unknown>>) || [];
+  const f = vals.find((item) => item.name && String(item.name).includes('部门Departamento'));
   return f && f.value != null ? String(f.value) : '';
 }
 
-function resolveTimeRange(args) {
+function resolveTimeRange(args: Record<string, string>): { startMs: number; endMs: number } {
   if (args.month) {
     const [y, m] = args.month.trim().split('-');
     const yi = Number(y);
@@ -61,8 +62,8 @@ function resolveTimeRange(args) {
   throw new Error('请指定 --month=2026-04 或同时指定 --start=... --end=...（ISO 时间字符串）');
 }
 
-async function collectInstanceIds(startMs, endMs) {
-  const items = [];
+async function collectInstanceIds(startMs: number, endMs: number): Promise<Array<{ processInstanceId: string; processCode: string }>> {
+  const items: Array<{ processInstanceId: string; processCode: string }> = [];
   const processCodes = config.dingtalk.processCodes || [];
 
   for (const processCode of processCodes) {
@@ -83,8 +84,8 @@ async function collectInstanceIds(startMs, endMs) {
     } while (nextToken && nextToken !== 0);
   }
 
-  const seen = new Set();
-  const unique = [];
+  const seen = new Set<string>();
+  const unique: Array<{ processInstanceId: string; processCode: string }> = [];
   for (const it of items) {
     if (seen.has(it.processInstanceId)) continue;
     seen.add(it.processInstanceId);
@@ -93,9 +94,9 @@ async function collectInstanceIds(startMs, endMs) {
   return unique;
 }
 
-async function loadBadPurchaseBusinessIds(startMs, endMs, limit) {
+async function loadBadPurchaseBusinessIds(startMs: number, endMs: number, limit?: string): Promise<Set<string>> {
   const maxRows = Math.min(5000, Math.max(1, Number(limit || 1000)));
-  const r = await database.pool.query(
+  const r = await pool.query(
     `
       SELECT business_id
       FROM approval_instances
@@ -118,7 +119,7 @@ async function loadBadPurchaseBusinessIds(startMs, endMs, limit) {
   return new Set(r.rows.map((row) => String(row.business_id)));
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const deptKw = (args.department || '').trim();
   const businessIdFilter = (args.businessId || args.business_id || '').trim();
@@ -190,15 +191,16 @@ async function main() {
         }
       }
 
-      const r = await processor.processInstance(instance, { force: true });
+      const r = await processor.processInstance(instance as unknown as ApprovalInstance, { force: true });
       if (r.skipped) {
         skippedProcessor++;
       } else {
         ok++;
       }
-    } catch (e) {
+    } catch (e: unknown) {
       fetchFail++;
-      console.error(`实例 ${processInstanceId}: ${e.message}`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`实例 ${processInstanceId}: ${message}`);
     }
     await dingtalk.sleep(120);
   }
@@ -221,7 +223,9 @@ async function main() {
   await database.close();
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error(err);
   process.exit(1);
 });
+
+

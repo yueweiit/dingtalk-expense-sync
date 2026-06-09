@@ -2,22 +2,24 @@
  * 诊断：采购支出 base_currency_amount 为 NULL 的原因分布；抽样看 raw_data 表单字段名。
  * 用法：node scripts/diag-purchase-null-base.js [--dingtalk=1]  后一项会拉 2 条钉钉详情对比
  */
-const { Pool } = require('pg');
-const config = require('../src/config');
+import { Pool } from 'pg';
+import config from '../src/config.js';
+import dingtalk from '../src/dingtalk.js';
+import { resolveProcessInstanceFetchId } from '../src/workflowIds.js';
 
 const pool = new Pool(config.database);
 const wantDingtalk = process.argv.includes('--dingtalk=1');
 
-function collectMoneyCurrencyNames(formComponentValues) {
+function collectMoneyCurrencyNames(formComponentValues: unknown): { names: string[]; hits: string[] } {
   if (!Array.isArray(formComponentValues)) {
     return { names: [], hits: [] };
   }
-  const names = formComponentValues.map((x) => x && x.name).filter(Boolean);
+  const names = formComponentValues.map((x) => x && (x as Record<string, unknown>).name).filter(Boolean) as string[];
   const hits = names.filter((n) => /币|moneda|importe|金额|currency|money/i.test(String(n)));
   return { names, hits };
 }
 
-async function main() {
+async function main(): Promise<void> {
   const r1 = await pool.query(`
     SELECT COALESCE(NULLIF(TRIM(currency), ''), '(空)') AS cur,
            COUNT(*)::int AS n
@@ -70,8 +72,6 @@ async function main() {
   }
 
   if (wantDingtalk) {
-    const dingtalk = require('../src/dingtalk');
-    const { resolveProcessInstanceFetchId } = require('../src/workflowIds');
     console.log('\n=== 钉钉详情抽样（最多 2 条）===');
     for (const row of r4.rows.slice(0, 2)) {
       const r6 = await pool.query(
@@ -84,10 +84,10 @@ async function main() {
         const inst = await dingtalk.getProcessInstance(pid);
         const parsed = collectMoneyCurrencyNames(inst.formComponentValues);
         const moneyField = Array.isArray(inst.formComponentValues)
-          ? inst.formComponentValues.find((x) => x && x.name && String(x.name).includes('金额'))
+          ? inst.formComponentValues.find((x: Record<string, unknown>) => x && x.name && String(x.name).includes('金额'))
           : null;
         const curField = Array.isArray(inst.formComponentValues)
-          ? inst.formComponentValues.find((x) => x && x.name && /币|Moneda/i.test(String(x.name)))
+          ? inst.formComponentValues.find((x: Record<string, unknown>) => x && x.name && /币|Moneda/i.test(String(x.name)))
           : null;
         console.log(
           JSON.stringify(
@@ -104,8 +104,9 @@ async function main() {
             2
           )
         );
-      } catch (e) {
-        console.log(`钉钉拉取失败 business_id=${row.business_id} fetchId=${pid}: ${e.message}`);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.log(`钉钉拉取失败 business_id=${row.business_id} fetchId=${pid}: ${message}`);
       }
     }
   }
@@ -113,7 +114,7 @@ async function main() {
   await pool.end();
 }
 
-main().catch((e) => {
+main().catch((e: unknown) => {
   console.error(e);
   process.exit(1);
 });
