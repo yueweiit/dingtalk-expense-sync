@@ -1,0 +1,1045 @@
+{
+    "result": {
+        "creatorUserId": "17600775501628783",
+        "gmtModified": "2026-06-09T11:55Z",
+        "formUuid": "FORM-12C03160-E599-4A19-9563-EAA76726967F",
+        "bizType": "",
+        "ownerIdType": "orgId",
+        "formCode": "PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA",
+        "icon": "https://img.alicdn.com/imgextra/i2/O1CN01Pq6qcT25LdJ3UUy0b_!!6000000007510-0-tps-480-480.jpg",
+        "memo": "",
+        "engineType": 0,
+        "gmtCreate": "2026-03-10T23:10Z",
+        "schemaContent": {
+            "icon": "biz#pink",
+            "title": "运营支出 Gastos de Operación",
+            "items": [
+                {
+                    "componentName": "TextNote",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "notPrint": "0",
+                        "bizAlias": "",
+                        "id": "TextNote_UECJQFDOJSG0",
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "DDDateField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "unit": "天",
+                        "holidayOptions": [],
+                        "format": "yyyy-MM-dd",
+                        "bizAlias": "",
+                        "id": "DDDateField_29I59O630HUS",
+                        "label": "申请日期Fecha de solicitud",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]"
+                    }
+                },
+                {
+                    "componentName": "DepartmentField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "DepartmentField_WNH6RKD27280",
+                        "label": "申请部门/组织 Departamento Solicitante",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]"
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"生产Producción\",\"key\":\"option_0\"}",
+                            "{\"value\":\"非生产 No producción\",\"key\":\"option_1\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_JTFRFTAFTTO0",
+                        "label": "生产/非生产Producción / No producción",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "TextField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "TextField_HQJISZX4Y480",
+                        "label": "本月预算金额Importe presupuestado del mes",
+                        "placeholder": "请输入",
+                        "required": true,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "TextField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "TextField_SKUJ6DR8EFK0",
+                        "label": "本月预算已用金额Importe utilizado del presupuesto mensual",
+                        "placeholder": "请输入",
+                        "required": true,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"费用报销Reembolso de gastos\",\"key\":\"option_0\"}",
+                            "{\"value\":\"付款申请Solicitud de pago\",\"key\":\"option_1\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_FXN62BAZA4G0",
+                        "label": "申请类型Tipo de trámite",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"销售费用Gastos de venta \",\"key\":\"option_1\"}",
+                            "{\"value\":\"管理费用Gastos administrativos\",\"key\":\"option_18CLZHPA2S000\"}",
+                            "{\"value\":\"财务费用Gastos financieros\",\"key\":\"option_I7ZMGRT0VM80\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_RIQQC9Q99KW0",
+                        "label": "支出类型",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": [
+                            {
+                                "value": "option_1",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_UECJQFDOJSG0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1FEAISH1BZ4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_11O6SVHWPA0W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDPhotoField_1758G0ARJJ1C0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDAttachment-K12EG2FM"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_XK00TDTWGYO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_209HNS3E5HHC0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1EZOBWHB6GSG0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_I7ZMGRT0VM80",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_RBAM4AXHZK00"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_XK00TDTWGYO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDAttachment-K12EG2FM"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDPhotoField_1758G0ARJJ1C0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_209HNS3E5HHC0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_11O6SVHWPA0W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1FEAISH1BZ4W0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_18CLZHPA2S000",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_XK00TDTWGYO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDAttachment-K12EG2FM"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDPhotoField_1758G0ARJJ1C0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextNote_209HNS3E5HHC0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_11O6SVHWPA0W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1CHIGP4L45K00"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1FEAISH1BZ4W0"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"中国China\",\"key\":\"option_0\"}",
+                            "{\"value\":\"墨西哥Mexico\",\"key\":\"option_1\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_1FEAISH1BZ4W0",
+                        "label": "执行地区Región de ejecución",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"职工福利费 Gastos de beneficios laborales\",\"key\":\"option_1JT2UKH6GOE80\"}",
+                            "{\"value\":\"工资salario\",\"key\":\"option_1OLI49H48UGW0\"}",
+                            "{\"value\":\"奖金 Bonificaciones\",\"key\":\"option_M72KKO6PFF40\"}",
+                            "{\"value\":\"管理费用Gastos administrativos\",\"key\":\"option_SY055X3QYGW0\"}",
+                            "{\"extension\":{\"image\":\"\"},\"value\":\"车辆使用费gastos de uso de vehículo\",\"key\":\"option_E4FVU6P1UNS0\"}",
+                            "{\"extension\":{\"image\":\"\"},\"value\":\"税费Impuestos\",\"key\":\"option_HQSZ2BJYAKG0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_1CHIGP4L45K00",
+                        "label": "管理支出Gastos de operación",
+                        "placeholder": " Detalles de pago付款详细事由",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": [
+                            {
+                                "value": "option_1JT2UKH6GOE80",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_Y6E8VEROPTS0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_1OLI49H48UGW0",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDMultiSelectField_ZCB0DINS0400"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TableField_13B0RI3JBQXS0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_SY055X3QYGW0",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1S3EM45QN6AO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_E4FVU6P1UNS0",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_5ATUMNKTXRS0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_HQSZ2BJYAKG0",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_I4XXNWDVGTC0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_M72KKO6PFF40",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDDateField_1Q7ARFPRW8OW0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_199XDJ3I2RMO0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_FGTWRBRZ2340"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "MoneyField_1FPZGEQOZ4M80"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "TextareaField_FS04VIPFB4W0"
+                                    },
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_1EXJ8EDPW0WW0"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"离职金Finiquitos\",\"key\":\"option_1\"}",
+                            "{\"value\":\"圣诞赏钱Aguinaldo\",\"key\":\"option_2\"}",
+                            "{\"value\":\"住宿费Gastos de alojamiento\",\"key\":\"option_1GOXMN1I0EBK0\"}",
+                            "{\"value\":\"餐费Gastos de comida\",\"key\":\"option_J2G0QTJWXZK0\"}",
+                            "{\"value\":\"生活补贴Subvención de Vida\",\"key\":\"option_3BPVV6FODFS0\"}",
+                            "{\"value\":\"通讯补贴Bonificación Comunicacional\",\"key\":\"option_J6IJ9J6MTP40\"}",
+                            "{\"value\":\"员工活动经费Fondos para actividades de empleados\",\"key\":\"option_XQH6P27RLC00\"}",
+                            "{\"value\":\"节日福利Beneficios por ocasiones festivas\",\"key\":\"option_22PXLCMA92LC0\"}",
+                            "{\"value\":\"金融服务抵扣Pago Fonacot\",\"key\":\"option_11SY4OXY2ZWG0\"}",
+                            "{\"value\":\"社保Seguro Social\",\"key\":\"option_23POM6FBKY0W0\"}",
+                            "{\"value\":\"养老金&公积金RCV&INFONAVIT\",\"key\":\"option_16CLBVXGOLMO0\"}",
+                            "{\"value\":\"出国补贴Subsidios para viajes al extranjero\",\"key\":\"option_H0WBNH9C8600\"}",
+                            "{\"value\":\"额外保险支出Gastos de seguros adicionales\",\"key\":\"option_18Z45BG1UICG0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_Y6E8VEROPTS0",
+                        "label": "职工福利费 Gastos de beneficios laborales",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"生产奖金Bono de producción\",\"key\":\"option_0\"}",
+                            "{\"value\":\"年终奖Bonificación Anual\",\"key\":\"option_1\"}",
+                            "{\"value\":\"优秀员工奖Premio al empleado destacado\",\"key\":\"option_2\"}",
+                            "{\"value\":\"个人价值增长奖金Premio por el crecimiento del valor personal\",\"key\":\"option_1Y6JCQ2ZXX5S0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_1EXJ8EDPW0WW0",
+                        "label": "奖金 Bonificaciones",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDMultiSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"Quincenal半月薪\",\"key\":\"option_0\"}",
+                            "{\"value\":\"Semanal周薪\",\"key\":\"option_1\"}",
+                            "{\"value\":\"Salario mensual月薪\",\"key\":\"option_2\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDMultiSelectField_ZCB0DINS0400",
+                        "label": "工资salario",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"医药费Gastos médicos\",\"key\":\"option_0\"}",
+                            "{\"value\":\"饮用水费Agua\",\"key\":\"option_1\"}",
+                            "{\"value\":\"用水费用Gastos de Consumo de Agua\",\"key\":\"option_2\"}",
+                            "{\"value\":\"租金Rentas\",\"key\":\"option_1ZDVF0JTTPXC0\"}",
+                            "{\"value\":\"电费Factura de Electricidad\",\"key\":\"option_1OVZ1F6BHRWG0\"}",
+                            "{\"value\":\"网络费Gastos de internet\",\"key\":\"option_M2O8OS0TXIO0\"}",
+                            "{\"value\":\"废弃物处理费用Gastos de Tratamiento de Residuos\",\"key\":\"option_1YLQWTLZ5NLS0\"}",
+                            "{\"value\":\"接待费Tarifa de recepción\",\"key\":\"option_1JPO2CQ8JTC00\"}",
+                            "{\"value\":\"签证费Gastos de visa\",\"key\":\"option_6Y107EWYJFC0\"}",
+                            "{\"value\":\"律师费Honorarios legales\",\"key\":\"option_1YP9XHO5XJEO0\"}",
+                            "{\"value\":\"服务费Honorarios por servicios\",\"key\":\"option_1PJ5WYUKWVUO0\"}",
+                            "{\"value\":\"交通费用Gastos de transporte\",\"key\":\"option_1Y4KY9C4N6O00\"}",
+                            "{\"value\":\"安保费  Gastos de seguridad\",\"key\":\"option_1DT7DQI0K2740\"}",
+                            "{\"value\":\"清理费（办公卫生打扫、处理一般垃圾、危险性垃圾）Gastos de limpieza (limpieza del entorno de trabajo, disposición de residuos ordinarios y peligrosos)\",\"key\":\"option_OTUN7FNRTBK0\"}",
+                            "{\"value\":\"平台使用费  Gastos de uso de la plataforma\",\"key\":\"option_GMWS18N0NGO0\"}",
+                            "{\"value\":\"招聘费  Gastos de reclutamiento\",\"key\":\"option_KE9GT43OM340\"}",
+                            "{\"value\":\"安全生产费  Gastos de seguridad industrial\",\"key\":\"option_1NCIDWTO6M800\"}",
+                            "{\"value\":\"会议费Gastos de conferencia\",\"key\":\"option_1BYPMFM6F8680\"}",
+                            "{\"value\":\"管理咨询Gastos de consultoría administrativa\",\"key\":\"option_1WRVEMH47YBK0\"}",
+                            "{\"value\":\"法律顾问费Gastos de asesoría lega\",\"key\":\"option_2FEXD75Q0SNW\"}",
+                            "{\"value\":\"年度审计费Honorarios de auditoría anual\",\"key\":\"option_1UOZUSXAXPC00\"}",
+                            "{\"value\":\"税务鉴证费Honorarios de comprobación fiscal\",\"key\":\"option_VUAVEECMZN40\"}",
+                            "{\"value\":\"捐赠支出Gasto de donación\",\"key\":\"option_1O7TP89X9MJK0\"}",
+                            "{\"value\":\"股权激励Incentivos de acciones\",\"key\":\"option_1RTS0RB4E2XS0\"}",
+                            "{\"value\":\"技能培训费Gastos de formación\",\"key\":\"option_RKND0DMUA0G0\"}",
+                            "{\"value\":\"管理费用报销Reembolso de gastos administrativos\",\"key\":\"option_UI4BW377YN40\"}",
+                            "{\"value\":\"应急防护Protección de emergencia\",\"key\":\"option_BQSS2UXXGCO0\"}",
+                            "{\"value\":\"环保与合规支出 Gastos de medio ambiente y cumplimiento normativo\",\"key\":\"option_GXOQ63IKGI80\"}",
+                            "{\"value\":\"公司合规认证支出 Gastos de certificación de cumplimiento normativo de la empresa\",\"key\":\"option_V72M87G87UO0\"}",
+                            "{\"value\":\"额外保险支出Gastos de seguros adicionales\",\"key\":\"option_1TQYYOMQ056O0\"}",
+                            "{\"value\":\"会计和税务服务费 Honorarios de contabilidad y servicios fiscales\",\"key\":\"option_23X4550T6T6O0\"}",
+                            "{\"value\":\"快递费Gastos de envío(documentos,contratos)\",\"key\":\"option_1JRZ2JGX1JUO0\"}",
+                            "{\"value\":\"年检及资质认证 Gastos de verificación  anual y certificación\",\"key\":\"option_JBTJZQAJVS80\"}",
+                            "{\"value\":\"管理用软件 software administrativo\",\"key\":\"option_201PJ439LHI80\"}",
+                            "{\"value\":\"专利、商标的申请费、维护费及摊销费 Gastos de solicitud, mantenimiento y amortización de patentes y marcas comerciales\",\"key\":\"option_10SRCPMUXAKG0\"}",
+                            "{\"value\":\"办公用品采购费 Gastos de adquisición de útiles de oficina\",\"key\":\"option_ZY3O4FQFBXC0\"}",
+                            "{\"value\":\"办公设备的购置、维修或租赁费 Gastos de adquisición, reparación o alquiler de equipos de oficina\",\"key\":\"option_1IA4WL19ZXGG0\"}",
+                            "{\"value\":\"管理人员出差 Viajes del personal directivo\",\"key\":\"option_1EG72IPQMO2O0\"}",
+                            "{\"value\":\"物业管理费gastos de administración de la propiedad\",\"key\":\"option_4RW33LMTFE60\"}",
+                            "{\"value\":\"AI 大模型 Token 费用Costo de Token de Grandes Modelos de IA\",\"key\":\"option_D06ZJJ4FSKO0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_1S3EM45QN6AO0",
+                        "label": "管理费用Gastos administrativos",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"停车费Tarifa de estacionamiento\",\"key\":\"option_0\"}",
+                            "{\"value\":\"汽油费Gastos de Gasolina\",\"key\":\"option_1\"}",
+                            "{\"value\":\"汽车维修保养Mantenimiento de automóviles\",\"key\":\"option_2\"}",
+                            "{\"value\":\"汽车年检Inspección Técnica de Vehículos\",\"key\":\"option_1VVSMSDE8BWG\"}",
+                            "{\"value\":\"ETC\",\"key\":\"option_R0BVEHYJKXC0\"}",
+                            "{\"value\":\"车辆使用费用报销Reembolso de gastos de uso de vehículos\",\"key\":\"option_BIDPH9BGHLC0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_5ATUMNKTXRS0",
+                        "label": "车辆使用费gastos de uso de vehículo",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"企业所得税Impuesto sobre Sociedades\",\"key\":\"option_0\"}",
+                            "{\"value\":\"薪资税/个税Renta\",\"key\":\"option_1\"}",
+                            "{\"value\":\"其他税费 Otros impuestos y tarifas\",\"key\":\"option_U00LHTT4W6O0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_I4XXNWDVGTC0",
+                        "label": "税费Impuestos",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"extension\":{\"image\":\"\"},\"value\":\"利息费用（如利息支出）Gastos de interés (por ejemplo, pago de intereses)\",\"key\":\"option_1PTFCOKNCIQO0\"}",
+                            "{\"value\":\"汇兑损益（如交易性汇兑损益，兑换性汇兑损益） Ganancias o pérdidas por cambios de tipo de cambio (por ejemplo, ganancias o pérdidas por cambios de tipo de cambio en transacciones, ganancias o pérdidas por cambios de tipo de cambio en conversiones)\",\"key\":\"option_9Z5BPZBWXSS0\"}",
+                            "{\"extension\":{\"image\":\"\"},\"value\":\"手续费（如银行基础业务手续费、平台支付手续费等 Comisiones (por ejemplo, comisiones por servicios básicos bancarios, comisiones por pagos en plataformas, etc.)\",\"key\":\"option_1HUOACZUR0XS0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_RBAM4AXHZK00",
+                        "label": "财务相关费用Gastos relacionados con finanzas",
+                        "placeholder": " Detalles de pago付款详细事由",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"销售团队与客户服务费用 Gastos del equipo de ventas y  servicios al cliente\",\"key\":\"option_0\"}",
+                            "{\"value\":\"销售渠道管理与佣金费用 Gastos de gestión de  canales de venta y comisiones\",\"key\":\"option_1\"}",
+                            "{\"value\":\"市场推广与广告费用 Gastos de marketing, promoción y publicidad\",\"key\":\"option_YEAWM30SON40\"}",
+                            "{\"value\":\"其他销售相关费用 Otros gastos relacionados con las ventas \",\"key\":\"option_PX096W10QB40\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_1EZOBWHB6GSG0",
+                        "label": "销售费用  Gastos de venta",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": [
+                            {
+                                "value": "option_0",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_U0QE7GNDJU80"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_1",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_19Z73JWHJX9C"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_PX096W10QB40",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_Y4F21W7ZRZ40"
+                                    }
+                                ]
+                            },
+                            {
+                                "value": "option_YEAWM30SON40",
+                                "targets": [
+                                    {
+                                        "behavior": "NORMAL",
+                                        "fieldId": "DDSelectField_NENOZ8ZDOIO0"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"渠道费用Gastos de canal\",\"key\":\"option_0\"}",
+                            "{\"value\":\"渠道、客户拓展费：Gastos de ampliación de canales y clientes\",\"key\":\"option_1\"}",
+                            "{\"value\":\"渠道维护费Gastos de mantenimiento de canal\",\"key\":\"option_2\"}",
+                            "{\"value\":\"销售佣金与提成Comisiones y primas de venta\",\"key\":\"option_293H3LDQL7PC\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_19Z73JWHJX9C",
+                        "label": "销售渠道管理与佣金费用 Gastos de gestión de  canales de venta",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"门店运营费Gastos de operación de la tienda\",\"key\":\"option_0\"}",
+                            "{\"value\":\"客户服务费Gastos de servicio al cliente\",\"key\":\"option_1\"}",
+                            "{\"value\":\"门店设备费Gastos de equipos de la tienda\",\"key\":\"option_2\"}",
+                            "{\"value\":\"售后费用Gastos post - venta\",\"key\":\"option_293H3LDQL7PC\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_U0QE7GNDJU80",
+                        "label": "销售团队与客户服务费用 Gastos del equipo de ventas y  servici",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"运输与配送费Gastos de transporte y distribución\",\"key\":\"option_0\"}",
+                            "{\"value\":\"快递费Gastos de correo express\",\"key\":\"option_1\"}",
+                            "{\"value\":\"折旧与摊销费Gastos de amortización y depreciación\",\"key\":\"option_2\"}",
+                            "{\"value\":\"其他杂费Otros gastos diversos\",\"key\":\"option_293H3LDQL7PC\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_Y4F21W7ZRZ40",
+                        "label": "其他销售相关费用 Otros gastos relacionados con las ventas ",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"广告宣传费Gastos de publicidad\",\"key\":\"option_0\"}",
+                            "{\"value\":\"品牌建设费Gastos de construcción de marca\",\"key\":\"option_1\"}",
+                            "{\"value\":\"市场推广费用报销Reembolso de gastos de promoción de mercado\",\"key\":\"option_20WGNRLMLNEO0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_NENOZ8ZDOIO0",
+                        "label": "市场推广与广告费用 Gastos de marketing, promoción y publici",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "children": [
+                        {
+                            "componentName": "DDSelectField",
+                            "props": {
+                                "options": [
+                                    "{\"value\":\"选项1\",\"key\":\"option_0\"}",
+                                    "{\"value\":\"选项2\",\"key\":\"option_1\"}",
+                                    "{\"value\":\"选项3\",\"key\":\"option_2\"}"
+                                ],
+                                "bizAlias": "",
+                                "id": "DDSelectField_YEOAPAJJFPC0",
+                                "label": "部门 Departamento",
+                                "required": true
+                            }
+                        },
+                        {
+                            "componentName": "MoneyField",
+                            "props": {
+                                "bizAlias": "",
+                                "id": "MoneyField_T2TFVV7BXN40",
+                                "label": "金额（元）Monto (yuan)",
+                                "required": true
+                            }
+                        },
+                        {
+                            "componentName": "TextField",
+                            "props": {
+                                "bizAlias": "",
+                                "id": "TextField_SZ57CIDK9J40",
+                                "label": "备注 Nota",
+                                "required": false
+                            }
+                        }
+                    ],
+                    "componentName": "TableField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "TableField_13B0RI3JBQXS0",
+                        "label": "总工资支出（分部门）Total de gastos salar (por departamento)",
+                        "push": {},
+                        "actionName": "添加"
+                    }
+                },
+                {
+                    "componentName": "TextareaField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "TextareaField_11O6SVHWPA0W0",
+                        "label": "事项说明Explicación de asuntos",
+                        "placeholder": "请输入",
+                        "required": true,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "TextareaField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "TextareaField_FS04VIPFB4W0",
+                        "label": "收款人beneficiario",
+                        "placeholder": "请输入",
+                        "required": true,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "MoneyField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "notUpper": "0",
+                        "bizAlias": "",
+                        "id": "MoneyField_1FPZGEQOZ4M80",
+                        "label": "金额importe",
+                        "placeholder": "请输入金额",
+                        "required": true,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"Contado付现\",\"key\":\"option_0\"}",
+                            "{\"extension\":{\"image\":\"\"},\"value\":\"transferencia bancaria银行转账\",\"key\":\"option_200NBR2FHD0G0\"}",
+                            "{\"value\":\"Pago a plazos分期付款\",\"key\":\"option_1\"}",
+                            "{\"value\":\"pago mensual月结付款\",\"key\":\"option_4F3O260Z7CI0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_FGTWRBRZ2340",
+                        "label": "付款条件Términos de pago",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDSelectField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "options": [
+                            "{\"value\":\"比索Peso\",\"key\":\"option_16ZF0ERU12F40\"}",
+                            "{\"value\":\"美元Dólar\",\"key\":\"option_3H7P58Z6K3Y0\"}",
+                            "{\"value\":\"人民币RMB\",\"key\":\"option_X5HKLQIFDLC0\"}"
+                        ],
+                        "bizAlias": "",
+                        "id": "DDSelectField_199XDJ3I2RMO0",
+                        "label": "币种Moneda",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {},
+                        "fieldsInfo": "[]",
+                        "behaviorLinkage": []
+                    }
+                },
+                {
+                    "componentName": "DDDateField",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "unit": "天",
+                        "holidayOptions": [],
+                        "format": "yyyy-MM-dd",
+                        "bizAlias": "",
+                        "id": "DDDateField_1Q7ARFPRW8OW0",
+                        "label": "付款日期Fecha de pago",
+                        "placeholder": "请选择",
+                        "required": true,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "TextNote",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "notPrint": "0",
+                        "bizAlias": "",
+                        "id": "TextNote_209HNS3E5HHC0",
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "DDAttachment",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "bizAlias": "",
+                        "id": "DDAttachment-K12EG2FM",
+                        "label": "关键凭证Comprobante clave",
+                        "required": false,
+                        "push": {}
+                    }
+                },
+                {
+                    "componentName": "TextNote",
+                    "props": {
+                        "staffStatusEnabled": false,
+                        "holidayOptions": [],
+                        "notPrint": "0",
+                        "bizAlias": "",
+                        "id": "TextNote_XK00TDTWGYO0",
+                        "push": {}
+                    }
+                }
+            ]
+        },
+        "appUuid": "ding144583309b2fb01c35c2f4657eb6378f",
+        "appType": 0,
+        "visibleRange": "PRIVATE",
+        "listOrder": 1685,
+        "name": "运营支出 Gastos de Operación",
+        "status": "PUBLISHED",
+        "procType": "inner"
+    }
+}
