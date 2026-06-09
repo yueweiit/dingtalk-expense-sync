@@ -2,21 +2,24 @@
   "name": "dingtalk-approval-fetcher",
   "version": "1.0.0",
   "description": "定时获取钉钉审批数据",
-  "main": "src/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "refresh:dingtalk": "node scripts/refresh-from-dingtalk.js",
-    "refresh:dingtalk:window": "node scripts/refresh-from-dingtalk-window.js",
-    "backfill:cashier": "node scripts/backfill-cashier-status.js",
-    "backfill:base-currency": "node scripts/backfill-base-currency.js",
-    "sync:fx-rates": "node scripts/sync-fx-rates.js",
-    "sync:approval-expenses": "node scripts/sync-approval-expenses-from-dingtalk.js",
-    "db:ensure-fx-rates": "node scripts/ensure-fx-rates-table.js",
-    "db:ensure-approval-expense-schema": "node scripts/ensure-approval-expense-schema.js",
-    "db:rebuild-approval-expense-schema": "node scripts/rebuild-approval-expense-schema.js",
-    "backfill:approval-expense-schema": "node scripts/backfill-approval-expense-schema.js",
-    "reparse:amount-from-raw": "node scripts/reparse-amount-from-raw.js"
+    "start": "npm run build && node dist/src/index.js",
+    "dev": "nodemon --watch src --watch scripts --ext js,ts --exec \"npm run build && node dist/src/index.js\"",
+    "refresh:dingtalk": "npm run build && node dist/scripts/refresh-from-dingtalk.js",
+    "refresh:dingtalk:window": "npm run build && node dist/scripts/refresh-from-dingtalk-window.js",
+    "backfill:cashier": "npm run build && node dist/scripts/backfill-cashier-status.js",
+    "backfill:base-currency": "npm run build && node dist/scripts/backfill-base-currency.js",
+    "sync:fx-rates": "npm run build && node dist/scripts/sync-fx-rates.js",
+    "sync:approval-expenses": "npm run build && node dist/scripts/sync-approval-expenses-from-dingtalk.js",
+    "db:ensure-fx-rates": "npm run build && node dist/scripts/ensure-fx-rates-table.js",
+    "db:ensure-approval-expense-schema": "npm run build && node dist/scripts/ensure-approval-expense-schema.js",
+    "db:rebuild-approval-expense-schema": "npm run build && node dist/scripts/rebuild-approval-expense-schema.js",
+    "backfill:approval-expense-schema": "npm run build && node dist/scripts/backfill-approval-expense-schema.js",
+    "reparse:amount-from-raw": "npm run build && node dist/scripts/reparse-amount-from-raw.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -28,6 +31,12 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.2",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.20.0",
+    "nodemon": "^3.0.2",
+    "typescript": "^6.0.3"
   }
 }
