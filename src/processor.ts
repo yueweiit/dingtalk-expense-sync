@@ -177,33 +177,70 @@ class ApprovalProcessor {
       (item) => item.componentType === 'TableField' && item.id === tableFieldId
     );
 
-    if (!tableField || !tableField.details || !Array.isArray(tableField.details)) {
+    if (!tableField) {
       return null;
     }
 
     // 解析每一行数据
     const rows: Array<{ department: string; amount: number; note: string }> = [];
 
-    for (const row of tableField.details) {
-      if (!Array.isArray(row)) continue;
+    // 优先使用 details 字段（新版钉钉 API 格式）
+    if (tableField.details && Array.isArray(tableField.details)) {
+      for (const row of tableField.details) {
+        if (!Array.isArray(row)) continue;
 
-      let department = '';
-      let amount = 0;
-      let note = '';
+        let department = '';
+        let amount = 0;
+        let note = '';
 
-      for (const cell of row) {
-        if (cell.id === 'DDSelectField_YEOAPAJJFPC0') {
-          department = String(cell.value || '').trim();
-        } else if (cell.id === 'MoneyField_T2TFVV7BXN40') {
-          amount = this.normalizeNumber(cell.value) || 0;
-        } else if (cell.id === 'TextField_SZ57CIDK9J40') {
-          note = String(cell.value || '').trim();
+        for (const cell of row) {
+          if (cell.id === 'DDSelectField_YEOAPAJJFPC0') {
+            department = String(cell.value || '').trim();
+          } else if (cell.id === 'MoneyField_T2TFVV7BXN40') {
+            amount = this.normalizeNumber(cell.value) || 0;
+          } else if (cell.id === 'TextField_SZ57CIDK9J40') {
+            note = String(cell.value || '').trim();
+          }
+        }
+
+        // 只添加有部门和金额的有效行
+        if (department && amount > 0) {
+          rows.push({ department, amount, note });
         }
       }
+    }
+    // 如果 details 不存在，尝试解析 value 字段（旧版钉钉 API 格式）
+    else if (tableField.value && typeof tableField.value === 'string') {
+      try {
+        const parsed = JSON.parse(tableField.value);
+        if (Array.isArray(parsed)) {
+          for (const row of parsed) {
+            if (!row || !Array.isArray(row.rowValue)) continue;
 
-      // 只添加有部门和金额的有效行
-      if (department && amount > 0) {
-        rows.push({ department, amount, note });
+            let department = '';
+            let amount = 0;
+            let note = '';
+
+            for (const cell of row.rowValue) {
+              if (cell.key === 'DDSelectField_YEOAPAJJFPC0') {
+                department = String(cell.value || '').trim();
+              } else if (cell.key === 'MoneyField_T2TFVV7BXN40') {
+                amount = this.normalizeNumber(cell.value) || 0;
+              } else if (cell.key === 'TextField_SZ57CIDK9J40') {
+                note = String(cell.value || '').trim();
+              }
+            }
+
+            // 只添加有部门和金额的有效行
+            if (department && amount > 0) {
+              rows.push({ department, amount, note });
+            }
+          }
+        }
+      } catch (e) {
+        // JSON 解析失败，返回 null
+        logger.warn(`Failed to parse TableField value: ${e}`);
+        return null;
       }
     }
 
