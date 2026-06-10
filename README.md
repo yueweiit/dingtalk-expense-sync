@@ -185,28 +185,39 @@ GET /api/fx-rate?date=2026-06-10
 
 ```
 src/
-├── index.ts          # 入口文件
-├── config.ts         # 配置加载
-├── database.ts       # 数据库操作
-├── dingtalk.ts       # 钉钉 API 封装
-├── processor.ts      # 数据解析处理
-├── scheduler.ts      # 定时任务调度
-├── server.ts         # HTTP 服务
-├── logger.ts         # 日志模块
-├── fxToCny.ts        # 汇率转换
-├── openErFx.ts       # 汇率 API
-└── workflowIds.ts    # 工作流 ID 处理
+├── index.ts              # 入口文件
+├── config.ts             # 配置加载
+├── database.ts           # 数据库模块入口（重导出）
+├── database/
+│   ├── index.ts          # Database 类组装
+│   ├── pool.ts           # 连接池配置
+│   ├── types.ts          # 数据库接口定义
+│   ├── approval.ts       # 审批实例操作
+│   ├── expense.ts        # 支出数据操作
+│   └── fx.ts             # 汇率数据操作
+├── dingtalk.ts           # 钉钉 API 封装
+├── processor.ts          # 数据解析处理
+├── scheduler.ts          # 定时任务调度
+├── server.ts             # HTTP 服务
+├── logger.ts             # 日志模块
+├── fxToCny.ts            # 汇率转换
+├── openErFx.ts           # 汇率 API
+└── workflowIds.ts        # 工作流 ID 处理
 ```
 
 ## 数据库表
 
 | 表名 | 说明 |
 |------|------|
-| `approval_instance` | 审批实例基础信息 |
-| `approval_expense_operation` | 运营支出明细 |
-| `approval_expense_purchase` | 采购支出明细 |
-| `approval_attachment` | 审批附件 |
-| `fx_rates_daily` | 每日汇率 |
+| `approval_instances` | 审批实例主表（基础信息、状态、出纳结果） |
+| `sync_state` | 同步状态（游标，记录增量同步位置） |
+| `fx_rates_daily` | 每日汇率快照（币种→人民币换算） |
+| `approval_expense_operation` | 运营支出明细（结构化字段） |
+| `approval_expense_purchase` | 采购支出明细（结构化字段） |
+| `approval_expense_purchase_items` | 采购明细商品列表 |
+| `approval_expense_purchase_processors` | 采购加工商信息 |
+| `approval_expense_purchase_payments` | 采购付款信息 |
+| `approval_expense_attachments` | 审批附件（运营/采购共用） |
 
 ## License
 
