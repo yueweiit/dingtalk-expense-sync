@@ -1,0 +1,249 @@
+{
+    "result": {
+        "finishTime": "2026-06-10T08:59Z",
+        "attachedProcessInstanceIds": [],
+        "businessId": "202606100859000273507",
+        "title": "董东来提交的【Test】 【测试】运营支出 Gastos de Operación",
+        "originatorDeptId": "1077343081",
+        "operationRecords": [
+            {
+                "date": "2026-06-10T08:59Z",
+                "result": "NONE",
+                "images": [],
+                "showName": "提交申请",
+                "type": "START_PROCESS_INSTANCE",
+                "userId": "03631944242133215596"
+            }
+        ],
+        "formComponentValues": [
+            {
+                "componentType": "TextNote",
+                "bizAlias": "",
+                "id": "TextNote_UECJQFDOJSG0"
+            },
+            {
+                "componentType": "DDDateField",
+                "name": "申请日期Fecha de solicitud",
+                "bizAlias": "",
+                "id": "DDDateField_29I59O630HUS",
+                "value": "2026-06-10"
+            },
+            {
+                "componentType": "DepartmentField",
+                "name": "申请部门/组织 Departamento Solicitante",
+                "bizAlias": "",
+                "id": "DepartmentField_WNH6RKD27280",
+                "value": "悦为智能 YW Tech_Ai",
+                "extValue": "[{\"deptName\":\"悦为智能 YW Tech_Ai\",\"itemId\":\"1077343081\",\"name\":\"悦为智能 YW Tech_Ai\",\"id\":\"1077343081\"}]"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "生产/非生产Producción / No producción",
+                "bizAlias": "",
+                "id": "DDSelectField_JTFRFTAFTTO0",
+                "value": "非生产 No producción",
+                "extValue": "{\"label\":\"非生产 No producción\",\"key\":\"option_1\"}"
+            },
+            {
+                "componentType": "TextField",
+                "name": "本月预算金额Importe presupuestado del mes",
+                "bizAlias": "",
+                "id": "TextField_HQJISZX4Y480",
+                "value": "85908.00"
+            },
+            {
+                "componentType": "TextField",
+                "name": "本月预算已用金额Importe utilizado del presupuesto mensual",
+                "bizAlias": "",
+                "id": "TextField_SKUJ6DR8EFK0",
+                "value": "678.00"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "申请类型Tipo de trámite",
+                "bizAlias": "",
+                "id": "DDSelectField_FXN62BAZA4G0",
+                "value": "付款申请Solicitud de pago",
+                "extValue": "{\"label\":\"付款申请Solicitud de pago\",\"key\":\"option_1\"}"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "支出类型",
+                "bizAlias": "",
+                "id": "DDSelectField_RIQQC9Q99KW0",
+                "value": "管理费用Gastos administrativos",
+                "extValue": "{\"label\":\"管理费用Gastos administrativos\",\"key\":\"option_18CLZHPA2S000\"}"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "执行地区Región de ejecución",
+                "bizAlias": "",
+                "id": "DDSelectField_1FEAISH1BZ4W0",
+                "value": "中国China",
+                "extValue": "{\"label\":\"中国China\",\"key\":\"option_0\"}"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "管理支出Gastos de operación",
+                "bizAlias": "",
+                "id": "DDSelectField_1CHIGP4L45K00",
+                "value": "工资中国Salario en China",
+                "extValue": "{\"label\":\"工资中国Salario en China\",\"key\":\"option_20JIQ8HWTM000\"}"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "职工福利费 Gastos de beneficios laborales",
+                "bizAlias": "",
+                "id": "DDSelectField_Y6E8VEROPTS0"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "奖金 Bonificaciones",
+                "bizAlias": "",
+                "id": "DDSelectField_1EXJ8EDPW0WW0"
+            },
+            {
+                "componentType": "DDMultiSelectField",
+                "name": "工资salario",
+                "bizAlias": "",
+                "id": "DDMultiSelectField_ZCB0DINS0400",
+                "value": "[\"Salario mensual月薪\"]",
+                "extValue": "[{\"label\":\"Salario mensual月薪\",\"key\":\"option_2\"}]"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "管理费用Gastos administrativos",
+                "bizAlias": "",
+                "id": "DDSelectField_1S3EM45QN6AO0"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "车辆使用费gastos de uso de vehículo",
+                "bizAlias": "",
+                "id": "DDSelectField_5ATUMNKTXRS0"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "税费Impuestos",
+                "bizAlias": "",
+                "id": "DDSelectField_I4XXNWDVGTC0"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "财务相关费用Gastos relacionados con finanzas",
+                "bizAlias": "",
+                "id": "DDSelectField_RBAM4AXHZK00"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "销售费用  Gastos de venta",
+                "bizAlias": "",
+                "id": "DDSelectField_1EZOBWHB6GSG0"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "销售渠道管理与佣金费用 Gastos de gestión de  canales de venta",
+                "bizAlias": "",
+                "id": "DDSelectField_19Z73JWHJX9C"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "销售团队与客户服务费用 Gastos del equipo de ventas y  servici",
+                "bizAlias": "",
+                "id": "DDSelectField_U0QE7GNDJU80"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "其他销售相关费用 Otros gastos relacionados con las ventas ",
+                "bizAlias": "",
+                "id": "DDSelectField_Y4F21W7ZRZ40"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "市场推广与广告费用 Gastos de marketing, promoción y publici",
+                "bizAlias": "",
+                "id": "DDSelectField_NENOZ8ZDOIO0"
+            },
+            {
+                "componentType": "TableField",
+                "name": "总工资支出（分部门）Total de gastos salar (por departamento)",
+                "bizAlias": "",
+                "id": "TableField_13B0RI3JBQXS0",
+                "value": "[{\"rowValue\":[{\"label\":\"部门 Departamento\",\"extendValue\":{\"label\":\"悦为智能 YW Tech_Ai\",\"key\":\"option_0\"},\"value\":\"悦为智能 YW Tech_Ai\",\"key\":\"DDSelectField_YEOAPAJJFPC0\"},{\"label\":\"金额（元）Monto (yuan)\",\"value\":\"1000\",\"key\":\"MoneyField_T2TFVV7BXN40\"},{\"label\":\"备注 Nota\",\"value\":\"测试数据\",\"key\":\"TextField_SZ57CIDK9J40\"}],\"rowNumber\":\"TableField_13B0RI3JBQXS0_14NLZ66Y1JC00\"},{\"rowValue\":[{\"label\":\"部门 Departamento\",\"extendValue\":{\"label\":\"HR CN人力资源Recursos humanos\",\"key\":\"option_1\"},\"value\":\"HR CN人力资源Recursos humanos\",\"key\":\"DDSelectField_YEOAPAJJFPC0\"},{\"label\":\"金额（元）Monto (yuan)\",\"value\":\"1000\",\"key\":\"MoneyField_T2TFVV7BXN40\"},{\"label\":\"备注 Nota\",\"value\":\"测试数据\",\"key\":\"TextField_SZ57CIDK9J40\"}],\"rowNumber\":\"TableField_13B0RI3JBQXS0_3NYEVSI764C0\"}]",
+                "extValue": "{\"statValue\":[],\"componentName\":\"TableField\"}"
+            },
+            {
+                "componentType": "TextareaField",
+                "name": "事项说明Explicación de asuntos",
+                "bizAlias": "",
+                "id": "TextareaField_11O6SVHWPA0W0",
+                "value": "测试"
+            },
+            {
+                "componentType": "TextareaField",
+                "name": "收款人beneficiario",
+                "bizAlias": "",
+                "id": "TextareaField_FS04VIPFB4W0",
+                "value": "测试"
+            },
+            {
+                "componentType": "MoneyField",
+                "name": "金额importe",
+                "bizAlias": "",
+                "id": "MoneyField_1FPZGEQOZ4M80",
+                "value": "2000",
+                "extValue": "{\"upper\":\"贰仟元整\",\"componentName\":\"MoneyField\"}"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "付款条件Términos de pago",
+                "bizAlias": "",
+                "id": "DDSelectField_FGTWRBRZ2340",
+                "value": "Contado付现",
+                "extValue": "{\"label\":\"Contado付现\",\"key\":\"option_0\"}"
+            },
+            {
+                "componentType": "DDSelectField",
+                "name": "币种Moneda",
+                "bizAlias": "",
+                "id": "DDSelectField_199XDJ3I2RMO0",
+                "value": "人民币RMB",
+                "extValue": "{\"label\":\"人民币RMB\",\"key\":\"option_X5HKLQIFDLC0\"}"
+            },
+            {
+                "componentType": "DDDateField",
+                "name": "付款日期Fecha de pago",
+                "bizAlias": "",
+                "id": "DDDateField_1Q7ARFPRW8OW0",
+                "value": "2026-06-10"
+            },
+            {
+                "componentType": "TextNote",
+                "bizAlias": "",
+                "id": "TextNote_209HNS3E5HHC0",
+                "value": "选择分期付款，需要说明分期条件Necesita especificar las condiciones de pago a plazos"
+            },
+            {
+                "componentType": "DDAttachment",
+                "name": "关键凭证Comprobante clave",
+                "bizAlias": "",
+                "id": "DDAttachment-K12EG2FM"
+            },
+            {
+                "componentType": "TextNote",
+                "bizAlias": "",
+                "id": "TextNote_XK00TDTWGYO0",
+                "value": "图片、文件选项只需要关键证据及关键原始凭证即可，不要重复上传不重要的图片Las opciones de imagen y archivo solo requieren pruebas clave y comprobantes originales clave, no dupliques la carga de imágenes irrelevantes."
+            }
+        ],
+        "result": "agree",
+        "bizAction": "NONE",
+        "createTime": "2026-06-10T08:59Z",
+        "originatorUserId": "03631944242133215596",
+        "bizData": "{}",
+        "tasks": [],
+        "originatorDeptName": "悦为智能 YW Tech_Ai",
+        "status": "COMPLETED"
+    },
+    "success": true
+}
