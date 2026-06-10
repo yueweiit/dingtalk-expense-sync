@@ -265,3 +265,14 @@ export async function getStaleCashierAgreed(limit = 80): Promise<PendingInstance
     client.release();
   }
 }
+
+export async function existsByBusinessId(businessId: string): Promise<boolean> {
+  const client: PoolClient = await pool.connect();
+  try {
+    const query = `SELECT 1 FROM approval_instances WHERE business_id = $1 LIMIT 1`;
+    const result = await client.query(query, [businessId]);
+    return result.rows.length > 0;
+  } finally {
+    client.release();
+  }
+}

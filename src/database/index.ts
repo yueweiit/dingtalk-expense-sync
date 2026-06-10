@@ -62,6 +62,10 @@ class Database {
     return approval.getStaleCashierAgreed(limit);
   }
 
+  async existsByBusinessId(businessId: string): Promise<boolean> {
+    return approval.existsByBusinessId(businessId);
+  }
+
   // ==================== expense ====================
   getCashierActivityIdsForSql(): string[] {
     return expense.getCashierActivityIdsForSql();
@@ -101,10 +105,6 @@ class Database {
 
   async replaceAttachments(parentType: string, parentId: number, attachments: AttachmentData[]): Promise<void> {
     return expense.replaceAttachments(parentType, parentId, attachments);
-  }
-
-  async existsByBusinessId(businessId: string): Promise<boolean> {
-    return expense.existsByBusinessId(businessId);
   }
 
   // ==================== fx ====================
