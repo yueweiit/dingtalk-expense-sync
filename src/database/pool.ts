@@ -1,4 +1,6 @@
 import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from './schema/index.js';
 import config from '../config.js';
 
 export const pool = new Pool({
@@ -11,6 +13,8 @@ export const pool = new Pool({
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000
 });
+
+export const db = drizzle({ client: pool, schema });
 
 pool.on('error', (err: Error) => {
   console.error('数据库连接池错误:', err);

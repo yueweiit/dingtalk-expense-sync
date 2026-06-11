@@ -207,3 +207,26 @@ export interface ExpenseInstanceRow {
   process_code: string;
   updated_at: string;
 }
+
+// Drizzle schema inferred types
+import type {
+  approvalInstances,
+  syncState,
+  fxRatesDaily,
+  approvalExpenseOperation,
+  approvalExpensePurchase,
+  approvalExpensePurchaseItems,
+  approvalExpensePurchaseProcessors,
+  approvalExpensePurchasePayments,
+  approvalExpenseAttachments,
+} from './schema/index.js';
+
+export type ApprovalInstance = typeof approvalInstances.$inferSelect;
+export type SyncState = typeof syncState.$inferSelect;
+export type FxRateDaily = typeof fxRatesDaily.$inferSelect;
+export type OperationExpense = typeof approvalExpenseOperation.$inferSelect;
+export type PurchaseExpense = typeof approvalExpensePurchase.$inferSelect;
+export type PurchaseItem = typeof approvalExpensePurchaseItems.$inferSelect;
+export type PurchaseProcessor = typeof approvalExpensePurchaseProcessors.$inferSelect;
+export type PurchasePayment = typeof approvalExpensePurchasePayments.$inferSelect;
+export type Attachment = typeof approvalExpenseAttachments.$inferSelect;
