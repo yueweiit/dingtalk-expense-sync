@@ -1,11 +1,11 @@
-import logger from './logger.js';
-import database from './database.js';
+import logger from './logger.ts';
+import database from './database.ts';
 import {
   ER_API_LATEST_USD,
   formatDateShanghai,
   fetchUsdRatesLatest,
   cnyPerUnitFromUsdBaseRates
-} from './openErFx.js';
+} from './openErFx.ts';
 
 /**
  * 将钉钉表单「币种」展示文案尽量映射为 ISO4217（三字母）。

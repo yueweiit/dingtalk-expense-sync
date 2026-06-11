@@ -1,4 +1,4 @@
-const axios = require('axios');
+import axios from 'axios';
 
 /** 基准 USD 的公开汇率 JSON（与入库日表同步任务使用同一地址） */
 export const ER_API_LATEST_USD = 'https://open.er-api.com/v6/latest/USD';

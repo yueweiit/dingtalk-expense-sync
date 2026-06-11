@@ -1,14 +1,14 @@
 /**
  * 从钉钉重新拉取详情并覆盖写入库（依赖库里 raw_data.processInstanceId 或列 process_instance_id）
- * 若日志提示「仍用 business_id 兜底」且 HTTP 400：请改用 refresh-from-dingtalk-window.js 按时间窗口拉列表 ID。
- * 例：node scripts/refresh-from-dingtalk.js --department=IT --limit=200
+ * 若日志提示「仍用 business_id 兜底」且 HTTP 400：请改用 refresh-from-dingtalk-window.ts 按时间窗口拉列表 ID。
+ * 例：npx tsx scripts/refresh-from-dingtalk.ts --department=IT --limit=200
  */
-import dingtalk from '../src/dingtalk.js';
-import processor from '../src/processor.js';
-import database, { pool } from '../src/database.js';
-import config from '../src/config.js';
-import { resolveProcessInstanceFetchId } from '../src/workflowIds.js';
-import type { ApprovalInstance } from '../src/processor.js';
+import dingtalk from '../src/dingtalk.ts';
+import processor from '../src/processor.ts';
+import database, { pool } from '../src/database.ts';
+import config from '../src/config.ts';
+import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
+import type { ApprovalInstance } from '../src/processor.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};

@@ -1,7 +1,7 @@
-import { pool } from './pool.js';
-import * as approval from './approval.js';
-import * as expense from './expense.js';
-import * as fx from './fx.js';
+import { pool } from './pool.ts';
+import * as approval from './approval.ts';
+import * as expense from './expense.ts';
+import * as fx from './fx.ts';
 import type {
   ApprovalInstanceData,
   OperationExpenseData,
@@ -14,7 +14,7 @@ import type {
   FxRateResult,
   PendingInstance,
   ExpenseInstanceRow
-} from './types.js';
+} from './types.ts';
 
 class Database {
   // ==================== approval ====================

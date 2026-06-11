@@ -58,8 +58,8 @@ interface FileConfigShape {
 }
 
 // Load .env from project root (works whether called from src/ or scripts/)
-// __dirname is dist/src when compiled, so go up two levels to reach project root
-const projectRoot = path.resolve(__dirname, '..', '..');
+// __dirname is src/ when running via tsx, so go up one level to reach project root
+const projectRoot = path.resolve(__dirname, '..');
 dotenv.config({ path: path.join(projectRoot, '.env') });
 
 // Load non-sensitive config from config.json (fallback)

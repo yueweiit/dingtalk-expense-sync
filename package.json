@@ -2,24 +2,23 @@
   "name": "dingtalk-approval-fetcher",
   "version": "1.0.0",
   "description": "定时获取钉钉审批数据",
-  "main": "dist/src/index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "start": "npm run build && node dist/src/index.js",
-    "dev": "nodemon --watch src --watch scripts --ext js,ts --exec \"npm run build && node dist/src/index.js\"",
-    "refresh:dingtalk": "npm run build && node dist/scripts/refresh-from-dingtalk.js",
-    "refresh:dingtalk:window": "npm run build && node dist/scripts/refresh-from-dingtalk-window.js",
-    "backfill:cashier": "npm run build && node dist/scripts/backfill-cashier-status.js",
-    "backfill:base-currency": "npm run build && node dist/scripts/backfill-base-currency.js",
-    "sync:fx-rates": "npm run build && node dist/scripts/sync-fx-rates.js",
-    "sync:approval-expenses": "npm run build && node dist/scripts/sync-approval-expenses-from-dingtalk.js",
-    "db:ensure-fx-rates": "npm run build && node dist/scripts/ensure-fx-rates-table.js",
-    "db:ensure-approval-expense-schema": "npm run build && node dist/scripts/ensure-approval-expense-schema.js",
-    "db:rebuild-approval-expense-schema": "npm run build && node dist/scripts/rebuild-approval-expense-schema.js",
-    "backfill:approval-expense-schema": "npm run build && node dist/scripts/backfill-approval-expense-schema.js",
-    "reparse:amount-from-raw": "npm run build && node dist/scripts/reparse-amount-from-raw.js",
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test"
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch --include scripts src/index.ts",
+    "refresh:dingtalk": "tsx scripts/refresh-from-dingtalk.ts",
+    "refresh:dingtalk:window": "tsx scripts/refresh-from-dingtalk-window.ts",
+    "backfill:cashier": "tsx scripts/backfill-cashier-status.ts",
+    "backfill:base-currency": "tsx scripts/backfill-base-currency.ts",
+    "sync:fx-rates": "tsx scripts/sync-fx-rates.ts",
+    "sync:approval-expenses": "tsx scripts/sync-approval-expenses-from-dingtalk.ts",
+    "db:ensure-fx-rates": "tsx scripts/ensure-fx-rates-table.ts",
+    "db:ensure-approval-expense-schema": "tsx scripts/ensure-approval-expense-schema.ts",
+    "db:rebuild-approval-expense-schema": "tsx scripts/rebuild-approval-expense-schema.ts",
+    "backfill:approval-expense-schema": "tsx scripts/backfill-approval-expense-schema.ts",
+    "reparse:amount-from-raw": "tsx scripts/reparse-amount-from-raw.ts",
+    "build": "tsc --noEmit",
+    "test": "node --import tsx --test"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -31,6 +30,9 @@
     "pg": "^8.21.0",
     "winston": "^3.11.0"
   },
+  "engines": {
+    "node": ">=20.6.0"
+  },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -39,6 +41,7 @@
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
     "nodemon": "^3.0.2",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }
 }

@@ -1,9 +1,9 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import database, { pool } from './database.js';
-import logger from './logger.js';
-import config from './config.js';
-import { normalizeCurrencyToIso } from './fxToCny.js';
+import database, { pool } from './database.ts';
+import logger from './logger.ts';
+import config from './config.ts';
+import { normalizeCurrencyToIso } from './fxToCny.ts';
 
 const app = express();
 const PORT = config.server.port;

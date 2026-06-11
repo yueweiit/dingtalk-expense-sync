@@ -7,15 +7,15 @@
  * - Rebuilds child rows (items, processors, payments, attachments) for each processed record.
  *
  * Examples:
- *   node scripts/backfill-approval-expense-schema.js --limit=10
- *   node scripts/backfill-approval-expense-schema.js --processType=采购支出 --limit=100
- *   node scripts/backfill-approval-expense-schema.js --dry-run=1 --limit=5
+ *   npx tsx scripts/backfill-approval-expense-schema.ts --limit=10
+ *   npx tsx scripts/backfill-approval-expense-schema.ts --processType=采购支出 --limit=100
+ *   npx tsx scripts/backfill-approval-expense-schema.ts --dry-run=1 --limit=5
  */
-import database, { pool } from '../src/database.js';
-import dingtalk from '../src/dingtalk.js';
-import config from '../src/config.js';
-import { convertAmountToCny } from '../src/fxToCny.js';
-import { resolveProcessInstanceFetchId } from '../src/workflowIds.js';
+import database, { pool } from '../src/database.ts';
+import dingtalk from '../src/dingtalk.ts';
+import config from '../src/config.ts';
+import { convertAmountToCny } from '../src/fxToCny.ts';
+import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};

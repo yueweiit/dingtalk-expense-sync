@@ -2,15 +2,15 @@
  * 手动拉取 open.er-api 并写入 fx_rates_daily（上海当日）。
  * 例：npm run sync:fx-rates
  */
-import database from '../src/database.js';
+import database from '../src/database.ts';
 import {
   ER_API_LATEST_USD,
   formatDateShanghai,
   fetchUsdRatesLatest,
   buildFxDailyRows,
   invalidateUsdRatesCache
-} from '../src/openErFx.js';
-import config from '../src/config.js';
+} from '../src/openErFx.ts';
+import config from '../src/config.ts';
 
 async function main(): Promise<void> {
   const tz = config.scheduler?.fxRatesTimezone || 'Asia/Shanghai';

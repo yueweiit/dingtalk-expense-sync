@@ -2,8 +2,8 @@
  * 为历史数据补写 base_currency_amount（按 create_time 北京时间取历史汇率）。
  * 例：npm run backfill:base-currency
  */
-import database, { pool } from '../src/database.js';
-import { convertAmountToCny } from '../src/fxToCny.js';
+import database, { pool } from '../src/database.ts';
+import { convertAmountToCny } from '../src/fxToCny.ts';
 
 const BATCH = 80;
 

@@ -1,16 +1,16 @@
 /**
  * 按钉钉「审批实例 ID 列表」时间窗口拉取真正的 processInstanceId，再拉详情入库。
- * 适用于库里只有 business_id、raw_data 里没有 processInstanceId 导致 refresh-from-dingtalk.js 全失败的情况。
+ * 适用于库里只有 business_id、raw_data 里没有 processInstanceId 导致 refresh-from-dingtalk.ts 全失败的情况。
  *
  * 例（项目根目录执行）：
- *   node scripts/refresh-from-dingtalk-window.js --month=2026-04 --department=IT
- *   node scripts/refresh-from-dingtalk-window.js --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00 --department=IT
+ *   npx tsx scripts/refresh-from-dingtalk-window.ts --month=2026-04 --department=IT
+ *   npx tsx scripts/refresh-from-dingtalk-window.ts --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00 --department=IT
  */
-import dingtalk from '../src/dingtalk.js';
-import processor from '../src/processor.js';
-import database, { pool } from '../src/database.js';
-import config from '../src/config.js';
-import type { ApprovalInstance } from '../src/processor.js';
+import dingtalk from '../src/dingtalk.ts';
+import processor from '../src/processor.ts';
+import database, { pool } from '../src/database.ts';
+import config from '../src/config.ts';
+import type { ApprovalInstance } from '../src/processor.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};

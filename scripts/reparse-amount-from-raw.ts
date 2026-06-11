@@ -2,12 +2,12 @@
  * 从库内 raw_data.formComponentValues 重新解析金额/币种（修复采购多组「金额importe」只取到空行的问题），
  * 并更新 amount、currency、base_currency_amount。不调用钉钉。
  *
- * 例：node scripts/reparse-amount-from-raw.js
- *     node scripts/reparse-amount-from-raw.js --processType=采购支出
+ * 例：npx tsx scripts/reparse-amount-from-raw.ts
+ *     npx tsx scripts/reparse-amount-from-raw.ts --processType=采购支出
  */
-import database, { pool } from '../src/database.js';
-import processor from '../src/processor.js';
-import { convertAmountToCny } from '../src/fxToCny.js';
+import database, { pool } from '../src/database.ts';
+import processor from '../src/processor.ts';
+import { convertAmountToCny } from '../src/fxToCny.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};

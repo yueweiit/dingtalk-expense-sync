@@ -1,6 +1,6 @@
-import scheduler from './scheduler.js';
-import { startServer } from './server.js';
-import logger from './logger.js';
+import scheduler from './scheduler.ts';
+import { startServer } from './server.ts';
+import logger from './logger.ts';
 
 // 捕获未处理的异常
 process.on('uncaughtException', (error: Error) => {

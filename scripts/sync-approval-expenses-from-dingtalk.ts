@@ -2,20 +2,20 @@
  * Sync DingTalk approval details directly into approval_expense_* tables.
  *
  * Examples:
- *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04
- *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --process=purchase
- *   node scripts/sync-approval-expenses-from-dingtalk.js --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00
- *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --department=IT --limit=100
- *   node scripts/sync-approval-expenses-from-dingtalk.js --month=2026-04 --dry-run=1
+ *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04
+ *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04 --process=purchase
+ *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00
+ *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04 --department=IT --limit=100
+ *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04 --dry-run=1
  */
 import fs from 'fs';
 import path from 'path';
-import dingtalk from '../src/dingtalk.js';
-import processor from '../src/processor.js';
-import database, { pool } from '../src/database.js';
-import config from '../src/config.js';
-import { convertAmountToCny } from '../src/fxToCny.js';
-import type { ApprovalInstance } from '../src/processor.js';
+import dingtalk from '../src/dingtalk.ts';
+import processor from '../src/processor.ts';
+import database, { pool } from '../src/database.ts';
+import config from '../src/config.ts';
+import { convertAmountToCny } from '../src/fxToCny.ts';
+import type { ApprovalInstance } from '../src/processor.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};
@@ -94,7 +94,7 @@ function resolveTimeRange(args: Record<string, string>): { startMs: number; endM
 }
 
 async function ensureExpenseSchema(): Promise<void> {
-  const sqlPath = path.join(__dirname, '..', '..', 'sql', 'ensure_approval_expense_schema.sql');
+  const sqlPath = path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql');
   const sql = fs.readFileSync(sqlPath, 'utf8');
   await pool.query(sql);
 }

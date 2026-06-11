@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, max, sql } from 'drizzle-orm';
 import fs from 'fs';
 import path from 'path';
-import { db } from './pool.js';
-import { approvalInstances, syncState } from './schema/index.js';
-import { ApprovalInstanceData, PendingInstance } from './types.js';
+import { db } from './pool.ts';
+import { approvalInstances, syncState } from './schema/index.ts';
+import { ApprovalInstanceData, PendingInstance } from './types.ts';
 
 const currentTimestamp = sql`CURRENT_TIMESTAMP`;
 
@@ -53,7 +53,7 @@ export async function ensureSyncStateTable(): Promise<void> {
 }
 
 export async function ensureApprovalExpenseSchema(): Promise<void> {
-  const sqlPath = path.join(__dirname, '..', '..', '..', 'sql', 'ensure_approval_expense_schema.sql');
+  const sqlPath = path.join(__dirname, '..', '..', 'sql', 'ensure_approval_expense_schema.sql');
   const sqlContent = sql.raw(fs.readFileSync(sqlPath, 'utf8'));
   await db.execute(sql`${sqlContent}`);
 }

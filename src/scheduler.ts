@@ -1,17 +1,17 @@
 import cron from 'node-cron';
-import dingtalk from './dingtalk.js';
-import processor from './processor.js';
-import database from './database.js';
-import logger from './logger.js';
-import config from './config.js';
-import { resolveProcessInstanceFetchId } from './workflowIds.js';
+import dingtalk from './dingtalk.ts';
+import processor from './processor.ts';
+import database from './database.ts';
+import logger from './logger.ts';
+import config from './config.ts';
+import { resolveProcessInstanceFetchId } from './workflowIds.ts';
 import {
   ER_API_LATEST_USD,
   formatDateShanghai,
   fetchUsdRatesLatest,
   buildFxDailyRows,
   invalidateUsdRatesCache
-} from './openErFx.js';
+} from './openErFx.ts';
 
 interface InstanceIdWithMeta {
   processInstanceId: string;

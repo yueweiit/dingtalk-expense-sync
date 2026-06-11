@@ -3,9 +3,9 @@
  * 用法：node scripts/diag-purchase-null-base.js [--dingtalk=1]  后一项会拉 2 条钉钉详情对比
  */
 import { Pool } from 'pg';
-import config from '../src/config.js';
-import dingtalk from '../src/dingtalk.js';
-import { resolveProcessInstanceFetchId } from '../src/workflowIds.js';
+import config from '../src/config.ts';
+import dingtalk from '../src/dingtalk.ts';
+import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 
 const pool = new Pool(config.database);
 const wantDingtalk = process.argv.includes('--dingtalk=1');

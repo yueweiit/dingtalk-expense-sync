@@ -1,5 +1,5 @@
 import { pgTable, bigserial, bigint, integer, varchar, decimal, date, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
-import { approvalExpensePurchase } from './expense-purchase.js';
+import { approvalExpensePurchase } from './expense-purchase.ts';
 
 export const approvalExpensePurchasePayments = pgTable('approval_expense_purchase_payments', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),

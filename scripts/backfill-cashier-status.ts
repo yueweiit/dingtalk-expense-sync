@@ -1,5 +1,5 @@
-import database, { pool } from '../src/database.js';
-import processor from '../src/processor.js';
+import database, { pool } from '../src/database.ts';
+import processor from '../src/processor.ts';
 import type { PoolClient } from 'pg';
 
 function parseArgs(argv: string[]): Record<string, string> {

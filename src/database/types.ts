@@ -219,7 +219,7 @@ import type {
   approvalExpensePurchaseProcessors,
   approvalExpensePurchasePayments,
   approvalExpenseAttachments,
-} from './schema/index.js';
+} from './schema/index.ts';
 
 export type ApprovalInstance = typeof approvalInstances.$inferSelect;
 export type SyncState = typeof syncState.$inferSelect;

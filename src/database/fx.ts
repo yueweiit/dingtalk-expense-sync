@@ -1,7 +1,7 @@
 import { desc, eq, sql } from 'drizzle-orm';
-import { db } from './pool.js';
-import { fxRatesDaily } from './schema/index.js';
-import { FxRateRow, FxRateResult } from './types.js';
+import { db } from './pool.ts';
+import { fxRatesDaily } from './schema/index.ts';
+import { FxRateRow, FxRateResult } from './types.ts';
 
 export async function ensureFxRatesDailyTable(): Promise<void> {
   await db.execute(sql`

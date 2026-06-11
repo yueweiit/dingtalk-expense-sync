@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm';
-import { db } from './pool.js';
-import config from '../config.js';
+import { db } from './pool.ts';
+import config from '../config.ts';
 import {
   approvalExpenseAttachments,
   approvalExpenseOperation,
@@ -8,7 +8,7 @@ import {
   approvalExpensePurchaseItems,
   approvalExpensePurchasePayments,
   approvalExpensePurchaseProcessors
-} from './schema/index.js';
+} from './schema/index.ts';
 import {
   OperationExpenseData,
   PurchaseExpenseData,
@@ -17,7 +17,7 @@ import {
   PurchasePaymentData,
   AttachmentData,
   ExpenseInstanceRow
-} from './types.js';
+} from './types.ts';
 
 interface ExpenseInstanceQueryRow extends Record<string, unknown>, ExpenseInstanceRow {}
 

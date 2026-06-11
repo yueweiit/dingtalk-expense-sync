@@ -1,7 +1,7 @@
-import database from './database.js';
-import logger from './logger.js';
-import config from './config.js';
-import { convertAmountToCny } from './fxToCny.js';
+import database from './database.ts';
+import logger from './logger.ts';
+import config from './config.ts';
+import { convertAmountToCny } from './fxToCny.ts';
 
 export interface FormComponentValue {
   name?: string;
