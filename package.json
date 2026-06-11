@@ -17,7 +17,7 @@
     "db:rebuild-approval-expense-schema": "tsx scripts/rebuild-approval-expense-schema.ts",
     "backfill:approval-expense-schema": "tsx scripts/backfill-approval-expense-schema.ts",
     "reparse:amount-from-raw": "tsx scripts/reparse-amount-from-raw.ts",
-    "build": "tsc --noEmit",
+    "build": "tsc",
     "test": "node --import tsx --test"
   },
   "dependencies": {
