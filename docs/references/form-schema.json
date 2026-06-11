@@ -1,8 +1,8 @@
 {
     "result": {
         "creatorUserId": "17600775501628783",
-        "gmtModified": "2026-06-09T14:23Z",
-        "formUuid": "FORM-D96BA723-FCEF-417B-87D9-0CFAD3AE52CE",
+        "gmtModified": "2026-06-11T11:16Z",
+        "formUuid": "FORM-7A96DE6D-3A77-43D3-A88E-5030A1E0526E",
         "bizType": "",
         "ownerIdType": "orgId",
         "formCode": "PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA",
@@ -643,11 +643,11 @@
                             "{\"value\":\"律师费Honorarios legales\",\"key\":\"option_1YP9XHO5XJEO0\"}",
                             "{\"value\":\"服务费Honorarios por servicios\",\"key\":\"option_1PJ5WYUKWVUO0\"}",
                             "{\"value\":\"交通费用Gastos de transporte\",\"key\":\"option_1Y4KY9C4N6O00\"}",
-                            "{\"value\":\"安保费  Gastos de seguridad\",\"key\":\"option_1DT7DQI0K2740\"}",
+                            "{\"value\":\"安保费  Gastos de seguridad\",\"key\":\"option_1DT7DQI0K2740\"}",
                             "{\"value\":\"清理费（办公卫生打扫、处理一般垃圾、危险性垃圾）Gastos de limpieza (limpieza del entorno de trabajo, disposición de residuos ordinarios y peligrosos)\",\"key\":\"option_OTUN7FNRTBK0\"}",
-                            "{\"value\":\"平台使用费  Gastos de uso de la plataforma\",\"key\":\"option_GMWS18N0NGO0\"}",
-                            "{\"value\":\"招聘费  Gastos de reclutamiento\",\"key\":\"option_KE9GT43OM340\"}",
-                            "{\"value\":\"安全生产费  Gastos de seguridad industrial\",\"key\":\"option_1NCIDWTO6M800\"}",
+                            "{\"value\":\"平台使用费  Gastos de uso de la plataforma\",\"key\":\"option_GMWS18N0NGO0\"}",
+                            "{\"value\":\"招聘费  Gastos de reclutamiento\",\"key\":\"option_KE9GT43OM340\"}",
+                            "{\"value\":\"安全生产费  Gastos de seguridad industrial\",\"key\":\"option_1NCIDWTO6M800\"}",
                             "{\"value\":\"会议费Gastos de conferencia\",\"key\":\"option_1BYPMFM6F8680\"}",
                             "{\"value\":\"管理咨询Gastos de consultoría administrativa\",\"key\":\"option_1WRVEMH47YBK0\"}",
                             "{\"value\":\"法律顾问费Gastos de asesoría lega\",\"key\":\"option_2FEXD75Q0SNW\"}",
@@ -758,7 +758,7 @@
                         ],
                         "bizAlias": "",
                         "id": "DDSelectField_1EZOBWHB6GSG0",
-                        "label": "销售费用  Gastos de venta",
+                        "label": "销售费用  Gastos de venta",
                         "placeholder": "请选择",
                         "required": true,
                         "push": {},
@@ -889,15 +889,10 @@
                 {
                     "children": [
                         {
-                            "componentName": "DDSelectField",
+                            "componentName": "DepartmentField",
                             "props": {
-                                "options": [
-                                    "{\"value\":\"选项1\",\"key\":\"option_0\"}",
-                                    "{\"value\":\"选项2\",\"key\":\"option_1\"}",
-                                    "{\"value\":\"选项3\",\"key\":\"option_2\"}"
-                                ],
                                 "bizAlias": "",
-                                "id": "DDSelectField_YEOAPAJJFPC0",
+                                "id": "DepartmentField_54IATTZVMW40",
                                 "label": "部门 Departamento",
                                 "required": true
                             }
@@ -1067,7 +1062,7 @@
         "appUuid": "ding144583309b2fb01c35c2f4657eb6378f",
         "appType": 0,
         "visibleRange": "PRIVATE",
-        "listOrder": 1704,
+        "listOrder": 1706,
         "name": "运营支出 Gastos de Operación",
         "status": "PUBLISHED",
         "procType": "inner"

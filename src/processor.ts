@@ -194,11 +194,12 @@ class ApprovalProcessor {
         let note = '';
 
         for (const cell of row) {
-          if (cell.id === 'DDSelectField_YEOAPAJJFPC0') {
+          const cellId = String(cell.id || '');
+          if (cellId.startsWith('DepartmentField_')) {
             department = String(cell.value || '').trim();
-          } else if (cell.id === 'MoneyField_T2TFVV7BXN40') {
+          } else if (cellId === 'MoneyField_T2TFVV7BXN40') {
             amount = this.normalizeNumber(cell.value) || 0;
-          } else if (cell.id === 'TextField_SZ57CIDK9J40') {
+          } else if (cellId === 'TextField_SZ57CIDK9J40') {
             note = String(cell.value || '').trim();
           }
         }
@@ -222,11 +223,12 @@ class ApprovalProcessor {
             let note = '';
 
             for (const cell of row.rowValue) {
-              if (cell.key === 'DDSelectField_YEOAPAJJFPC0') {
+              const cellKey = String(cell.key || '');
+              if (cellKey.startsWith('DepartmentField_')) {
                 department = String(cell.value || '').trim();
-              } else if (cell.key === 'MoneyField_T2TFVV7BXN40') {
+              } else if (cellKey === 'MoneyField_T2TFVV7BXN40') {
                 amount = this.normalizeNumber(cell.value) || 0;
-              } else if (cell.key === 'TextField_SZ57CIDK9J40') {
+              } else if (cellKey === 'TextField_SZ57CIDK9J40') {
                 note = String(cell.value || '').trim();
               }
             }

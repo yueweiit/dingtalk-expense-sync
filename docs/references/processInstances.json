@@ -1,13 +1,13 @@
 {
     "result": {
-        "finishTime": "2026-06-10T08:59Z",
+        "finishTime": "2026-06-11T11:24Z",
         "attachedProcessInstanceIds": [],
-        "businessId": "202606100859000273507",
+        "businessId": "202606111124000247560",
         "title": "董东来提交的【Test】 【测试】运营支出 Gastos de Operación",
         "originatorDeptId": "1077343081",
         "operationRecords": [
             {
-                "date": "2026-06-10T08:59Z",
+                "date": "2026-06-11T11:24Z",
                 "result": "NONE",
                 "images": [],
                 "showName": "提交申请",
@@ -26,7 +26,7 @@
                 "name": "申请日期Fecha de solicitud",
                 "bizAlias": "",
                 "id": "DDDateField_29I59O630HUS",
-                "value": "2026-06-10"
+                "value": "2026-06-11"
             },
             {
                 "componentType": "DepartmentField",
@@ -34,7 +34,7 @@
                 "bizAlias": "",
                 "id": "DepartmentField_WNH6RKD27280",
                 "value": "悦为智能 YW Tech_Ai",
-                "extValue": "[{\"deptName\":\"悦为智能 YW Tech_Ai\",\"itemId\":\"1077343081\",\"name\":\"悦为智能 YW Tech_Ai\",\"id\":\"1077343081\"}]"
+                "extValue": "[{\"itemId\":1077343081,\"name\":\"悦为智能 YW Tech_Ai\",\"id\":1077343081,\"fullDeptName\":\"悦为智能 YW Tech_Ai\"}]"
             },
             {
                 "componentType": "DDSelectField",
@@ -169,7 +169,7 @@
                 "name": "总工资支出（分部门）Total de gastos salar (por departamento)",
                 "bizAlias": "",
                 "id": "TableField_13B0RI3JBQXS0",
-                "value": "[{\"rowValue\":[{\"label\":\"部门 Departamento\",\"extendValue\":{\"label\":\"悦为智能 YW Tech_Ai\",\"key\":\"option_0\"},\"value\":\"悦为智能 YW Tech_Ai\",\"key\":\"DDSelectField_YEOAPAJJFPC0\"},{\"label\":\"金额（元）Monto (yuan)\",\"value\":\"1000\",\"key\":\"MoneyField_T2TFVV7BXN40\"},{\"label\":\"备注 Nota\",\"value\":\"测试数据\",\"key\":\"TextField_SZ57CIDK9J40\"}],\"rowNumber\":\"TableField_13B0RI3JBQXS0_14NLZ66Y1JC00\"},{\"rowValue\":[{\"label\":\"部门 Departamento\",\"extendValue\":{\"label\":\"HR CN人力资源Recursos humanos\",\"key\":\"option_1\"},\"value\":\"HR CN人力资源Recursos humanos\",\"key\":\"DDSelectField_YEOAPAJJFPC0\"},{\"label\":\"金额（元）Monto (yuan)\",\"value\":\"1000\",\"key\":\"MoneyField_T2TFVV7BXN40\"},{\"label\":\"备注 Nota\",\"value\":\"测试数据\",\"key\":\"TextField_SZ57CIDK9J40\"}],\"rowNumber\":\"TableField_13B0RI3JBQXS0_3NYEVSI764C0\"}]",
+                "value": "[{\"rowValue\":[{\"label\":\"部门 Departamento\",\"extendValue\":[{\"deptName\":\"悦为智能 YW Tech_Ai\",\"itemId\":\"1077343081\",\"name\":\"悦为智能 YW Tech_Ai\",\"id\":\"1077343081\"}],\"value\":\"悦为智能 YW Tech_Ai\",\"key\":\"DepartmentField_EOBTEPPWJGO0\"},{\"label\":\"金额（元）Monto (yuan)\",\"value\":\"600\",\"key\":\"MoneyField_T2TFVV7BXN40\"},{\"label\":\"备注 Nota\",\"value\":\"测试\",\"key\":\"TextField_SZ57CIDK9J40\"}],\"rowNumber\":\"TableField_13B0RI3JBQXS0_2224YFLJVK000\"},{\"rowValue\":[{\"label\":\"部门 Departamento\",\"extendValue\":[{\"deptName\":\"HR CN人力资源Recursos humanos\",\"itemId\":\"1059093807\",\"name\":\"HR CN人力资源Recursos humanos\",\"id\":\"1059093807\"}],\"value\":\"HR CN人力资源Recursos humanos\",\"key\":\"DepartmentField_EOBTEPPWJGO0\"},{\"label\":\"金额（元）Monto (yuan)\",\"value\":\"600\",\"key\":\"MoneyField_T2TFVV7BXN40\"},{\"label\":\"备注 Nota\",\"value\":\"测试\",\"key\":\"TextField_SZ57CIDK9J40\"}],\"rowNumber\":\"TableField_13B0RI3JBQXS0_ACQ03LT7POC0\"}]",
                 "extValue": "{\"statValue\":[],\"componentName\":\"TableField\"}"
             },
             {
@@ -177,7 +177,7 @@
                 "name": "事项说明Explicación de asuntos",
                 "bizAlias": "",
                 "id": "TextareaField_11O6SVHWPA0W0",
-                "value": "测试"
+                "value": "测试6"
             },
             {
                 "componentType": "TextareaField",
@@ -191,8 +191,8 @@
                 "name": "金额importe",
                 "bizAlias": "",
                 "id": "MoneyField_1FPZGEQOZ4M80",
-                "value": "2000",
-                "extValue": "{\"upper\":\"贰仟元整\",\"componentName\":\"MoneyField\"}"
+                "value": "1200",
+                "extValue": "{\"upper\":\"壹仟贰佰元整\",\"componentName\":\"MoneyField\"}"
             },
             {
                 "componentType": "DDSelectField",
@@ -215,7 +215,7 @@
                 "name": "付款日期Fecha de pago",
                 "bizAlias": "",
                 "id": "DDDateField_1Q7ARFPRW8OW0",
-                "value": "2026-06-10"
+                "value": "2026-06-11"
             },
             {
                 "componentType": "TextNote",
@@ -238,7 +238,7 @@
         ],
         "result": "agree",
         "bizAction": "NONE",
-        "createTime": "2026-06-10T08:59Z",
+        "createTime": "2026-06-11T11:24Z",
         "originatorUserId": "03631944242133215596",
         "bizData": "{}",
         "tasks": [],
