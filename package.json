@@ -1,6 +1,6 @@
 {
   "name": "dingtalk-approval-fetcher",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "定时获取钉钉审批数据",
   "main": "src/index.ts",
   "scripts": {
