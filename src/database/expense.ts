@@ -195,6 +195,8 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
     sourceUpdatedAt: data.sourceUpdatedAt || null,
     creatorDepartment: data.creatorDepartment?.substring(0, 500) || null,
     salaryByDepartment: data.salaryByDepartment ?? null,
+    socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
+    officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
     rawData: data.rawData || {}
   }).onConflictDoUpdate({
     target: approvalExpenseOperation.businessId,
@@ -241,6 +243,8 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
       sourceUpdatedAt: sql`EXCLUDED.source_updated_at`,
       creatorDepartment: sql`EXCLUDED.creator_department`,
       salaryByDepartment: sql`EXCLUDED.salary_by_department`,
+      socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
+      officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
       rawData: sql`EXCLUDED.raw_data`,
       updatedAt: sql`CURRENT_TIMESTAMP`
     }

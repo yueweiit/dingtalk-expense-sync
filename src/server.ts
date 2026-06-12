@@ -115,6 +115,110 @@ function getExpenseQueryConfig(processKind: string): ExpenseQueryConfig {
   };
 }
 
+/** 分摊类型配置：用于金额计算、部门过滤和全部门 breakdown */
+interface DeptSplitQueryConfig {
+  matchExpr: string;
+  jsonbColumn: string;
+}
+
+const DEPT_SPLIT_QUERY_CONFIGS: DeptSplitQueryConfig[] = [
+  { matchExpr: `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`, jsonbColumn: 'salary_by_department' },
+  { matchExpr: `(operation_expense = '工资salario')`, jsonbColumn: 'salary_by_department' },
+  { matchExpr: `(operation_expense ILIKE '%社保中国%')`, jsonbColumn: 'social_insurance_by_department' },
+  { matchExpr: `(operation_expense ILIKE '%办公场地%')`, jsonbColumn: 'office_space_by_department' },
+];
+
+/** 为 queryApproved 生成 CASE WHEN 金额表达式（每个分摊类型消耗一个部门匹配参数） */
+function buildDeptAwareAmountExpr(
+  configs: DeptSplitQueryConfig[],
+  baseExpr: string,
+  paramOffset: number
+): { expr: string; paramCount: number } {
+  let expr = 'CASE\n';
+  let paramIdx = paramOffset;
+  for (const cfg of configs) {
+    expr += `          WHEN ${cfg.matchExpr}
+          THEN COALESCE(
+            (SELECT SUM((entry->>'amount')::numeric)
+             FROM jsonb_array_elements(COALESCE(${cfg.jsonbColumn}, '[]'::jsonb)) AS entry
+             WHERE entry->>'department' ILIKE '%' || $${paramIdx++} || '%'),
+            0
+          )\n`;
+  }
+  expr += `          ELSE ${baseExpr}\n        END`;
+  return { expr, paramCount: paramIdx - paramOffset };
+}
+
+/** 为 queryApprovedAll 生成 CASE WHEN 金额表达式（无需部门参数） */
+function buildAllDeptAmountExpr(configs: DeptSplitQueryConfig[], baseExpr: string): string {
+  let expr = 'CASE\n';
+  for (const cfg of configs) {
+    expr += `          WHEN ${cfg.matchExpr}
+          THEN COALESCE(
+            (SELECT SUM((entry->>'amount')::numeric)
+             FROM jsonb_array_elements(COALESCE(${cfg.jsonbColumn}, '[]'::jsonb)) AS entry),
+            0
+          )\n`;
+  }
+  expr += `          ELSE ${baseExpr}\n        END`;
+  return expr;
+}
+
+/** 为 queryApproved 生成部门过滤条件（非分摊按 departmentExpr 匹配，分摊按 JSONB EXISTS 匹配） */
+function buildDeptFilterExpr(
+  configs: DeptSplitQueryConfig[],
+  deptMatchParams: string[],
+  deptCodeMode: boolean,
+  departmentExpr: string,
+  nonSplitDeptParam: string
+): string {
+  const nonSplitConditions = configs.map(cfg => `NOT ${cfg.matchExpr}`).join(' AND ');
+  const deptMatchForNonSplit = deptCodeMode
+    ? `UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`
+    : `${departmentExpr} ILIKE ${nonSplitDeptParam}`;
+  const existsClauses = configs.map((cfg, i) => `
+      (${cfg.matchExpr}
+        AND ${cfg.jsonbColumn} IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(${cfg.jsonbColumn}) AS entry
+          WHERE entry->>'department' ILIKE '%' || ${deptMatchParams[i]} || '%'
+        ))`).join(' OR ');
+  return `((${nonSplitConditions} AND ${deptMatchForNonSplit}) OR ${existsClauses})`;
+}
+
+/** 为 queryApprovedAll 生成分部门汇总查询 */
+function buildBreakdownQuery(configs: DeptSplitQueryConfig[], tableName: string, whereClause: string): string {
+  const nonSplitConditions = configs.map(cfg => `NOT ${cfg.matchExpr}`).join(' AND ');
+  let unionParts = `
+              SELECT
+                COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+                COALESCE(base_currency_amount, 0) AS amount
+              FROM ${tableName}
+              WHERE ${nonSplitConditions}
+              ${whereClause}`;
+  for (const cfg of configs) {
+    unionParts += `
+
+              UNION ALL
+
+              SELECT
+                COALESCE(NULLIF(TRIM(entry->>'department'), ''), 'Unknown') AS dept,
+                COALESCE((entry->>'amount')::numeric, 0) AS amount
+              FROM ${tableName},
+                   jsonb_array_elements(${cfg.jsonbColumn}) AS entry
+              WHERE ${cfg.matchExpr}
+                AND ${cfg.jsonbColumn} IS NOT NULL
+              ${whereClause}`;
+  }
+  return `
+            SELECT dept, COALESCE(SUM(amount), 0)::text AS total
+            FROM (${unionParts}
+            ) AS combined
+            GROUP BY dept
+            ORDER BY SUM(amount) DESC
+          `;
+}
+
 async function queryApproved(req: Request, res: Response, processKind: string): Promise<void> {
   try {
     const {
@@ -175,28 +279,17 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     const params: unknown[] = [];
     let paramIndex = 1;
 
-    /** 统计口径：优先本位币人民币；运营「工资中国」按 salary_by_department 拆到匹配部门 */
+    /** 统计口径：优先本位币人民币；分摊类型按 JSONB 部门拆分 */
     const isOperation = queryConfig.processKind === 'operation';
-    const isSalaryChinaExpr = `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`;
-    const salaryDeptMatchParam = isOperation ? paramIndex++ : null;
+    const deptSplitDeptParams: string[] = [];
     if (isOperation) {
-      params.push(deptMatch);
+      for (let i = 0; i < DEPT_SPLIT_QUERY_CONFIGS.length; i++) {
+        deptSplitDeptParams.push(`$${paramIndex++}`);
+        params.push(deptMatch);
+      }
     }
     const amountRmbExpr = isOperation
-      ? `
-        CASE
-          WHEN ${isSalaryChinaExpr}
-          THEN COALESCE(
-            (
-              SELECT SUM((entry->>'amount')::numeric)
-              FROM jsonb_array_elements(COALESCE(salary_by_department, '[]'::jsonb)) AS entry
-              WHERE entry->>'department' ILIKE '%' || $${salaryDeptMatchParam} || '%'
-            ),
-            0
-          )
-          ELSE COALESCE(base_currency_amount, 0)
-        END
-      `
+      ? buildDeptAwareAmountExpr(DEPT_SPLIT_QUERY_CONFIGS, 'COALESCE(base_currency_amount, 0)', Number(deptSplitDeptParams[0].slice(1))).expr
       : queryConfig.amountRmbExpr;
 
     let query = isDebug
@@ -243,25 +336,21 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     query += ` AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`;
 
     const deptCodeMode = isDeptCodeLike(deptMatch);
-    const nonSalaryDeptMatchExpr = isOperation
-      ? `(NOT ${isSalaryChinaExpr} AND `
-      : `(`;
-    const salaryDeptExistsExpr = `
-      (${isSalaryChinaExpr}
-        AND salary_by_department IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements(salary_by_department) AS entry
-          WHERE entry->>'department' ILIKE '%' || $${salaryDeptMatchParam} || '%'
-        ))
-    `;
+    const nonSplitDeptParam = `$${paramIndex++}`;
     if (deptCodeMode) {
-      // 代码模式：要求是独立 token（边界可为开头/结尾/空格/下划线/连字符等），避免 "it" 命中无关文本。
-      query += ` AND (${nonSalaryDeptMatchExpr}UPPER(COALESCE(${departmentExpr}, '')) ~ $${paramIndex++})${isOperation ? ` OR ${salaryDeptExistsExpr}` : ''})`;
       params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
     } else {
-      query += ` AND (${nonSalaryDeptMatchExpr}${departmentExpr} ILIKE $${paramIndex++})${isOperation ? ` OR ${salaryDeptExistsExpr}` : ''})`;
       params.push(`%${deptMatch}%`);
+    }
+    if (isOperation) {
+      const filterExpr = buildDeptFilterExpr(DEPT_SPLIT_QUERY_CONFIGS, deptSplitDeptParams, deptCodeMode, departmentExpr, nonSplitDeptParam);
+      query += ` AND ${filterExpr}`;
+    } else {
+      if (deptCodeMode) {
+        query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`;
+      } else {
+        query += ` AND ${departmentExpr} ILIKE ${nonSplitDeptParam}`;
+      }
     }
 
     // 月份过滤
@@ -386,21 +475,10 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const wantEcho = String(echo || '') === '1';
     const isDebug = String(debug || '') === '1';
     const isOperation = queryConfig.processKind === 'operation';
-    const isSalaryChinaExpr = `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`;
 
-    // 工资中国感知的金额表达式：全部门查询时，对工资中国记录取 salary_by_department 所有条目之和
+    // 分摊类型感知的金额表达式：全部门查询时，对分摊记录取 JSONB 所有条目之和
     const amountRmbExpr = isOperation
-      ? `
-        CASE
-          WHEN ${isSalaryChinaExpr} AND salary_by_department IS NOT NULL
-          THEN COALESCE(
-            (SELECT SUM((entry->>'amount')::numeric)
-             FROM jsonb_array_elements(salary_by_department) AS entry),
-            0
-          )
-          ELSE COALESCE(base_currency_amount, 0)
-        END
-      `
+      ? buildAllDeptAmountExpr(DEPT_SPLIT_QUERY_CONFIGS, 'COALESCE(base_currency_amount, 0)')
       : queryConfig.amountRmbExpr;
 
     let query = isDebug
@@ -493,31 +571,8 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
         };
         if (isOperation) {
           const whereClause = query.slice(query.indexOf('WHERE 1=1') + 'WHERE 1=1'.length);
-          const breakdownQuery = `
-            SELECT dept, COALESCE(SUM(amount), 0)::text AS total
-            FROM (
-              SELECT
-                COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-                COALESCE(base_currency_amount, 0) AS amount
-              FROM ${queryConfig.tableName}
-              WHERE NOT ${isSalaryChinaExpr}
-              ${whereClause}
-
-              UNION ALL
-
-              SELECT
-                COALESCE(NULLIF(TRIM(entry->>'department'), ''), 'Unknown') AS dept,
-                COALESCE((entry->>'amount')::numeric, 0) AS amount
-              FROM ${queryConfig.tableName},
-                   jsonb_array_elements(salary_by_department) AS entry
-              WHERE ${isSalaryChinaExpr}
-                AND salary_by_department IS NOT NULL
-              ${whereClause}
-            ) AS combined
-            GROUP BY dept
-            ORDER BY SUM(amount) DESC
-          `;
-          const breakdownResult = await client.query(breakdownQuery, params);
+          const breakdownSql = buildBreakdownQuery(DEPT_SPLIT_QUERY_CONFIGS, queryConfig.tableName, whereClause);
+          const breakdownResult = await client.query(breakdownSql, params);
           payload.breakdown = Object.fromEntries(
             (breakdownResult.rows || []).map((breakdownRow: Record<string, unknown>) => [
               String(breakdownRow.dept || 'Unknown'),

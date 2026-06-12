@@ -52,12 +52,16 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     creator_department VARCHAR(500),
 
     salary_by_department JSONB,
+    social_insurance_by_department JSONB,
+    office_space_by_department JSONB,
     raw_data JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
+COMMENT ON COLUMN approval_expense_operation.social_insurance_by_department IS '社保中国分部门明细 — JSON array of {department, amount}';
+COMMENT ON COLUMN approval_expense_operation.office_space_by_department IS '办公场地总费用分部门明细 — JSON array of {department, amount}';
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     id BIGSERIAL PRIMARY KEY,

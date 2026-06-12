@@ -78,6 +78,8 @@ export interface OperationExpenseData {
   sourceUpdatedAt?: string | null;
   creatorDepartment?: string | null;
   salaryByDepartment?: Array<{ department: string; amount: number; note?: string }> | null;
+  socialInsuranceByDepartment?: Array<{ department: string; amount: number }> | null;
+  officeSpaceByDepartment?: Array<{ department: string; amount: number }> | null;
   rawData?: Record<string, unknown>;
 }
 

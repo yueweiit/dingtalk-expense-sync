@@ -40,7 +40,7 @@ class DingTalkAPI {
     this.accessToken = null;
     this.tokenExpireTime = null;
     this.maxRetryTimes = 3;
-    this.baseRetryDelayMs = 1000;
+    this.baseRetryDelayMs = 2000;
   }
 
   sleep(ms: number): Promise<void> {
@@ -205,7 +205,9 @@ class DingTalkAPI {
   // 批量获取实例详情
   async getProcessInstances(instanceIds: string[]): Promise<Array<{ id: string; instance: Record<string, unknown> | null; error: string | null }>> {
     const results: Array<{ id: string; instance: Record<string, unknown> | null; error: string | null }> = [];
-    for (const instanceId of instanceIds) {
+    for (let i = 0; i < instanceIds.length; i++) {
+      if (i > 0) await this.sleep(120);
+      const instanceId = instanceIds[i];
       try {
         const instance = await this.getProcessInstance(instanceId);
         if (instance && instance.processInstanceId == null) {

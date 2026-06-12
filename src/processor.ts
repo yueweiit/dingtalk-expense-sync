@@ -103,6 +103,47 @@ interface BatchProcessResult {
   details: ProcessResult[];
 }
 
+interface DeptSplitTypeConfig {
+  label: string;
+  labelEs?: string;
+  tableFieldId: string;
+  moneyFieldId: string;
+  textFieldId: string | null;
+  dbColumn: string;
+}
+
+const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
+  {
+    label: '工资中国',
+    labelEs: 'Salario en China',
+    tableFieldId: 'TableField_13B0RI3JBQXS0',
+    moneyFieldId: 'MoneyField_T2TFVV7BXN40',
+    textFieldId: 'TextField_SZ57CIDK9J40',
+    dbColumn: 'salaryByDepartment',
+  },
+  {
+    label: '工资salario',
+    tableFieldId: '',
+    moneyFieldId: '',
+    textFieldId: null,
+    dbColumn: 'salaryByDepartment',
+  },
+  {
+    label: '社保中国',
+    tableFieldId: 'TableField_G2ELEALN0S80',
+    moneyFieldId: 'MoneyField_X5KBWAODJ1S0',
+    textFieldId: null,
+    dbColumn: 'socialInsuranceByDepartment',
+  },
+  {
+    label: '办公场地总费用',
+    tableFieldId: 'TableField_9KUR3Y1BQYW0',
+    moneyFieldId: 'MoneyField_O4L4S81Y0MO0',
+    textFieldId: null,
+    dbColumn: 'officeSpaceByDepartment',
+  },
+];
+
 class ApprovalProcessor {
   constructor() {
     // 出纳节点由 dingtalk.cashierActivityIds 指定（钉钉 task.activityId）
@@ -166,7 +207,9 @@ class ApprovalProcessor {
    */
   extractTableFieldData(
     fc: FormComponentValue[] | undefined | null,
-    tableFieldId: string
+    tableFieldId: string,
+    moneyFieldId: string = 'MoneyField_T2TFVV7BXN40',
+    textFieldId: string | null = 'TextField_SZ57CIDK9J40'
   ): Array<{ department: string; amount: number; note: string }> | null {
     if (!fc || !Array.isArray(fc)) {
       return null;
@@ -197,9 +240,9 @@ class ApprovalProcessor {
           const cellId = String(cell.id || '');
           if (cellId.startsWith('DepartmentField_')) {
             department = String(cell.value || '').trim();
-          } else if (cellId === 'MoneyField_T2TFVV7BXN40') {
+          } else if (cellId === moneyFieldId) {
             amount = this.normalizeNumber(cell.value) || 0;
-          } else if (cellId === 'TextField_SZ57CIDK9J40') {
+          } else if (textFieldId && cellId === textFieldId) {
             note = String(cell.value || '').trim();
           }
         }
@@ -226,9 +269,9 @@ class ApprovalProcessor {
               const cellKey = String(cell.key || '');
               if (cellKey.startsWith('DepartmentField_')) {
                 department = String(cell.value || '').trim();
-              } else if (cellKey === 'MoneyField_T2TFVV7BXN40') {
+              } else if (cellKey === moneyFieldId) {
                 amount = this.normalizeNumber(cell.value) || 0;
-              } else if (cellKey === 'TextField_SZ57CIDK9J40') {
+              } else if (textFieldId && cellKey === textFieldId) {
                 note = String(cell.value || '').trim();
               }
             }
@@ -476,10 +519,16 @@ class ApprovalProcessor {
       : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
 
     const operationExpense = this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出');
-    const isSalaryChina = operationExpense && String(operationExpense).includes('工资中国');
-    const salaryByDepartment = isSalaryChina
-      ? this.extractTableFieldData(fc, 'TableField_13B0RI3JBQXS0')
-      : null;
+    const opExpenseStr = String(operationExpense || '');
+    const deptSplitResults: Record<string, Array<{ department: string; amount: number; note: string }> | null> = {};
+    for (const cfg of DEPT_SPLIT_TYPES) {
+      const matches = opExpenseStr.includes(cfg.label) || (cfg.labelEs ? opExpenseStr.includes(cfg.labelEs) : false);
+      if (matches && cfg.tableFieldId) {
+        deptSplitResults[cfg.dbColumn] = this.extractTableFieldData(
+          fc, cfg.tableFieldId, cfg.moneyFieldId, cfg.textFieldId
+        );
+      }
+    }
 
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
@@ -510,7 +559,9 @@ class ApprovalProcessor {
       currency: this.extractFormValueLastNonEmpty(fc, '币种Moneda') || this.extractFormValue(fc, '币种'),
       paymentDate: this.extractFormValue(fc, '付款日期Fecha de pago') || this.extractFormValue(fc, '付款日期'),
       keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证'),
-      salaryByDepartment
+      salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
+      socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
+      officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
     };
   }
 
