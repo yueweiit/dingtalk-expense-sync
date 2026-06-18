@@ -1,0 +1,433 @@
+import { pool } from './database/pool.ts';
+import { sendMarkdownToUsers } from './dingtalk-robot.ts';
+import dingtalk from './dingtalk.ts';
+import config from './config.ts';
+import logger from './logger.ts';
+
+// ─── SQL helpers (reused from server.ts patterns) ───
+
+interface DeptSplitConfig {
+  matchExpr: string;
+  jsonbColumn: string;
+}
+
+const DEPT_SPLIT_CONFIGS: DeptSplitConfig[] = [
+  { matchExpr: `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`, jsonbColumn: 'salary_by_department' },
+  { matchExpr: `(operation_expense = '工资salario')`, jsonbColumn: 'salary_by_department' },
+  { matchExpr: `(operation_expense ILIKE '%社保中国%')`, jsonbColumn: 'social_insurance_by_department' },
+  { matchExpr: `(operation_expense ILIKE '%办公场地%')`, jsonbColumn: 'office_space_by_department' },
+];
+
+const TIME_COLUMN = 'COALESCE(source_created_at, request_date::timestamp)';
+
+const STATUS_FILTER = `
+  AND UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')
+  AND UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')
+  AND NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t
+    WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
+  )
+  AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')
+`;
+
+function buildOperationBreakdownSql(dateFilter: string): string {
+  const nonSplitConditions = DEPT_SPLIT_CONFIGS.map(cfg => `NOT ${cfg.matchExpr}`).join(' AND ');
+  let unionParts = `
+    SELECT
+      COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+      COALESCE(base_currency_amount, 0) AS amount
+    FROM approval_expense_operation
+    WHERE ${nonSplitConditions}
+    ${dateFilter}
+    ${STATUS_FILTER}`;
+
+  for (const cfg of DEPT_SPLIT_CONFIGS) {
+    unionParts += `
+
+    UNION ALL
+
+    SELECT
+      COALESCE(NULLIF(TRIM(entry->>'department'), ''), 'Unknown') AS dept,
+      COALESCE((entry->>'amount')::numeric, 0) AS amount
+    FROM approval_expense_operation,
+         jsonb_array_elements(${cfg.jsonbColumn}) AS entry
+    WHERE ${cfg.matchExpr}
+      AND ${cfg.jsonbColumn} IS NOT NULL
+    ${dateFilter}
+    ${STATUS_FILTER}`;
+  }
+
+  return `
+    SELECT dept, COALESCE(SUM(amount), 0)::numeric AS total
+    FROM (${unionParts}) AS combined
+    GROUP BY dept
+    ORDER BY total DESC
+  `;
+}
+
+function buildPurchaseBreakdownSql(dateFilter: string): string {
+  return `
+    SELECT
+      COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+      COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::numeric AS total
+    FROM approval_expense_purchase
+    WHERE 1=1
+    ${dateFilter}
+    ${STATUS_FILTER}
+    GROUP BY dept
+    ORDER BY total DESC
+  `;
+}
+
+// ─── Date helpers ───
+
+function formatDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getLastWeekRange(): { start: string; end: string } {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
+  const daysBack = dayOfWeek === 0 ? 6 : dayOfWeek - 1 + 7;
+  const lastMonday = new Date(now);
+  lastMonday.setDate(now.getDate() - daysBack);
+  const lastSunday = new Date(lastMonday);
+  lastSunday.setDate(lastMonday.getDate() + 6);
+  return { start: formatDate(lastMonday), end: formatDate(lastSunday) };
+}
+
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ─── Data queries ───
+
+interface DeptExpense {
+  dept: string;
+  total: number;
+}
+
+async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Map<string, number>> {
+  const dateFilter = `AND ${TIME_COLUMN} >= '${startDate}' AND ${TIME_COLUMN} <= '${endDate} 23:59:59'`;
+
+  const client = await pool.connect();
+  try {
+    const [opResult, purResult] = await Promise.all([
+      client.query(buildOperationBreakdownSql(dateFilter)),
+      client.query(buildPurchaseBreakdownSql(dateFilter)),
+    ]);
+
+    const merged = new Map<string, number>();
+    for (const row of opResult.rows as DeptExpense[]) {
+      merged.set(row.dept, (merged.get(row.dept) || 0) + Number(row.total));
+    }
+    for (const row of purResult.rows as DeptExpense[]) {
+      merged.set(row.dept, (merged.get(row.dept) || 0) + Number(row.total));
+    }
+    return merged;
+  } finally {
+    client.release();
+  }
+}
+
+interface BudgetRow {
+  dept: string;
+  budget: string | null;
+}
+
+async function getMonthlyBudgetProgress(month: string): Promise<Map<string, { budget: number | null; spent: number | null }>> {
+  const [year, monthNum] = month.split('-').map(Number);
+  const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, monthNum, 0).getDate();
+  const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
+  const monthDateFilter = `AND ${TIME_COLUMN} >= '${startOfMonth}' AND ${TIME_COLUMN} <= '${endOfMonth} 23:59:59'`;
+
+  const client = await pool.connect();
+  try {
+    // Query 1: Budget amount from latest submission per department
+    const budgetSql = `
+      SELECT DISTINCT ON (dept) dept, budget
+      FROM (
+        SELECT
+          COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+          monthly_budget_amount AS budget,
+          ${TIME_COLUMN} AS ts
+        FROM approval_expense_operation
+        WHERE monthly_budget_amount IS NOT NULL
+        ${monthDateFilter}
+        ${STATUS_FILTER}
+        ORDER BY dept, ts DESC NULLS LAST
+      ) sub
+    `;
+
+    // Query 2: Actual monthly spending by SUMMING base_currency_amount
+    const spentOpSql = buildOperationBreakdownSql(monthDateFilter);
+    const spentPurSql = buildPurchaseBreakdownSql(monthDateFilter);
+
+    const [budgetResult, spentOpResult, spentPurResult] = await Promise.all([
+      client.query(budgetSql),
+      client.query(spentOpSql),
+      client.query(spentPurSql),
+    ]);
+
+    // Merge budget data
+    const map = new Map<string, { budget: number | null; spent: number | null }>();
+    for (const row of budgetResult.rows as BudgetRow[]) {
+      map.set(row.dept, {
+        budget: row.budget != null ? Number(row.budget) : null,
+        spent: null,
+      });
+    }
+
+    // Merge actual spending from operation table
+    for (const row of spentOpResult.rows as DeptExpense[]) {
+      const existing = map.get(row.dept) || { budget: null, spent: null };
+      existing.spent = (existing.spent || 0) + Number(row.total);
+      map.set(row.dept, existing);
+    }
+
+    // Merge actual spending from purchase table
+    for (const row of spentPurResult.rows as DeptExpense[]) {
+      const existing = map.get(row.dept) || { budget: null, spent: null };
+      existing.spent = (existing.spent || 0) + Number(row.total);
+      map.set(row.dept, existing);
+    }
+
+    return map;
+  } finally {
+    client.release();
+  }
+}
+
+// ─── Report types & formatting ───
+
+interface DeptReport {
+  deptName: string;
+  weeklyExpenses: number;
+  budget: number | null;
+  spent: number | null;
+  weekStart: string;
+  weekEnd: string;
+}
+
+function formatAmount(value: number): string {
+  return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function normalizeDeptName(name: string): string {
+  let trimmed = name.trim();
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    trimmed = parts.slice(1).join(' ');
+  }
+  return trimmed.toLowerCase();
+}
+
+/** Look up recipients for a department from config mapping. Priority: exact > normalize > prefix */
+function findRecipients(deptName: string): string[] | null {
+  const recipients = config.scheduler.weeklyReportDeptRecipients;
+  const keys = Object.keys(recipients);
+  if (keys.length === 0) return null;
+
+  const trimmedLower = deptName.trim().toLowerCase();
+  const normalized = normalizeDeptName(deptName);
+
+  // 1. Exact match (trim + lowercase)
+  const exactKey = keys.find(k => k.trim().toLowerCase() === trimmedLower);
+  if (exactKey) return recipients[exactKey];
+
+  // 2. Normalized match (strip prefix + lowercase)
+  const normalizedKey = keys.find(k => normalizeDeptName(k) === normalized);
+  if (normalizedKey) return recipients[normalizedKey];
+
+  // 3. Prefix match: config key is prefix of dept name (e.g. "AG 核算小组" matches "AG 核算小组Grupo de Contabilidad")
+  const prefixKey = keys.find(k => trimmedLower.startsWith(k.trim().toLowerCase()));
+  if (prefixKey) return recipients[prefixKey];
+
+  // 4. Reverse prefix match: dept name is prefix of config key
+  const reversePrefixKey = keys.find(k => k.trim().toLowerCase().startsWith(trimmedLower));
+  if (reversePrefixKey) return recipients[reversePrefixKey];
+
+  return null;
+}
+
+function formatDeptReport(dept: DeptReport): { title: string; text: string } {
+  const lines: string[] = [];
+  lines.push(`# 预算执行周报`);
+  lines.push('');
+  lines.push(`**报告期间**: ${dept.weekStart} ~ ${dept.weekEnd}`);
+  lines.push(`**部门**: ${dept.deptName}`);
+  lines.push('');
+  lines.push(`## 本周支出`);
+  lines.push('');
+  lines.push(`- 本周支出合计：**${formatAmount(dept.weeklyExpenses)} CNY**`);
+  lines.push('');
+  lines.push(`## 本月预算执行进度`);
+  lines.push('');
+
+  if (dept.budget != null) {
+    const usagePct = dept.budget > 0 ? ((dept.spent || 0) / dept.budget * 100) : 0;
+    const remaining = dept.budget - (dept.spent || 0);
+    lines.push(`- 月度预算：${formatAmount(dept.budget)}`);
+    lines.push(`- 累计支出：${formatAmount(dept.spent || 0)}`);
+    lines.push(`- 使用比例：**${usagePct.toFixed(1)}%**`);
+    lines.push(`- 剩余额度：${formatAmount(remaining)}`);
+  } else {
+    lines.push(`- 暂无预算数据`);
+  }
+
+  lines.push('');
+  lines.push('---');
+  lines.push('> 说明：月度预算来源于审批单中的"本月预算金额"字段（取最近一次提交值），累计支出为本月所有已审批通过支出的实际汇总。');
+
+  return {
+    title: `预算执行周报 - ${dept.deptName}`,
+    text: lines.join('\n'),
+  };
+}
+
+function formatAdminSummary(
+  sentCount: number,
+  failedDepts: string[],
+  noRecipientDepts: string[],
+  emptyRecipientDepts: string[]
+): { title: string; text: string } {
+  const lines: string[] = [];
+  lines.push('# 预算周报发送完成');
+  lines.push('');
+  lines.push(`- 成功：**${sentCount}** 部门`);
+
+  if (failedDepts.length > 0) {
+    lines.push(`- 失败：**${failedDepts.length}** 部门`);
+    lines.push(`- 失败部门：${failedDepts.join(', ')}`);
+  }
+
+  if (noRecipientDepts.length > 0) {
+    lines.push(`- 未配置收件人：**${noRecipientDepts.length}** 部门`);
+    lines.push(`- 未配置部门：${noRecipientDepts.join(', ')}`);
+  }
+
+  if (emptyRecipientDepts.length > 0) {
+    lines.push(`- 收件人为空：**${emptyRecipientDepts.length}** 部门`);
+    lines.push(`- 空数组部门：${emptyRecipientDepts.join(', ')}`);
+  }
+
+  return {
+    title: '预算周报发送汇总',
+    text: lines.join('\n'),
+  };
+}
+
+// ─── Orchestrator ───
+
+export async function sendWeeklyBudgetReport(): Promise<void> {
+  logger.info('开始生成预算执行周报');
+
+  const { start: weekStart, end: weekEnd } = getLastWeekRange();
+  const currentMonth = getCurrentMonth();
+  logger.info(`报告期间: ${weekStart} ~ ${weekEnd}, 月份: ${currentMonth}`);
+
+  // 1. Query data
+  const [weeklyExpenses, budgetProgress] = await Promise.all([
+    getWeeklyExpenses(weekStart, weekEnd),
+    getMonthlyBudgetProgress(currentMonth),
+  ]);
+
+  if (weeklyExpenses.size === 0) {
+    logger.info('本周无支出数据，跳过周报发送');
+    return;
+  }
+
+  // 2. Build department reports
+  const allDepts = new Set<string>([...weeklyExpenses.keys(), ...budgetProgress.keys()]);
+  const reports: DeptReport[] = [];
+  for (const dept of allDepts) {
+    reports.push({
+      deptName: dept,
+      weeklyExpenses: weeklyExpenses.get(dept) || 0,
+      budget: budgetProgress.get(dept)?.budget ?? null,
+      spent: budgetProgress.get(dept)?.spent ?? null,
+      weekStart,
+      weekEnd,
+    });
+  }
+
+  // Sort by weekly expenses descending
+  reports.sort((a, b) => b.weeklyExpenses - a.weeklyExpenses);
+
+  logger.info(`共 ${reports.length} 个部门有数据`);
+
+  // 3. Dry-run mode
+  if (config.scheduler.weeklyReportDryRun) {
+    logger.info('[DRY RUN] 周报内容预览:');
+    for (const dept of reports) {
+      const markdown = formatDeptReport(dept);
+      logger.info(`[DRY RUN] 部门: ${dept.deptName}`);
+      logger.info(`[DRY RUN] 标题: ${markdown.title}`);
+      logger.info(`[DRY RUN] 内容:\n${markdown.text}`);
+      logger.info('---');
+    }
+    logger.info(`[DRY RUN] 共 ${reports.length} 个部门，dry-run 模式不实际发送`);
+    return;
+  }
+
+  // 4. Send to each department
+  let sentCount = 0;
+  const failedDepts: string[] = [];
+  const noRecipientDepts: string[] = [];
+  const emptyRecipientDepts: string[] = [];
+
+  for (const dept of reports) {
+    const recipients = findRecipients(dept.deptName);
+
+    if (recipients === null) {
+      logger.warn(`部门 "${dept.deptName}" 未配置收件人，跳过发送`);
+      noRecipientDepts.push(dept.deptName);
+      continue;
+    }
+
+    if (recipients.length === 0) {
+      logger.warn(`部门 "${dept.deptName}" 收件人数组为空，跳过发送`);
+      emptyRecipientDepts.push(dept.deptName);
+      continue;
+    }
+
+    const markdown = formatDeptReport(dept);
+
+    try {
+      const result = await sendMarkdownToUsers(recipients, markdown);
+      if (result.success) {
+        sentCount++;
+        logger.info(`周报已发送至部门 "${dept.deptName}" (${recipients.length} 位收件人)`);
+      } else {
+        logger.error(`周报发送失败: 部门="${dept.deptName}", error=${result.error}`);
+        failedDepts.push(dept.deptName);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`周报发送异常: 部门="${dept.deptName}", error=${msg}`);
+      failedDepts.push(dept.deptName);
+    }
+
+    await dingtalk.sleep(200);
+  }
+
+  // 5. Admin summary notification
+  const adminUserId = config.scheduler.weeklyReportAdminUserId;
+  if (adminUserId) {
+    const summary = formatAdminSummary(sentCount, failedDepts, noRecipientDepts, emptyRecipientDepts);
+    try {
+      await sendMarkdownToUsers([adminUserId], summary);
+      logger.info('管理员汇总通知已发送');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`管理员汇总通知发送失败: ${msg}`);
+    }
+  }
+
+  logger.info(`预算执行周报完成: 成功 ${sentCount} 部门, 失败 ${failedDepts.length} 部门, 未配置收件人 ${noRecipientDepts.length} 部门, 空数组 ${emptyRecipientDepts.length} 部门`);
+}

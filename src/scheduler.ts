@@ -12,6 +12,7 @@ import {
   buildFxDailyRows,
   invalidateUsdRatesCache
 } from './openErFx.ts';
+import { sendWeeklyBudgetReport } from './budget-report.ts';
 
 interface InstanceIdWithMeta {
   processInstanceId: string;
@@ -22,11 +23,13 @@ class Scheduler {
   private isRunning: boolean;
   private isCompensating: boolean;
   private isFxSyncing: boolean;
+  private isReporting: boolean;
 
   constructor() {
     this.isRunning = false;
     this.isCompensating = false;
     this.isFxSyncing = false;
+    this.isReporting = false;
   }
 
   // 将配置时间或字符串时间转换为时间戳（毫秒）
@@ -321,6 +324,25 @@ class Scheduler {
     }
   }
 
+  // 周报发送任务
+  async sendWeeklyReport(): Promise<void> {
+    if (this.isReporting) {
+      logger.warn('周报任务进行中，跳过本次');
+      return;
+    }
+    this.isReporting = true;
+    const taskStart = Date.now();
+    try {
+      await sendWeeklyBudgetReport();
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.error(`周报任务失败: ${message}`);
+    } finally {
+      this.isReporting = false;
+      logger.info(`周报任务耗时: ${Date.now() - taskStart}ms`);
+    }
+  }
+
   // 启动定时任务
   start(): void {
     const cronExpression = config.scheduler.cron;
@@ -354,6 +376,21 @@ class Scheduler {
         const message = e instanceof Error ? e.message : String(e);
         logger.warn(`启动日汇率同步: ${message}`);
       });
+    }
+
+    if (config.scheduler.weeklyReportEnabled) {
+      const weeklyReportCron = config.scheduler.weeklyReportCron || '0 10 * * 1';
+      const weeklyReportTz = config.scheduler.weeklyReportTimezone || 'Asia/Shanghai';
+      logger.info(`启动周报定时任务，表达式: ${weeklyReportCron}（时区 ${weeklyReportTz}）`);
+      cron.schedule(
+        weeklyReportCron,
+        async () => {
+          await this.sendWeeklyReport();
+        },
+        { timezone: weeklyReportTz }
+      );
+    } else {
+      logger.info('周报定时任务已禁用（SCHEDULER_WEEKLY_REPORT_ENABLED=false）');
     }
 
     // 立即执行一次

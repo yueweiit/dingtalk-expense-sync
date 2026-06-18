@@ -4,6 +4,7 @@ import database, { pool } from './database.ts';
 import logger from './logger.ts';
 import config from './config.ts';
 import { normalizeCurrencyToIso } from './fxToCny.ts';
+import scheduler from './scheduler.ts';
 
 const app = express();
 const PORT = config.server.port;
@@ -666,6 +667,34 @@ app.get('/api/approvals/approved', async (req: Request, res: Response) => {
 // 健康检查
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// 手动触发预算周报
+app.post('/api/reports/weekly-budget', async (req: Request, res: Response) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const reportSecret = process.env.REPORT_SECRET;
+
+  if (isProduction) {
+    if (!reportSecret) {
+      res.status(403).json({ error: 'forbidden', message: '生产环境未配置 REPORT_SECRET，禁止访问' });
+      return;
+    }
+    const providedSecret = req.headers['x-report-secret'];
+    if (providedSecret !== reportSecret) {
+      res.status(403).json({ error: 'forbidden', message: 'X-Report-Secret 不匹配' });
+      return;
+    }
+  }
+
+  try {
+    // Fire and return immediately — the report runs in the background
+    void scheduler.sendWeeklyReport();
+    res.json({ status: 'accepted', message: '预算周报任务已触发，请查看日志' });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`手动触发周报失败: ${message}`);
+    res.status(500).json({ error: 'trigger_failed', message });
+  }
 });
 
 // 启动服务器（启动前确保日汇率表存在，便于只跑 HTTP 的环境）

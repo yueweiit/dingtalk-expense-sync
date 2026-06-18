@@ -19,6 +19,9 @@ interface DatabaseConfig {
 interface DingtalkConfig {
   appkey: string | undefined;
   appsecret: string | undefined;
+  robotCode: string | undefined;
+  robotAppkey: string | undefined;
+  robotAppsecret: string | undefined;
   cashierActivityIds: string[];
   cashierActivityIdsByProcessCode: Record<string, string[]>;
   processCodes: string[];
@@ -33,6 +36,12 @@ interface SchedulerConfig {
   fxRatesRunOnStartup: boolean;
   pendingCompensationLimit: number;
   staleAgreedRefreshLimit: number;
+  weeklyReportCron: string;
+  weeklyReportTimezone: string;
+  weeklyReportEnabled: boolean;
+  weeklyReportDryRun: boolean;
+  weeklyReportAdminUserId: string;
+  weeklyReportDeptRecipients: Record<string, string[]>;
 }
 
 interface ServerConfig {
@@ -127,6 +136,51 @@ function parseBooleanEnv(value: string | undefined, defaultValue: boolean): bool
   return defaultValue;
 }
 
+/**
+ * Parse department recipients mapping from env var or config.json
+ * Format: {"deptName": ["userId1", "userId2"], ...}
+ * - Empty/missing → empty object (OK)
+ * - Invalid JSON → throw (fail fast)
+ * - Invalid values (not string[]) → throw
+ * - Empty arrays → skip with warning
+ */
+function parseDeptRecipients(
+  envValue: string | undefined,
+  fileValue: Record<string, string[]> | undefined
+): Record<string, string[]> {
+  const raw = envValue || JSON.stringify(fileValue || {});
+  if (!raw || raw.trim() === '' || raw.trim() === '{}') {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`SCHEDULER_WEEKLY_REPORT_DEPT_RECIPIENTS JSON 解析失败: ${raw.slice(0, 100)}`);
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('SCHEDULER_WEEKLY_REPORT_DEPT_RECIPIENTS 必须是 JSON 对象');
+  }
+
+  const result: Record<string, string[]> = {};
+  for (const [dept, ids] of Object.entries(parsed)) {
+    if (!Array.isArray(ids)) {
+      throw new Error(`SCHEDULER_WEEKLY_REPORT_DEPT_RECIPIENTS["${dept}"] 必须是数组`);
+    }
+    if (ids.some(id => typeof id !== 'string')) {
+      throw new Error(`SCHEDULER_WEEKLY_REPORT_DEPT_RECIPIENTS["${dept}"] 数组元素必须是字符串`);
+    }
+    if (ids.length === 0) {
+      console.warn(`Warning: SCHEDULER_WEEKLY_REPORT_DEPT_RECIPIENTS["${dept}"] 数组为空，将跳过该部门`);
+      continue;
+    }
+    result[dept] = ids;
+  }
+  return result;
+}
+
 // Build configuration object with env vars taking precedence over config.json
 const config: Config = Object.freeze({
   database: Object.freeze({
@@ -139,6 +193,9 @@ const config: Config = Object.freeze({
   dingtalk: Object.freeze({
     appkey: process.env.DINGTALK_APPKEY || fileConfig.dingtalk?.appkey,
     appsecret: process.env.DINGTALK_APPSECRET || fileConfig.dingtalk?.appsecret,
+    robotCode: process.env.DINGTALK_ROBOT_CODE || fileConfig.dingtalk?.robotCode,
+    robotAppkey: process.env.DINGTALK_ROBOT_APPKEY || fileConfig.dingtalk?.robotAppkey,
+    robotAppsecret: process.env.DINGTALK_ROBOT_APPSECRET || fileConfig.dingtalk?.robotAppsecret,
     cashierActivityIds: (parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS) as string[] | undefined) || fileConfig.dingtalk?.cashierActivityIds || [],
     cashierActivityIdsByProcessCode: (parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS_BY_PROCESS_CODE) as Record<string, string[]> | undefined) || fileConfig.dingtalk?.cashierActivityIdsByProcessCode || {},
     processCodes: (parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) as string[] | undefined) || fileConfig.dingtalk?.processCodes || [],
@@ -152,6 +209,15 @@ const config: Config = Object.freeze({
     fxRatesRunOnStartup: parseBooleanEnv(process.env.SCHEDULER_FX_RATES_RUN_ON_STARTUP, fileConfig.scheduler?.fxRatesRunOnStartup ?? true),
     pendingCompensationLimit: Number(process.env.SCHEDULER_PENDING_COMPENSATION_LIMIT) || fileConfig.scheduler?.pendingCompensationLimit || 500,
     staleAgreedRefreshLimit: Number(process.env.SCHEDULER_STALE_AGREED_REFRESH_LIMIT) || fileConfig.scheduler?.staleAgreedRefreshLimit || 80,
+    weeklyReportCron: process.env.SCHEDULER_WEEKLY_REPORT_CRON || fileConfig.scheduler?.weeklyReportCron || '0 10 * * 1',
+    weeklyReportTimezone: process.env.SCHEDULER_WEEKLY_REPORT_TIMEZONE || fileConfig.scheduler?.weeklyReportTimezone || 'Asia/Shanghai',
+    weeklyReportEnabled: parseBooleanEnv(process.env.SCHEDULER_WEEKLY_REPORT_ENABLED, fileConfig.scheduler?.weeklyReportEnabled ?? false),
+    weeklyReportDryRun: parseBooleanEnv(process.env.SCHEDULER_WEEKLY_REPORT_DRY_RUN, fileConfig.scheduler?.weeklyReportDryRun ?? false),
+    weeklyReportAdminUserId: process.env.SCHEDULER_WEEKLY_REPORT_ADMIN_USER_ID || fileConfig.scheduler?.weeklyReportAdminUserId || '',
+    weeklyReportDeptRecipients: parseDeptRecipients(
+      process.env.SCHEDULER_WEEKLY_REPORT_DEPT_RECIPIENTS,
+      fileConfig.scheduler?.weeklyReportDeptRecipients
+    ),
   }),
   server: Object.freeze({
     port: Number(process.env.PORT) || fileConfig.server?.port || 3002,

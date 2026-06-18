@@ -3,7 +3,8 @@
     "cashierActivityIds": [
       "1793_35c3"
     ],
-    "cashierActivityIdsByProcessCode": {}
+    "cashierActivityIdsByProcessCode": {},
+    "robotCode": ""
   },
   "scheduler": {
     "cron": "7 * * * *",
@@ -13,7 +14,12 @@
     "fxRatesTimezone": "Asia/Shanghai",
     "fxRatesRunOnStartup": true,
     "pendingCompensationLimit": 500,
-    "staleAgreedRefreshLimit": 80
+    "staleAgreedRefreshLimit": 80,
+    "weeklyReportCron": "0 10 * * 1",
+    "weeklyReportTimezone": "Asia/Shanghai",
+    "weeklyReportEnabled": false,
+    "weeklyReportDryRun": false,
+    "weeklyReportAdminUserId": ""
   },
   "server": {
     "port": 3002
