@@ -98,6 +98,38 @@ interface ExpenseQueryConfig {
   amountRmbExpr: string;
 }
 
+/** 为 UNION ALL 的 joined 部分生成带表别名前缀的状态过滤 SQL */
+function buildStatusFiltersForAlias(
+  tableAlias: string,
+  flowStatusCompletedOnly: boolean,
+  allowRevokedBiz: boolean
+): string {
+  const a = tableAlias;
+  const filters: string[] = [];
+  if (flowStatusCompletedOnly) {
+    filters.push(`${a}.approval_status = 'COMPLETED'`);
+  }
+  filters.push(`UPPER(COALESCE(NULLIF(TRIM(${a}.approval_status), ''), NULLIF(TRIM(${a}.raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
+  if (!allowRevokedBiz) {
+    filters.push(`UPPER(COALESCE(NULLIF(TRIM(${a}.raw_data->>'bizAction'), ''), NULLIF(TRIM(${a}.raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
+  }
+  filters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(${a}.raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
+  filters.push(`UPPER(COALESCE(${a}.raw_data->>'flowResult', ${a}.raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
+  return filters.map(f => ` AND ${f}`).join('');
+}
+
+/** 为 UNION ALL 的 joined 部分生成带表别名前缀的时间过滤 SQL */
+function buildTimeFilterForAlias(
+  tableAlias: string,
+  timeFilter: string,
+): string {
+  if (!timeFilter) return '';
+  const a = tableAlias;
+  return timeFilter
+    .replace(/\bsource_created_at\b/g, `${a}.source_created_at`)
+    .replace(/\brequest_date\b/g, `${a}.request_date`);
+}
+
 function getExpenseQueryConfig(processKind: string): ExpenseQueryConfig {
   if (processKind === 'purchase') {
     return {
@@ -114,110 +146,6 @@ function getExpenseQueryConfig(processKind: string): ExpenseQueryConfig {
     sourceAmountColumn: 'amount',
     amountRmbExpr: 'COALESCE(base_currency_amount, 0)'
   };
-}
-
-/** 分摊类型配置：用于金额计算、部门过滤和全部门 breakdown */
-interface DeptSplitQueryConfig {
-  matchExpr: string;
-  jsonbColumn: string;
-}
-
-const DEPT_SPLIT_QUERY_CONFIGS: DeptSplitQueryConfig[] = [
-  { matchExpr: `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`, jsonbColumn: 'salary_by_department' },
-  { matchExpr: `(operation_expense = '工资salario')`, jsonbColumn: 'salary_by_department' },
-  { matchExpr: `(operation_expense ILIKE '%社保中国%')`, jsonbColumn: 'social_insurance_by_department' },
-  { matchExpr: `(operation_expense ILIKE '%办公场地%')`, jsonbColumn: 'office_space_by_department' },
-];
-
-/** 为 queryApproved 生成 CASE WHEN 金额表达式（每个分摊类型消耗一个部门匹配参数） */
-function buildDeptAwareAmountExpr(
-  configs: DeptSplitQueryConfig[],
-  baseExpr: string,
-  paramOffset: number
-): { expr: string; paramCount: number } {
-  let expr = 'CASE\n';
-  let paramIdx = paramOffset;
-  for (const cfg of configs) {
-    expr += `          WHEN ${cfg.matchExpr}
-          THEN COALESCE(
-            (SELECT SUM((entry->>'amount')::numeric)
-             FROM jsonb_array_elements(COALESCE(${cfg.jsonbColumn}, '[]'::jsonb)) AS entry
-             WHERE entry->>'department' ILIKE '%' || $${paramIdx++} || '%'),
-            0
-          )\n`;
-  }
-  expr += `          ELSE ${baseExpr}\n        END`;
-  return { expr, paramCount: paramIdx - paramOffset };
-}
-
-/** 为 queryApprovedAll 生成 CASE WHEN 金额表达式（无需部门参数） */
-function buildAllDeptAmountExpr(configs: DeptSplitQueryConfig[], baseExpr: string): string {
-  let expr = 'CASE\n';
-  for (const cfg of configs) {
-    expr += `          WHEN ${cfg.matchExpr}
-          THEN COALESCE(
-            (SELECT SUM((entry->>'amount')::numeric)
-             FROM jsonb_array_elements(COALESCE(${cfg.jsonbColumn}, '[]'::jsonb)) AS entry),
-            0
-          )\n`;
-  }
-  expr += `          ELSE ${baseExpr}\n        END`;
-  return expr;
-}
-
-/** 为 queryApproved 生成部门过滤条件（非分摊按 departmentExpr 匹配，分摊按 JSONB EXISTS 匹配） */
-function buildDeptFilterExpr(
-  configs: DeptSplitQueryConfig[],
-  deptMatchParams: string[],
-  deptCodeMode: boolean,
-  departmentExpr: string,
-  nonSplitDeptParam: string
-): string {
-  const nonSplitConditions = configs.map(cfg => `NOT ${cfg.matchExpr}`).join(' AND ');
-  const deptMatchForNonSplit = deptCodeMode
-    ? `UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`
-    : `${departmentExpr} ILIKE ${nonSplitDeptParam}`;
-  const existsClauses = configs.map((cfg, i) => `
-      (${cfg.matchExpr}
-        AND ${cfg.jsonbColumn} IS NOT NULL
-        AND EXISTS (
-          SELECT 1 FROM jsonb_array_elements(${cfg.jsonbColumn}) AS entry
-          WHERE entry->>'department' ILIKE '%' || ${deptMatchParams[i]} || '%'
-        ))`).join(' OR ');
-  return `((${nonSplitConditions} AND ${deptMatchForNonSplit}) OR ${existsClauses})`;
-}
-
-/** 为 queryApprovedAll 生成分部门汇总查询 */
-function buildBreakdownQuery(configs: DeptSplitQueryConfig[], tableName: string, whereClause: string): string {
-  const nonSplitConditions = configs.map(cfg => `NOT ${cfg.matchExpr}`).join(' AND ');
-  let unionParts = `
-              SELECT
-                COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-                COALESCE(base_currency_amount, 0) AS amount
-              FROM ${tableName}
-              WHERE ${nonSplitConditions}
-              ${whereClause}`;
-  for (const cfg of configs) {
-    unionParts += `
-
-              UNION ALL
-
-              SELECT
-                COALESCE(NULLIF(TRIM(entry->>'department'), ''), 'Unknown') AS dept,
-                COALESCE((entry->>'amount')::numeric, 0) AS amount
-              FROM ${tableName},
-                   jsonb_array_elements(${cfg.jsonbColumn}) AS entry
-              WHERE ${cfg.matchExpr}
-                AND ${cfg.jsonbColumn} IS NOT NULL
-              ${whereClause}`;
-  }
-  return `
-            SELECT dept, COALESCE(SUM(amount), 0)::text AS total
-            FROM (${unionParts}
-            ) AS combined
-            GROUP BY dept
-            ORDER BY SUM(amount) DESC
-          `;
 }
 
 async function queryApproved(req: Request, res: Response, processKind: string): Promise<void> {
@@ -280,92 +208,32 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     const params: unknown[] = [];
     let paramIndex = 1;
 
-    /** 统计口径：优先本位币人民币；分摊类型按 JSONB 部门拆分 */
     const isOperation = queryConfig.processKind === 'operation';
-    const deptSplitDeptParams: string[] = [];
-    if (isOperation) {
-      for (let i = 0; i < DEPT_SPLIT_QUERY_CONFIGS.length; i++) {
-        deptSplitDeptParams.push(`$${paramIndex++}`);
-        params.push(deptMatch);
-      }
-    }
-    const amountRmbExpr = isOperation
-      ? buildDeptAwareAmountExpr(DEPT_SPLIT_QUERY_CONFIGS, 'COALESCE(base_currency_amount, 0)', Number(deptSplitDeptParams[0].slice(1))).expr
-      : queryConfig.amountRmbExpr;
-
-    let query = isDebug
-      ? `
-      SELECT business_id,
-             ${queryConfig.sourceAmountColumn} AS amount,
-             base_currency_amount,
-             approval_completed_at,
-             source_created_at,
-             request_date,
-             applicant_department,
-             creator_department,
-             approval_status,
-             raw_data->>'bizAction' AS biz_action,
-             raw_data->>'title' AS title,
-             ${departmentExpr} AS department_resolved
-      FROM ${queryConfig.tableName}
-      WHERE 1=1
-    `
-      : `
-      SELECT COALESCE(SUM(${amountRmbExpr}), 0)::text AS total, COUNT(*)::int AS count
-      FROM ${queryConfig.tableName}
-      WHERE 1=1
-    `;
-
-    if (flowStatusCompletedOnly) {
-      query += ` AND approval_status = 'COMPLETED'`;
-    }
-
-    query += ` AND UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`;
-
-    if (!allowRevokedBiz) {
-      query += ` AND UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`;
-    }
-
-    // 只要任意人工节点出现拒绝（REFUSE/REJECT），整单不应计入"已通过"
-    query += `
-      AND NOT EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t
-        WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
-      )
-    `;
-    query += ` AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`;
-
     const deptCodeMode = isDeptCodeLike(deptMatch);
-    const nonSplitDeptParam = `$${paramIndex++}`;
-    if (deptCodeMode) {
-      params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
-    } else {
-      params.push(`%${deptMatch}%`);
-    }
-    if (isOperation) {
-      const filterExpr = buildDeptFilterExpr(DEPT_SPLIT_QUERY_CONFIGS, deptSplitDeptParams, deptCodeMode, departmentExpr, nonSplitDeptParam);
-      query += ` AND ${filterExpr}`;
-    } else {
-      if (deptCodeMode) {
-        query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`;
-      } else {
-        query += ` AND ${departmentExpr} ILIKE ${nonSplitDeptParam}`;
-      }
-    }
 
-    // 月份过滤
+    // 状态过滤（通用）
+    const statusFilters: string[] = [];
+    if (flowStatusCompletedOnly) {
+      statusFilters.push(`o.approval_status = 'COMPLETED'`);
+    }
+    statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(o.approval_status), ''), NULLIF(TRIM(o.raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
+    if (!allowRevokedBiz) {
+      statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(o.raw_data->>'bizAction'), ''), NULLIF(TRIM(o.raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
+    }
+    statusFilters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(o.raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
+    statusFilters.push(`UPPER(COALESCE(o.raw_data->>'flowResult', o.raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
+    const statusWhere = statusFilters.map(f => `      AND ${f}`).join('\n');
+
+    // 时间过滤
+    let timeFilter = '';
     if (month) {
       const bucket = parseMonthBucket(month);
       if (!bucket) {
         const payload: Record<string, unknown> = {
-          total: '0.00',
-          count: 0,
+          total: '0.00', count: 0,
           hint: 'month 格式无效，请用 2026-04 或 2026-04-30（仅需年月）'
         };
-        if (wantEcho) {
-          payload.receivedQuery = req.query;
-        }
+        if (wantEcho) payload.receivedQuery = req.query;
         res.json(payload);
         return;
       }
@@ -373,19 +241,124 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
       const lastDay = new Date(Number(year), monthNum, 0).getDate();
       const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
-
-      query += ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
       params.push(startOfMonth, endOfMonth + ' 23:59:59');
+    } else if (start_date && end_date) {
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
+      params.push(start_date, end_date + ' 23:59:59');
+    } else if (start_date) {
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}`;
+      params.push(start_date);
+    } else if (end_date) {
+      timeFilter = ` AND ${timeColumn} <= $${paramIndex++}`;
+      params.push(end_date + ' 23:59:59');
+    }
+
+    let query: string;
+
+    if (isOperation) {
+      // 运营支出：通过 split 表处理部门拆分
+      // LEFT JOIN split 表，按 department ILIKE 匹配
+      const splitDeptParam = `$${paramIndex++}`;
+      params.push(`%${deptMatch}%`);
+
+      if (isDebug) {
+        query = `
+          SELECT o.business_id,
+                 o.amount,
+                 o.base_currency_amount,
+                 o.approval_completed_at,
+                 o.source_created_at,
+                 o.request_date,
+                 o.applicant_department,
+                 o.creator_department,
+                 o.approval_status,
+                 o.raw_data->>'bizAction' AS biz_action,
+                 o.raw_data->>'title' AS title,
+                 ${departmentExpr} AS department_resolved
+          FROM ${queryConfig.tableName} o
+          LEFT JOIN (
+            SELECT ds.business_id, SUM(ds.amount) AS split_total
+            FROM approval_expense_dept_split ds
+            JOIN ${queryConfig.tableName} o2 ON o2.business_id = ds.business_id
+            WHERE ds.department ILIKE ${splitDeptParam}
+            ${statusWhere.replace(/\bo\./g, 'o2.')}
+            ${timeFilter.replace(/\bo\./g, 'o2.')}
+            GROUP BY ds.business_id
+          ) ds ON ds.business_id = o.business_id
+          WHERE (
+            (ds.business_id IS NULL AND ${departmentExpr} ILIKE $${paramIndex++})
+            OR ds.business_id IS NOT NULL
+          )
+          ${statusWhere}
+          ${timeFilter}
+          ORDER BY ${timeColumn} DESC
+        `;
+        params.push(`%${deptMatch}%`);
+      } else {
+        query = `
+          SELECT COALESCE(SUM(COALESCE(ds.split_total, o.base_currency_amount)), 0)::text AS total, COUNT(*)::int AS count
+          FROM ${queryConfig.tableName} o
+          LEFT JOIN (
+            SELECT ds.business_id, SUM(ds.amount) AS split_total
+            FROM approval_expense_dept_split ds
+            JOIN ${queryConfig.tableName} o2 ON o2.business_id = ds.business_id
+            WHERE ds.department ILIKE ${splitDeptParam}
+            ${statusWhere.replace(/\bo\./g, 'o2.')}
+            ${timeFilter.replace(/\bo\./g, 'o2.')}
+            GROUP BY ds.business_id
+          ) ds ON ds.business_id = o.business_id
+          WHERE (
+            (ds.business_id IS NULL AND ${departmentExpr} ILIKE $${paramIndex++})
+            OR ds.business_id IS NOT NULL
+          )
+          ${statusWhere}
+          ${timeFilter}
+        `;
+        params.push(`%${deptMatch}%`);
+      }
     } else {
-      if (start_date && end_date) {
-        query += ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
-        params.push(start_date, end_date + ' 23:59:59');
-      } else if (start_date) {
-        query += ` AND ${timeColumn} >= $${paramIndex++}`;
-        params.push(start_date);
-      } else if (end_date) {
-        query += ` AND ${timeColumn} <= $${paramIndex++}`;
-        params.push(end_date + ' 23:59:59');
+      // 采购支出：不涉及拆分，直接查询
+      const nonSplitDeptParam = `$${paramIndex++}`;
+      if (deptCodeMode) {
+        params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
+      } else {
+        params.push(`%${deptMatch}%`);
+      }
+
+      if (isDebug) {
+        query = `
+          SELECT o.business_id,
+                 ${queryConfig.sourceAmountColumn} AS amount,
+                 o.base_currency_amount,
+                 o.approval_completed_at,
+                 o.source_created_at,
+                 o.request_date,
+                 o.applicant_department,
+                 o.creator_department,
+                 o.approval_status,
+                 o.raw_data->>'bizAction' AS biz_action,
+                 o.raw_data->>'title' AS title,
+                 ${departmentExpr} AS department_resolved
+          FROM ${queryConfig.tableName} o
+          WHERE 1=1
+          ${statusWhere}
+          ${timeFilter}
+        `;
+      } else {
+        query = `
+          SELECT COALESCE(SUM(${queryConfig.amountRmbExpr}), 0)::text AS total, COUNT(*)::int AS count
+          FROM ${queryConfig.tableName} o
+          WHERE 1=1
+          ${statusWhere}
+          ${timeFilter}
+        `;
+      }
+
+      if (deptCodeMode) {
+        query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`;
+      } else {
+        query += ` AND ${departmentExpr} ILIKE ${nonSplitDeptParam}`;
       }
     }
 
@@ -402,7 +375,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           payload.resolved = {
             deptMatch,
             deptMatchMode: deptCodeMode ? 'code-token' : 'fuzzy',
-            amountSumExpr: amountRmbExpr,
             sourceTable: queryConfig.tableName,
             timeColumn,
             monthParsed: month ? parseMonthBucket(month) : null,
@@ -415,7 +387,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
         return;
       }
 
-      query += ` ORDER BY ${timeColumn} DESC`;
       const result = await client.query(query, params);
       const rows = result.rows || [];
       const total = rows.reduce((sum: number, r: Record<string, unknown>) => {
@@ -430,7 +401,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
         payload.resolved = {
           deptMatch,
           deptMatchMode: deptCodeMode ? 'code-token' : 'fuzzy',
-          amountSumExpr: amountRmbExpr,
           sourceTable: queryConfig.tableName,
           timeColumn,
           monthParsed: month ? parseMonthBucket(month) : null,
@@ -477,67 +447,32 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const isDebug = String(debug || '') === '1';
     const isOperation = queryConfig.processKind === 'operation';
 
-    // 分摊类型感知的金额表达式：全部门查询时，对分摊记录取 JSONB 所有条目之和
-    const amountRmbExpr = isOperation
-      ? buildAllDeptAmountExpr(DEPT_SPLIT_QUERY_CONFIGS, 'COALESCE(base_currency_amount, 0)')
-      : queryConfig.amountRmbExpr;
-
-    let query = isDebug
-      ? `
-      SELECT business_id,
-             ${queryConfig.sourceAmountColumn} AS amount,
-             base_currency_amount,
-             approval_completed_at,
-             source_created_at,
-             request_date,
-             applicant_department,
-             creator_department,
-             approval_status,
-             raw_data->>'bizAction' AS biz_action,
-             raw_data->>'title' AS title
-      FROM ${queryConfig.tableName}
-      WHERE 1=1
-    `
-      : `
-      SELECT COALESCE(SUM(${amountRmbExpr}), 0)::text AS total, COUNT(*)::int AS count
-      FROM ${queryConfig.tableName}
-      WHERE 1=1
-    `;
+    // 状态过滤
+    const statusFilters: string[] = [];
+    if (flowStatusCompletedOnly) {
+      statusFilters.push(`approval_status = 'COMPLETED'`);
+    }
+    statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
+    if (!allowRevokedBiz) {
+      statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
+    }
+    statusFilters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
+    statusFilters.push(`UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
+    const statusWhere = statusFilters.map(f => ` AND ${f}`).join('');
 
     const params: unknown[] = [];
     let paramIndex = 1;
 
-    if (flowStatusCompletedOnly) {
-      query += ` AND approval_status = 'COMPLETED'`;
-    }
-
-    query += ` AND UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`;
-
-    if (!allowRevokedBiz) {
-      query += ` AND UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`;
-    }
-
-    query += `
-      AND NOT EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t
-        WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
-      )
-    `;
-    query += ` AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`;
-
-    // 月份过滤
+    // 时间过滤
+    let timeFilter = '';
     if (month) {
       const bucket = parseMonthBucket(month);
       if (!bucket) {
         const payload: Record<string, unknown> = {
-          total: '0.00',
-          count: 0,
+          total: '0.00', count: 0,
           hint: 'month 格式无效，请用 2026-04 或 2026-04-30（仅需年月）'
         };
-        if (wantEcho) {
-          payload.receivedQuery = req.query;
-        }
+        if (wantEcho) payload.receivedQuery = req.query;
         res.json(payload);
         return;
       }
@@ -545,75 +480,104 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
       const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
       const lastDay = new Date(Number(year), monthNum, 0).getDate();
       const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
-
-      query += ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
       params.push(startOfMonth, endOfMonth + ' 23:59:59');
+    } else if (start_date && end_date) {
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
+      params.push(start_date, end_date + ' 23:59:59');
+    } else if (start_date) {
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}`;
+      params.push(start_date);
+    } else if (end_date) {
+      timeFilter = ` AND ${timeColumn} <= $${paramIndex++}`;
+      params.push(end_date + ' 23:59:59');
+    }
+
+    // 总额查询：直接 SUM(base_currency_amount)
+    let query: string;
+    if (isDebug) {
+      query = `
+        SELECT business_id,
+               ${queryConfig.sourceAmountColumn} AS amount,
+               base_currency_amount,
+               approval_completed_at,
+               source_created_at,
+               request_date,
+               applicant_department,
+               creator_department,
+               approval_status,
+               raw_data->>'bizAction' AS biz_action,
+               raw_data->>'title' AS title
+        FROM ${queryConfig.tableName}
+        WHERE 1=1
+        ${statusWhere}
+        ${timeFilter}
+        ORDER BY ${timeColumn} DESC
+      `;
     } else {
-      if (start_date && end_date) {
-        query += ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
-        params.push(start_date, end_date + ' 23:59:59');
-      } else if (start_date) {
-        query += ` AND ${timeColumn} >= $${paramIndex++}`;
-        params.push(start_date);
-      } else if (end_date) {
-        query += ` AND ${timeColumn} <= $${paramIndex++}`;
-        params.push(end_date + ' 23:59:59');
-      }
+      query = `
+        SELECT COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::text AS total, COUNT(*)::int AS count
+        FROM ${queryConfig.tableName}
+        WHERE 1=1
+        ${statusWhere}
+        ${timeFilter}
+      `;
     }
 
     const client = await pool.connect();
     try {
-      if (!isDebug) {
-        const result = await client.query(query, params);
-        const row = result.rows[0] || { total: '0', count: 0 };
-        const payload: Record<string, unknown> = {
-          total: Number.parseFloat(row.total || 0).toFixed(2),
-          count: Number(row.count || 0)
-        };
-        if (isOperation) {
-          const whereClause = query.slice(query.indexOf('WHERE 1=1') + 'WHERE 1=1'.length);
-          const breakdownSql = buildBreakdownQuery(DEPT_SPLIT_QUERY_CONFIGS, queryConfig.tableName, whereClause);
-          const breakdownResult = await client.query(breakdownSql, params);
-          payload.breakdown = Object.fromEntries(
-            (breakdownResult.rows || []).map((breakdownRow: Record<string, unknown>) => [
-              String(breakdownRow.dept || 'Unknown'),
-              Number.parseFloat(String(breakdownRow.total || 0)).toFixed(2)
-            ])
-          );
-        }
-        if (wantEcho) {
-          payload.resolved = {
-            deptMatch: '(all)',
-            deptMatchMode: 'all',
-            amountSumExpr: amountRmbExpr,
-            sourceTable: queryConfig.tableName,
-            timeColumn,
-            monthParsed: month ? parseMonthBucket(month) : null,
-            flowStatusFilter: flowStatusCompletedOnly ? "approval_status='COMPLETED'" : 'none',
-            excludeRevokedBiz: !allowRevokedBiz
-          };
-          payload.receivedQuery = req.query;
-        }
-        res.json(payload);
-        return;
+      const result = await client.query(query, params);
+      const row = result.rows[0] || { total: '0', count: 0 };
+      const payload: Record<string, unknown> = {
+        total: Number.parseFloat(row.total || 0).toFixed(2),
+        count: Number(row.count || 0)
+      };
+
+      // 运营支出：按部门 breakdown（UNION ALL 非拆分 + 拆分）
+      if (isOperation && !isDebug) {
+        const breakdownSql = `
+          SELECT dept, COALESCE(SUM(amount), 0)::text AS total
+          FROM (
+            SELECT
+              COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+              COALESCE(base_currency_amount, 0) AS amount
+            FROM ${queryConfig.tableName}
+            WHERE NOT EXISTS (
+              SELECT 1 FROM approval_expense_dept_split ds
+              WHERE ds.business_id = ${queryConfig.tableName}.business_id
+            )
+            ${statusWhere}
+            ${timeFilter}
+
+            UNION ALL
+
+            SELECT
+              ds.department AS dept,
+              ds.amount
+            FROM approval_expense_dept_split ds
+            JOIN ${queryConfig.tableName} o ON o.business_id = ds.business_id
+            WHERE 1=1
+            ${buildStatusFiltersForAlias('o', flowStatusCompletedOnly, allowRevokedBiz)}
+            ${buildTimeFilterForAlias('o', timeFilter)}
+          ) combined
+          GROUP BY dept
+          ORDER BY SUM(amount) DESC
+        `;
+        const breakdownResult = await client.query(breakdownSql, params);
+        payload.breakdown = Object.fromEntries(
+          breakdownResult.rows.map((r: { dept: string; total: string }) => [
+            String(r.dept || 'Unknown'),
+            Number.parseFloat(String(r.total || 0)).toFixed(2)
+          ])
+        );
+      } else if (isDebug) {
+        payload.items = result.rows;
       }
 
-      query += ` ORDER BY ${timeColumn} DESC`;
-      const result = await client.query(query, params);
-      const rows = result.rows || [];
-      const total = rows.reduce((sum: number, r: Record<string, unknown>) => {
-        return sum + Number(r.base_currency_amount || 0);
-      }, 0);
-      const payload: Record<string, unknown> = {
-        total: total.toFixed(2),
-        count: rows.length,
-        items: rows
-      };
       if (wantEcho) {
         payload.resolved = {
           deptMatch: '(all)',
           deptMatchMode: 'all',
-          amountSumExpr: amountRmbExpr,
           sourceTable: queryConfig.tableName,
           timeColumn,
           monthParsed: month ? parseMonthBucket(month) : null,
