@@ -16,7 +16,7 @@ export const approvalExpensePurchaseProcessors = pgTable('approval_expense_purch
   specificationRequirementDescription: text('specification_requirement_description'),
   deliveryDate: date('delivery_date', { mode: 'string' }),
   rawData: jsonb('raw_data'),
-  createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_approval_expense_purchase_processors_purchase_id').on(table.purchaseId),
 ]);

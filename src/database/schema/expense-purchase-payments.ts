@@ -11,7 +11,7 @@ export const approvalExpensePurchasePayments = pgTable('approval_expense_purchas
   currency: varchar('currency', { length: 32 }),
   paymentDate: date('payment_date', { mode: 'string' }),
   rawData: jsonb('raw_data'),
-  createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_approval_expense_purchase_payments_purchase_id').on(table.purchaseId),
   index('idx_approval_expense_purchase_payments_payment_date').on(table.paymentDate),

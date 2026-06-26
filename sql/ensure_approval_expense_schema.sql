@@ -40,23 +40,23 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     payment_date DATE,
     key_voucher TEXT,
 
-    approval_completed_at TIMESTAMP,
+    approval_completed_at TIMESTAMPTZ,
     approval_status VARCHAR(64),
     current_node VARCHAR(255),
     current_owner VARCHAR(500),
     historical_approvers TEXT,
     approval_no VARCHAR(128),
     creator_name VARCHAR(255),
-    source_created_at TIMESTAMP,
-    source_updated_at TIMESTAMP,
+    source_created_at TIMESTAMPTZ,
+    source_updated_at TIMESTAMPTZ,
     creator_department VARCHAR(500),
 
     salary_by_department JSONB,
     social_insurance_by_department JSONB,
     office_space_by_department JSONB,
     raw_data JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
@@ -105,20 +105,20 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     base_currency_amount NUMERIC(15, 2),
     key_voucher TEXT,
 
-    approval_completed_at TIMESTAMP,
+    approval_completed_at TIMESTAMPTZ,
     approval_status VARCHAR(64),
     current_node VARCHAR(255),
     current_owner VARCHAR(500),
     historical_approvers TEXT,
     approval_no VARCHAR(128),
     creator_name VARCHAR(255),
-    source_created_at TIMESTAMP,
-    source_updated_at TIMESTAMP,
+    source_created_at TIMESTAMPTZ,
+    source_updated_at TIMESTAMPTZ,
     creator_department VARCHAR(500),
 
     raw_data JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase_items (
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase_items (
     total_amount NUMERIC(18, 2),
 
     raw_data JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase_processors (
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase_processors (
     delivery_date DATE,
 
     raw_data JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase_payments (
@@ -172,12 +172,12 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase_payments (
     payment_date DATE,
 
     raw_data JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS approval_expense_attachments (
     id BIGSERIAL PRIMARY KEY,
-    parent_type VARCHAR(32) NOT NULL,
+    parent_type VARCHAR(32) NOT NULL CHECK (parent_type IN ('operation', 'purchase')),
     parent_id BIGINT NOT NULL,
 
     row_no INTEGER DEFAULT 1,
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_attachments (
     file_name VARCHAR(500),
     file_url TEXT,
     raw_data JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_approval_expense_operation_business_id
@@ -236,6 +236,35 @@ CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_payments_payment_date
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_attachments_parent
     ON approval_expense_attachments(parent_type, parent_id);
+
+-- updated_at 自动更新触发器
+CREATE OR REPLACE FUNCTION trigger_set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_operation') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_operation
+            BEFORE UPDATE ON approval_expense_operation
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_purchase') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_purchase
+            BEFORE UPDATE ON approval_expense_purchase
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_dept_split') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_dept_split
+            BEFORE UPDATE ON approval_expense_dept_split
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+END;
+$$;
 
 COMMENT ON TABLE approval_expense_operation IS '钉钉运营支出审批表';
 COMMENT ON COLUMN approval_expense_operation.id IS '主键ID';
@@ -388,3 +417,31 @@ COMMENT ON COLUMN approval_expense_attachments.file_name IS '文件名';
 COMMENT ON COLUMN approval_expense_attachments.file_url IS '文件地址';
 COMMENT ON COLUMN approval_expense_attachments.raw_data IS '附件原始JSON';
 COMMENT ON COLUMN approval_expense_attachments.created_at IS '本表记录创建时间';
+
+-- 分部门拆分表（CQRS read model，从 JSONB 派生）
+CREATE TABLE IF NOT EXISTS approval_expense_dept_split (
+    id BIGSERIAL PRIMARY KEY,
+    business_id VARCHAR(64) NOT NULL,
+    split_type VARCHAR(32) NOT NULL CHECK (split_type IN ('salary', 'social_insurance', 'office_space')),
+    department VARCHAR(500) NOT NULL,
+    amount NUMERIC(18, 2) NOT NULL,
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_dept_split_biz_type_dept
+    ON approval_expense_dept_split(business_id, split_type, department);
+
+CREATE INDEX IF NOT EXISTS idx_dept_split_biz
+    ON approval_expense_dept_split(business_id);
+
+CREATE INDEX IF NOT EXISTS idx_dept_split_type_dept
+    ON approval_expense_dept_split(split_type, department);
+
+COMMENT ON TABLE approval_expense_dept_split IS '运营支出分部门拆分表（CQRS read model）';
+COMMENT ON COLUMN approval_expense_dept_split.business_id IS '关联审批 business_id';
+COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space';
+COMMENT ON COLUMN approval_expense_dept_split.department IS '部门名称';
+COMMENT ON COLUMN approval_expense_dept_split.amount IS '拆分金额';
+COMMENT ON COLUMN approval_expense_dept_split.note IS '备注';

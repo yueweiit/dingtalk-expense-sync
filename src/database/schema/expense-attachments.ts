@@ -9,7 +9,7 @@ export const approvalExpenseAttachments = pgTable('approval_expense_attachments'
   fileName: varchar('file_name', { length: 500 }),
   fileUrl: text('file_url'),
   rawData: jsonb('raw_data'),
-  createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_approval_expense_attachments_parent').on(table.parentType, table.parentId),
 ]);

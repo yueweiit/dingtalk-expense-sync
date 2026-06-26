@@ -15,7 +15,7 @@ export const approvalExpensePurchaseItems = pgTable('approval_expense_purchase_i
   unitPrice: decimal('unit_price', { precision: 18, scale: 4 }),
   totalAmount: decimal('total_amount', { precision: 18, scale: 2 }),
   rawData: jsonb('raw_data'),
-  createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_approval_expense_purchase_items_purchase_id').on(table.purchaseId),
 ]);
