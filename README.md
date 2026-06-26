@@ -85,7 +85,6 @@ config.json
 ```json
 {
   "dingtalk": {
-    "cashierActivityIds": ["1793_35c3"],
     "processCodes": [
       "PROC-0288DB08-...",
       "PROC-BFDF6F09-..."
@@ -178,7 +177,6 @@ GET /api/fx-rate?date=2026-06-10
 | `npm run build` | 编译 TypeScript |
 | `npm run refresh:dingtalk` | 从钉钉全量刷新数据 |
 | `npm run sync:fx-rates` | 同步汇率数据 |
-| `npm run backfill:cashier` | 回填出纳状态 |
 | `npm run backfill:base-currency` | 回填基准货币金额 |
 
 ## 项目结构
@@ -209,7 +207,7 @@ src/
 
 | 表名 | 说明 |
 |------|------|
-| `approval_instances` | 审批实例主表（基础信息、状态、出纳结果） |
+| `approval_instances` | 审批实例主表（基础信息、状态） |
 | `sync_state` | 同步状态（游标，记录增量同步位置） |
 | `fx_rates_daily` | 每日汇率快照（币种→人民币换算） |
 | `approval_expense_operation` | 运营支出明细（结构化字段） |
@@ -218,6 +216,7 @@ src/
 | `approval_expense_purchase_processors` | 采购加工商信息 |
 | `approval_expense_purchase_payments` | 采购付款信息 |
 | `approval_expense_attachments` | 审批附件（运营/采购共用） |
+| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model） |
 
 ## License
 

@@ -13,7 +13,8 @@ import type {
   FxRateRow,
   FxRateResult,
   PendingInstance,
-  ExpenseInstanceRow
+  ExpenseInstanceRow,
+  DeptSplitRow,
 } from './types.ts';
 
 class Database {
@@ -46,10 +47,6 @@ class Database {
     return approval.upsertApprovalInstance(data);
   }
 
-  async isCashierApproved(businessId: string): Promise<boolean> {
-    return approval.isCashierApproved(businessId);
-  }
-
   async getLastUpdateTime(): Promise<string | null> {
     return approval.getLastUpdateTime();
   }
@@ -58,8 +55,8 @@ class Database {
     return approval.getPendingInstances(limit);
   }
 
-  async getStaleCashierAgreed(limit?: number): Promise<PendingInstance[]> {
-    return approval.getStaleCashierAgreed(limit);
+  async getStaleAgreed(limit?: number): Promise<PendingInstance[]> {
+    return approval.getStaleAgreed(limit);
   }
 
   async existsByBusinessId(businessId: string): Promise<boolean> {
@@ -67,14 +64,6 @@ class Database {
   }
 
   // ==================== expense ====================
-  getCashierActivityIdsForSql(): string[] {
-    return expense.getCashierActivityIdsForSql();
-  }
-
-  expenseInstanceUnionSql(whereSql: string): string {
-    return expense.expenseInstanceUnionSql(whereSql);
-  }
-
   async getPendingExpenseInstances(limit?: number): Promise<ExpenseInstanceRow[]> {
     return expense.getPendingExpenseInstances(limit);
   }
@@ -105,6 +94,22 @@ class Database {
 
   async replaceAttachments(parentType: string, parentId: number, attachments: AttachmentData[]): Promise<void> {
     return expense.replaceAttachments(parentType, parentId, attachments);
+  }
+
+  async upsertOperationExpenseWithSplits(data: OperationExpenseData, splits: DeptSplitRow[]): Promise<number | undefined> {
+    return expense.upsertOperationExpenseWithSplits(data, splits);
+  }
+
+  async rebuildDeptSplits(businessId: string): Promise<number> {
+    return expense.rebuildDeptSplits(businessId);
+  }
+
+  async rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: number }> {
+    return expense.rebuildAllDeptSplits();
+  }
+
+  async backfillDeptSplits(): Promise<{ total: number; rebuilt: number }> {
+    return expense.backfillDeptSplits();
   }
 
   // ==================== fx ====================

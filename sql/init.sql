@@ -13,12 +13,6 @@ CREATE TABLE IF NOT EXISTS approval_instances (
     create_time TIMESTAMP,
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    -- 出纳节点相关
-    cashier_task_id VARCHAR(64),
-    cashier_user_id VARCHAR(64),
-    cashier_status VARCHAR(32),
-    cashier_result VARCHAR(32),
-    cashier_complete_time TIMESTAMP,
     flow_result VARCHAR(32),
 
     -- 关键表单数据
@@ -64,11 +58,6 @@ COMMENT ON COLUMN approval_instances.originator_dept_name IS '发起部门名称
 COMMENT ON COLUMN approval_instances.create_time IS '创建时间';
 COMMENT ON COLUMN approval_instances.update_time IS '更新时间';
 
-COMMENT ON COLUMN approval_instances.cashier_task_id IS '出纳节点任务ID';
-COMMENT ON COLUMN approval_instances.cashier_user_id IS '出纳审批人ID';
-COMMENT ON COLUMN approval_instances.cashier_status IS '出纳审批状态 RUNNING/COMPLETED/REDIRECTED/CANCELED';
-COMMENT ON COLUMN approval_instances.cashier_result IS '出纳审批结果 NONE/AGREE/REJECT/REFUSE';
-COMMENT ON COLUMN approval_instances.cashier_complete_time IS '出纳完成时间';
 COMMENT ON COLUMN approval_instances.flow_result IS '整单结果（按tasks识别）：AGREE/REFUSE/NONE';
 
 COMMENT ON COLUMN approval_instances.department IS '部门';
@@ -92,7 +81,6 @@ COMMENT ON COLUMN approval_instances.raw_data IS '原始钉钉数据JSON';
 
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_instances(status);
-CREATE INDEX IF NOT EXISTS idx_cashier_status ON approval_instances(cashier_status);
 CREATE INDEX IF NOT EXISTS idx_create_time ON approval_instances(create_time);
 CREATE INDEX IF NOT EXISTS idx_process_type ON approval_instances(process_type);
 CREATE INDEX IF NOT EXISTS idx_department ON approval_instances(department);

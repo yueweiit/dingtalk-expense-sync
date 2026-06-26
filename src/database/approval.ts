@@ -102,11 +102,6 @@ export async function upsertApprovalInstance(data: ApprovalInstanceData): Promis
         originatorDeptName: truncateOrNull(data.originatorDeptName, 500),
         bizAction: truncateOrNull(data.bizAction, 32),
         createTime: data.createTime || null,
-        cashierTaskId: truncateOrNull(data.cashierTaskId, 64),
-        cashierUserId: truncateOrNull(data.cashierUserId, 64),
-        cashierStatus: truncateOrNull(data.cashierStatus, 32),
-        cashierResult: truncateOrNull(data.cashierResult, 32),
-        cashierCompleteTime: data.cashierCompleteTime || null,
         flowResult: truncateOrNull(data.flowResult, 32),
         department: truncateOrNull(data.department, 128),
         applyType: truncateOrNull(data.applyType, 128),
@@ -138,11 +133,6 @@ export async function upsertApprovalInstance(data: ApprovalInstanceData): Promis
           originatorUserId: sql`excluded.originator_user_id`,
           originatorDeptId: sql`excluded.originator_dept_id`,
           originatorDeptName: sql`excluded.originator_dept_name`,
-          cashierTaskId: sql`excluded.cashier_task_id`,
-          cashierUserId: sql`excluded.cashier_user_id`,
-          cashierStatus: sql`excluded.cashier_status`,
-          cashierResult: sql`excluded.cashier_result`,
-          cashierCompleteTime: sql`excluded.cashier_complete_time`,
           flowResult: sql`excluded.flow_result`,
           department: sql`excluded.department`,
           applyType: sql`excluded.apply_type`,
@@ -174,23 +164,6 @@ export async function upsertApprovalInstance(data: ApprovalInstanceData): Promis
   }
 }
 
-export async function isCashierApproved(businessId: string): Promise<boolean> {
-  const rows = await db
-    .select({
-      cashier_status: approvalInstances.cashierStatus,
-      cashier_result: approvalInstances.cashierResult,
-    })
-    .from(approvalInstances)
-    .where(eq(approvalInstances.businessId, businessId));
-
-  if (rows.length === 0) {
-    return false;
-  }
-
-  const { cashier_status, cashier_result } = rows[0];
-  return cashier_status === 'COMPLETED' && cashier_result === 'AGREE';
-}
-
 export async function getLastUpdateTime(): Promise<string | null> {
   const rows = await db
     .select({ last_update: max(approvalInstances.updateTime) })
@@ -207,12 +180,12 @@ export async function getPendingInstances(limit = 500): Promise<PendingInstance[
       process_instance_id: approvalInstances.processInstanceId,
     })
     .from(approvalInstances)
-    .where(sql`NOT (${approvalInstances.cashierStatus} = 'COMPLETED' AND ${approvalInstances.cashierResult} = 'AGREE')`)
+    .where(sql`${approvalInstances.status} != 'COMPLETED' OR ${approvalInstances.flowResult} IS NULL OR ${approvalInstances.flowResult} != 'AGREE'`)
     .orderBy(desc(approvalInstances.updateTime))
     .limit(limit);
 }
 
-export async function getStaleCashierAgreed(limit = 80): Promise<PendingInstance[]> {
+export async function getStaleAgreed(limit = 80): Promise<PendingInstance[]> {
   return db
     .select({
       business_id: approvalInstances.businessId,
@@ -222,9 +195,10 @@ export async function getStaleCashierAgreed(limit = 80): Promise<PendingInstance
     })
     .from(approvalInstances)
     .where(and(
-      eq(approvalInstances.cashierStatus, 'COMPLETED'),
-      eq(approvalInstances.cashierResult, 'AGREE'),
-      sql`(${approvalInstances.rawData}->>'cashierStatus' IS NULL OR ${approvalInstances.rawData}->>'cashierStatus' != 'COMPLETED')`
+      eq(approvalInstances.status, 'COMPLETED'),
+      eq(approvalInstances.flowResult, 'AGREE'),
+      // rawData 中 flowResult 尚未同步为 AGREE → 避免重复处理已同步记录
+      sql`(${approvalInstances.rawData}->>'flowResult' IS NULL OR UPPER(${approvalInstances.rawData}->>'flowResult') != 'AGREE')`
     ))
     .orderBy(asc(approvalInstances.updateTime))
     .limit(limit);

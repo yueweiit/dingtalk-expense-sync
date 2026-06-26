@@ -9,11 +9,6 @@ export interface ApprovalInstanceData {
   originatorDeptName?: string;
   bizAction?: string;
   createTime?: string;
-  cashierTaskId?: string;
-  cashierUserId?: string;
-  cashierStatus?: string;
-  cashierResult?: string;
-  cashierCompleteTime?: string;
   flowResult?: string;
   department?: string;
   applyType?: string;
@@ -177,6 +172,13 @@ export interface AttachmentData {
   rawData?: Record<string, unknown> | unknown;
 }
 
+export interface DeptSplitRow {
+  splitType: 'salary' | 'social_insurance' | 'office_space';
+  department: string;
+  amount: number;
+  note?: string;
+}
+
 export interface FxRateRow {
   currency: string;
   cny_per_unit: number;
@@ -221,6 +223,7 @@ import type {
   approvalExpensePurchaseProcessors,
   approvalExpensePurchasePayments,
   approvalExpenseAttachments,
+  approvalExpenseDeptSplit,
 } from './schema/index.ts';
 
 export type ApprovalInstance = typeof approvalInstances.$inferSelect;
@@ -232,3 +235,4 @@ export type PurchaseItem = typeof approvalExpensePurchaseItems.$inferSelect;
 export type PurchaseProcessor = typeof approvalExpensePurchaseProcessors.$inferSelect;
 export type PurchasePayment = typeof approvalExpensePurchasePayments.$inferSelect;
 export type Attachment = typeof approvalExpenseAttachments.$inferSelect;
+export type DeptSplit = typeof approvalExpenseDeptSplit.$inferSelect;

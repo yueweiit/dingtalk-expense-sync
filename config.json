@@ -1,9 +1,5 @@
 {
   "dingtalk": {
-    "cashierActivityIds": [
-      "1793_35c3"
-    ],
-    "cashierActivityIdsByProcessCode": {},
     "robotCode": ""
   },
   "scheduler": {

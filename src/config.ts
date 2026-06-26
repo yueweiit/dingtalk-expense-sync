@@ -22,8 +22,6 @@ interface DingtalkConfig {
   robotCode: string | undefined;
   robotAppkey: string | undefined;
   robotAppsecret: string | undefined;
-  cashierActivityIds: string[];
-  cashierActivityIdsByProcessCode: Record<string, string[]>;
   processCodes: string[];
 }
 
@@ -58,8 +56,6 @@ export interface Config {
 interface FileConfigShape {
   database?: Partial<DatabaseConfig>;
   dingtalk?: Partial<DingtalkConfig> & {
-    cashierActivityIds?: string[];
-    cashierActivityIdsByProcessCode?: Record<string, string[]>;
     processCodes?: string[];
   };
   scheduler?: Partial<SchedulerConfig>;
@@ -196,8 +192,6 @@ const config: Config = Object.freeze({
     robotCode: process.env.DINGTALK_ROBOT_CODE || fileConfig.dingtalk?.robotCode,
     robotAppkey: process.env.DINGTALK_ROBOT_APPKEY || fileConfig.dingtalk?.robotAppkey,
     robotAppsecret: process.env.DINGTALK_ROBOT_APPSECRET || fileConfig.dingtalk?.robotAppsecret,
-    cashierActivityIds: (parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS) as string[] | undefined) || fileConfig.dingtalk?.cashierActivityIds || [],
-    cashierActivityIdsByProcessCode: (parseJsonEnv(process.env.DINGTALK_CASHIER_ACTIVITY_IDS_BY_PROCESS_CODE) as Record<string, string[]> | undefined) || fileConfig.dingtalk?.cashierActivityIdsByProcessCode || {},
     processCodes: (parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) as string[] | undefined) || fileConfig.dingtalk?.processCodes || [],
   }),
   scheduler: Object.freeze({
