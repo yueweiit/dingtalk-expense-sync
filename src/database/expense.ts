@@ -1,8 +1,8 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from './pool.ts';
-import config from '../config.ts';
 import {
   approvalExpenseAttachments,
+  approvalExpenseDeptSplit,
   approvalExpenseOperation,
   approvalExpensePurchase,
   approvalExpensePurchaseItems,
@@ -16,60 +16,13 @@ import {
   PurchaseProcessorData,
   PurchasePaymentData,
   AttachmentData,
-  ExpenseInstanceRow
+  ExpenseInstanceRow,
+  DeptSplitRow,
 } from './types.ts';
 
 interface ExpenseInstanceQueryRow extends Record<string, unknown>, ExpenseInstanceRow {}
 
-export function getCashierActivityIdsForSql(): string[] {
-  const map = config.dingtalk?.cashierActivityIdsByProcessCode;
-  const ids: string[] = [];
-  if (map && typeof map === 'object' && !Array.isArray(map)) {
-    for (const value of Object.values(map)) {
-      if (Array.isArray(value)) {
-        ids.push(...value);
-      }
-    }
-  }
-  if (Array.isArray(config.dingtalk?.cashierActivityIds)) {
-    ids.push(...config.dingtalk.cashierActivityIds);
-  }
-  if (ids.length === 0) {
-    ids.push('1793_35c3');
-  }
-  return [...new Set(ids.map((id) => String(id)).filter(Boolean))];
-}
-
-export function expenseInstanceUnionSql(whereSql: string): string {
-  return `
-    SELECT *
-    FROM (
-      SELECT
-        'operation' AS expense_type,
-        business_id,
-        process_instance_id,
-        raw_data,
-        raw_data->>'processCode' AS process_code,
-        updated_at
-      FROM approval_expense_operation
-      WHERE business_id IS NOT NULL
-      UNION ALL
-      SELECT
-        'purchase' AS expense_type,
-        business_id,
-        process_instance_id,
-        raw_data,
-        raw_data->>'processCode' AS process_code,
-        updated_at
-      FROM approval_expense_purchase
-      WHERE business_id IS NOT NULL
-    ) AS e
-    WHERE ${whereSql}
-  `;
-}
-
 export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseInstanceRow[]> {
-  const cashierActivityIds = getCashierActivityIdsForSql();
   const result = await db.execute<ExpenseInstanceQueryRow>(sql`
     SELECT *
     FROM (
@@ -79,7 +32,9 @@ export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseIn
         process_instance_id,
         raw_data,
         raw_data->>'processCode' AS process_code,
-        updated_at
+        updated_at,
+        approval_status,
+        raw_data->>'flowResult' AS flow_result
       FROM approval_expense_operation
       WHERE business_id IS NOT NULL
       UNION ALL
@@ -89,17 +44,16 @@ export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseIn
         process_instance_id,
         raw_data,
         raw_data->>'processCode' AS process_code,
-        updated_at
+        updated_at,
+        approval_status,
+        raw_data->>'flowResult' AS flow_result
       FROM approval_expense_purchase
       WHERE business_id IS NOT NULL
     ) AS e
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements(COALESCE(e.raw_data->'tasks', '[]'::jsonb)) AS t
-      WHERE (${cashierActivityIds}::text[] IS NULL OR t->>'activityId' = ANY(${cashierActivityIds}::text[]))
-        AND UPPER(COALESCE(t->>'status', '')) = 'COMPLETED'
-        AND UPPER(COALESCE(t->>'result', '')) = 'AGREE'
-    )
+    WHERE approval_status IS NULL
+       OR approval_status != 'COMPLETED'
+       OR flow_result IS NULL
+       OR UPPER(flow_result) != 'AGREE'
     ORDER BY updated_at DESC NULLS LAST
     LIMIT ${limit}
   `);
@@ -110,7 +64,6 @@ export async function getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstance
   if (!limit || limit <= 0) {
     return [];
   }
-  const cashierActivityIds = getCashierActivityIdsForSql();
   const result = await db.execute<ExpenseInstanceQueryRow>(sql`
     SELECT *
     FROM (
@@ -120,7 +73,9 @@ export async function getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstance
         process_instance_id,
         raw_data,
         raw_data->>'processCode' AS process_code,
-        updated_at
+        updated_at,
+        approval_status,
+        raw_data->>'flowResult' AS flow_result
       FROM approval_expense_operation
       WHERE business_id IS NOT NULL
       UNION ALL
@@ -130,17 +85,14 @@ export async function getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstance
         process_instance_id,
         raw_data,
         raw_data->>'processCode' AS process_code,
-        updated_at
+        updated_at,
+        approval_status,
+        raw_data->>'flowResult' AS flow_result
       FROM approval_expense_purchase
       WHERE business_id IS NOT NULL
     ) AS e
-    WHERE EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements(COALESCE(e.raw_data->'tasks', '[]'::jsonb)) AS t
-      WHERE (${cashierActivityIds}::text[] IS NULL OR t->>'activityId' = ANY(${cashierActivityIds}::text[]))
-        AND UPPER(COALESCE(t->>'status', '')) = 'COMPLETED'
-        AND UPPER(COALESCE(t->>'result', '')) = 'AGREE'
-    )
+    WHERE approval_status = 'COMPLETED'
+      AND UPPER(COALESCE(flow_result, '')) = 'AGREE'
     ORDER BY updated_at ASC NULLS FIRST
     LIMIT ${limit}
   `);
@@ -152,6 +104,7 @@ function decimalValue(value: number | null | undefined): string | null {
 }
 
 export async function upsertOperationExpense(data: OperationExpenseData): Promise<number | undefined> {
+  if (!data.businessId) throw new Error('businessId is required for upsertOperationExpense');
   const [row] = await db.insert(approvalExpenseOperation).values({
     processInstanceId: data.processInstanceId?.substring(0, 128) || null,
     businessId: data.businessId,
@@ -183,7 +136,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
     paymentTerms: data.paymentTerms?.substring(0, 255) || null,
     currency: data.currency?.substring(0, 32) || null,
     paymentDate: data.paymentDate || null,
-    keyVoucher: data.keyVoucher?.substring(0, 128) || null,
+    keyVoucher: data.keyVoucher?.substring(0, 2000) || null,
     approvalCompletedAt: data.approvalCompletedAt || null,
     approvalStatus: data.approvalStatus?.substring(0, 64) || null,
     currentNode: data.currentNode?.substring(0, 255) || null,
@@ -253,6 +206,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
 }
 
 export async function upsertPurchaseExpense(data: PurchaseExpenseData): Promise<number | undefined> {
+  if (!data.businessId) throw new Error('businessId is required for upsertPurchaseExpense');
   const [row] = await db.insert(approvalExpensePurchase).values({
     processInstanceId: data.processInstanceId?.substring(0, 128) || null,
     businessId: data.businessId,
@@ -286,7 +240,7 @@ export async function upsertPurchaseExpense(data: PurchaseExpenseData): Promise<
     customsClearanceService: data.customsClearanceService?.substring(0, 128) || null,
     detailSummaryAmount: decimalValue(data.detailSummaryAmount),
     baseCurrencyAmount: decimalValue(data.baseCurrencyAmount),
-    keyVoucher: data.keyVoucher?.substring(0, 128) || null,
+    keyVoucher: data.keyVoucher?.substring(0, 2000) || null,
     approvalCompletedAt: data.approvalCompletedAt || null,
     approvalStatus: data.approvalStatus?.substring(0, 64) || null,
     currentNode: data.currentNode?.substring(0, 255) || null,
@@ -433,4 +387,251 @@ export async function replaceAttachments(parentType: string, parentId: number, a
       });
     }
   });
+}
+
+// ==================== Department Split (CQRS read model) ====================
+
+/**
+ * 唯一写入函数（single writer）。
+ * 所有写入路径（processor / rebuild / backfill）都通过这一个函数。
+ * delete + insert 覆盖模型，与 JSONB 列行为一致。
+ */
+export async function replaceDeptSplitsForBusiness(
+  businessId: string,
+  splits: DeptSplitRow[],
+  tx?: Parameters<Parameters<typeof db.transaction>[0]>[0]
+): Promise<void> {
+  const executor = tx || db;
+  await executor.delete(approvalExpenseDeptSplit)
+    .where(eq(approvalExpenseDeptSplit.businessId, businessId));
+  if (splits.length > 0) {
+    await executor.insert(approvalExpenseDeptSplit).values(
+      splits.map(s => ({
+        businessId,
+        splitType: s.splitType,
+        department: s.department,
+        amount: decimalValue(s.amount) ?? '0',
+        note: s.note || null,
+      }))
+    );
+  }
+}
+
+/** 从 JSONB 列解析 split rows（允许负数金额，如退款/冲销） */
+function parseSplitsFromJsonb(row: {
+  salaryByDepartment: unknown;
+  socialInsuranceByDepartment: unknown;
+  officeSpaceByDepartment: unknown;
+}): DeptSplitRow[] {
+  const splits: DeptSplitRow[] = [];
+  const mapping: Array<{ key: keyof typeof row; type: DeptSplitRow['splitType'] }> = [
+    { key: 'salaryByDepartment', type: 'salary' },
+    { key: 'socialInsuranceByDepartment', type: 'social_insurance' },
+    { key: 'officeSpaceByDepartment', type: 'office_space' },
+  ];
+  for (const m of mapping) {
+    const arr = row[m.key];
+    if (Array.isArray(arr)) {
+      for (const item of arr) {
+        const amount = Number(item?.amount);
+        if (item?.department && Number.isFinite(amount) && amount !== 0) {
+          splits.push({
+            splitType: m.type,
+            department: String(item.department),
+            amount,
+            note: item.note ? String(item.note) : undefined,
+          });
+        }
+      }
+    }
+  }
+  return splits;
+}
+
+/**
+ * operation + split 同事务写入。
+ * processor 写入路径调用此函数。
+ */
+export async function upsertOperationExpenseWithSplits(
+  data: OperationExpenseData,
+  splits: DeptSplitRow[]
+): Promise<number | undefined> {
+  if (!data.businessId) throw new Error('businessId is required for upsertOperationExpenseWithSplits');
+  return db.transaction(async (tx) => {
+    // 1. upsert operation
+    const [row] = await tx.insert(approvalExpenseOperation).values({
+      processInstanceId: data.processInstanceId?.substring(0, 128) || null,
+      businessId: data.businessId,
+      requestDate: data.requestDate || null,
+      applicantDepartment: data.applicantDepartment?.substring(0, 500) || null,
+      productionType: data.productionType?.substring(0, 64) || null,
+      monthlyBudgetAmount: decimalValue(data.monthlyBudgetAmount),
+      monthlyBudgetUsedAmount: decimalValue(data.monthlyBudgetUsedAmount),
+      applicationType: data.applicationType?.substring(0, 128) || null,
+      expenseType: data.expenseType?.substring(0, 128) || null,
+      executionRegion: data.executionRegion?.substring(0, 128) || null,
+      operationExpense: data.operationExpense?.substring(0, 128) || null,
+      employeeBenefitsExpense: data.employeeBenefitsExpense?.substring(0, 128) || null,
+      bonusExpense: data.bonusExpense?.substring(0, 128) || null,
+      salaryExpense: data.salaryExpense?.substring(0, 128) || null,
+      administrativeExpense: data.administrativeExpense?.substring(0, 128) || null,
+      vehicleUsageExpense: data.vehicleUsageExpense?.substring(0, 128) || null,
+      taxExpense: data.taxExpense?.substring(0, 128) || null,
+      financeRelatedExpense: data.financeRelatedExpense?.substring(0, 128) || null,
+      salesExpense: data.salesExpense?.substring(0, 128) || null,
+      salesChannelCommissionExpense: data.salesChannelCommissionExpense?.substring(0, 128) || null,
+      salesTeamCustomerServiceExpense: data.salesTeamCustomerServiceExpense?.substring(0, 128) || null,
+      otherSalesRelatedExpense: data.otherSalesRelatedExpense?.substring(0, 128) || null,
+      marketingAdvertisingExpense: data.marketingAdvertisingExpense?.substring(0, 128) || null,
+      matterDescription: data.matterDescription?.substring(0, 5000) || null,
+      beneficiary: data.beneficiary?.substring(0, 500) || null,
+      amount: decimalValue(data.amount),
+      baseCurrencyAmount: decimalValue(data.baseCurrencyAmount),
+      paymentTerms: data.paymentTerms?.substring(0, 255) || null,
+      currency: data.currency?.substring(0, 32) || null,
+      paymentDate: data.paymentDate || null,
+      keyVoucher: data.keyVoucher?.substring(0, 2000) || null,
+      approvalCompletedAt: data.approvalCompletedAt || null,
+      approvalStatus: data.approvalStatus?.substring(0, 64) || null,
+      currentNode: data.currentNode?.substring(0, 255) || null,
+      currentOwner: data.currentOwner?.substring(0, 500) || null,
+      historicalApprovers: data.historicalApprovers?.substring(0, 5000) || null,
+      approvalNo: data.approvalNo?.substring(0, 128) || null,
+      creatorName: data.creatorName?.substring(0, 255) || null,
+      sourceCreatedAt: data.sourceCreatedAt || null,
+      sourceUpdatedAt: data.sourceUpdatedAt || null,
+      creatorDepartment: data.creatorDepartment?.substring(0, 500) || null,
+      salaryByDepartment: data.salaryByDepartment ?? null,
+      socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
+      officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
+      rawData: data.rawData || {}
+    }).onConflictDoUpdate({
+      target: approvalExpenseOperation.businessId,
+      targetWhere: sql`${approvalExpenseOperation.businessId} IS NOT NULL`,
+      set: {
+        processInstanceId: sql`COALESCE(EXCLUDED.process_instance_id, ${approvalExpenseOperation.processInstanceId})`,
+        requestDate: sql`EXCLUDED.request_date`,
+        applicantDepartment: sql`EXCLUDED.applicant_department`,
+        productionType: sql`EXCLUDED.production_type`,
+        monthlyBudgetAmount: sql`EXCLUDED.monthly_budget_amount`,
+        monthlyBudgetUsedAmount: sql`EXCLUDED.monthly_budget_used_amount`,
+        applicationType: sql`EXCLUDED.application_type`,
+        expenseType: sql`EXCLUDED.expense_type`,
+        executionRegion: sql`EXCLUDED.execution_region`,
+        operationExpense: sql`EXCLUDED.operation_expense`,
+        employeeBenefitsExpense: sql`EXCLUDED.employee_benefits_expense`,
+        bonusExpense: sql`EXCLUDED.bonus_expense`,
+        salaryExpense: sql`EXCLUDED.salary_expense`,
+        administrativeExpense: sql`EXCLUDED.administrative_expense`,
+        vehicleUsageExpense: sql`EXCLUDED.vehicle_usage_expense`,
+        taxExpense: sql`EXCLUDED.tax_expense`,
+        financeRelatedExpense: sql`EXCLUDED.finance_related_expense`,
+        salesExpense: sql`EXCLUDED.sales_expense`,
+        salesChannelCommissionExpense: sql`EXCLUDED.sales_channel_commission_expense`,
+        salesTeamCustomerServiceExpense: sql`EXCLUDED.sales_team_customer_service_expense`,
+        otherSalesRelatedExpense: sql`EXCLUDED.other_sales_related_expense`,
+        marketingAdvertisingExpense: sql`EXCLUDED.marketing_advertising_expense`,
+        matterDescription: sql`EXCLUDED.matter_description`,
+        beneficiary: sql`EXCLUDED.beneficiary`,
+        amount: sql`EXCLUDED.amount`,
+        baseCurrencyAmount: sql`EXCLUDED.base_currency_amount`,
+        paymentTerms: sql`EXCLUDED.payment_terms`,
+        currency: sql`EXCLUDED.currency`,
+        paymentDate: sql`EXCLUDED.payment_date`,
+        keyVoucher: sql`EXCLUDED.key_voucher`,
+        approvalCompletedAt: sql`EXCLUDED.approval_completed_at`,
+        approvalStatus: sql`EXCLUDED.approval_status`,
+        currentNode: sql`EXCLUDED.current_node`,
+        currentOwner: sql`EXCLUDED.current_owner`,
+        historicalApprovers: sql`EXCLUDED.historical_approvers`,
+        approvalNo: sql`EXCLUDED.approval_no`,
+        creatorName: sql`EXCLUDED.creator_name`,
+        sourceCreatedAt: sql`EXCLUDED.source_created_at`,
+        sourceUpdatedAt: sql`EXCLUDED.source_updated_at`,
+        creatorDepartment: sql`EXCLUDED.creator_department`,
+        salaryByDepartment: sql`EXCLUDED.salary_by_department`,
+        socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
+        officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
+        rawData: sql`EXCLUDED.raw_data`,
+        updatedAt: sql`CURRENT_TIMESTAMP`
+      }
+    }).returning({ id: approvalExpenseOperation.id });
+    const opId = row?.id;
+    if (!opId) return undefined;
+
+    // 2. 同事务写入 split
+    await replaceDeptSplitsForBusiness(data.businessId, splits, tx);
+    return opId;
+  });
+}
+
+/**
+ * 从 JSONB 重建单个 businessId 的 split → 幂等，确定性。
+ * rebuild 路径调用此函数。
+ */
+export async function rebuildDeptSplits(businessId: string): Promise<number> {
+  const rows = await db.select({
+    salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
+    socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
+    officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
+  }).from(approvalExpenseOperation)
+    .where(eq(approvalExpenseOperation.businessId, businessId))
+    .limit(1);
+  if (!rows.length) return 0;
+
+  const splits = parseSplitsFromJsonb(rows[0]);
+  await replaceDeptSplitsForBusiness(businessId, splits);
+  return splits.length;
+}
+
+/** 全量 rebuild：从所有 operation 的 JSONB 重建 split 表（批量处理，单事务） */
+export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: number }> {
+  const ops = await db.select({
+    businessId: approvalExpenseOperation.businessId,
+    salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
+    socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
+    officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
+  }).from(approvalExpenseOperation)
+    .where(sql`${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
+            OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
+            OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL`);
+
+  let rebuilt = 0;
+  await db.transaction(async (tx) => {
+    for (const op of ops) {
+      if (!op.businessId) continue;
+      const splits = parseSplitsFromJsonb(op);
+      await replaceDeptSplitsForBusiness(op.businessId, splits, tx);
+      if (splits.length > 0) rebuilt++;
+    }
+  });
+  return { total: ops.length, rebuilt };
+}
+
+/** 增量 backfill：只处理尚无 split 数据的 operation 记录 */
+export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: number }> {
+  const ops = await db.select({
+    businessId: approvalExpenseOperation.businessId,
+    salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
+    socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
+    officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
+  }).from(approvalExpenseOperation)
+    .where(sql`(${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
+             OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
+             OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL)
+            AND NOT EXISTS (
+              SELECT 1 FROM ${approvalExpenseDeptSplit} ds
+              WHERE ds.business_id = ${approvalExpenseOperation.businessId}
+            )`);
+
+  let rebuilt = 0;
+  await db.transaction(async (tx) => {
+    for (const op of ops) {
+      if (!op.businessId) continue;
+      const splits = parseSplitsFromJsonb(op);
+      await replaceDeptSplitsForBusiness(op.businessId, splits, tx);
+      if (splits.length > 0) rebuilt++;
+    }
+  });
+  return { total: ops.length, rebuilt };
 }
