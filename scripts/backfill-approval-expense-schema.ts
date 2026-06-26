@@ -16,6 +16,7 @@ import dingtalk from '../src/dingtalk.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
+import { normalizeNumber } from '../src/utils.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};
@@ -111,16 +112,6 @@ function findDepartment(components: unknown[], fallback: unknown): string | null
   return String(componentValue(deptField) || findValue(components, ['Departamento Solicitante', '申请部门', '部门']) || '');
 }
 
-function normalizeNumber(value: unknown): number | null {
-  if (value == null) return null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  const text = compact(value);
-  if (!text) return null;
-  const cleaned = text.replace(/\s+/g, '').replace(/,/g, '').replace(/[^\d.-]/g, '');
-  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
-  const n = Number.parseFloat(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
 
 function normalizeDate(value: unknown): string | null {
   if (value == null) return null;
@@ -345,7 +336,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
       logisticsTransportService: findValue(components, ['logística y transporte', '物流']),
       customsClearanceService: findValue(components, ['despacho aduanero', '清关']),
       detailSummaryAmount: normalizeNumber(findValue(components, ['Monto total detallado', '明细汇总金额'])),
-      keyVoucher: findValue(components, ['Comprobante clave', '关键凭证']),
+      keyVoucher: compact(findValue(components, ['Comprobante clave', '关键凭证']), 2000),
       items: buildPurchaseItemRows(components),
       processors: buildProcessorRows(components),
       payments: buildPaymentRows(components),
@@ -379,7 +370,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     paymentTerms: compact(findLastValue(components, ['Terminos de pago', 'Términos de pago', '付款条件']), 255),
     currency: compact(findLastValue(components, ['Moneda', '币种']), 32) || row.currency,
     paymentDate: normalizeDate(findLastValue(components, ['Fecha de pago', '付款日期'])),
-    keyVoucher: findValue(components, ['Comprobante clave', '关键凭证']),
+    keyVoucher: compact(findValue(components, ['Comprobante clave', '关键凭证']), 2000),
     attachments: extractAttachments(components)
   };
 }

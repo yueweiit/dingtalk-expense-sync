@@ -1,7 +1,7 @@
 import database from './database.ts';
 import logger from './logger.ts';
-import config from './config.ts';
 import { convertAmountToCny } from './fxToCny.ts';
+import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 
 export interface FormComponentValue {
   name?: string;
@@ -122,14 +122,7 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     dbColumn: 'salaryByDepartment',
   },
   {
-    label: '工资salario',
-    tableFieldId: '',
-    moneyFieldId: '',
-    textFieldId: null,
-    dbColumn: 'salaryByDepartment',
-  },
-  {
-    label: '社保中国',
+    label: '社保公积金',
     tableFieldId: 'TableField_G2ELEALN0S80',
     moneyFieldId: 'MoneyField_X5KBWAODJ1S0',
     textFieldId: null,
@@ -145,25 +138,6 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
 ];
 
 class ApprovalProcessor {
-  constructor() {
-    // 出纳节点由 dingtalk.cashierActivityIds 指定（钉钉 task.activityId）
-    // 配置为空数组 [] 时：不做 activity 过滤，退回"任意人工节点"启发式（易误判，不推荐）
-  }
-
-  getCashierActivityIds(processCode?: string | null): string[] {
-    const map = config.dingtalk?.cashierActivityIdsByProcessCode;
-    if (processCode && map && typeof map === 'object' && !Array.isArray(map)) {
-      const mapped = map[processCode];
-      if (Array.isArray(mapped) && mapped.length > 0) {
-        return mapped.map((id) => String(id)).filter(Boolean);
-      }
-    }
-    const ids = config.dingtalk?.cashierActivityIds;
-    if (Array.isArray(ids)) {
-      return ids.map((id) => String(id)).filter(Boolean);
-    }
-    return ['1793_35c3'];
-  }
 
   // 从表单值中提取字段（第一个匹配）
   extractFormValue(formComponentValues: FormComponentValue[] | undefined | null, fieldName: string): unknown {
@@ -292,37 +266,8 @@ class ApprovalProcessor {
     return rows.length > 0 ? rows : null;
   }
 
-  // 规范化数值字段，避免 "无"、"$263,570.94"、"74,101.60" 等导致numeric入库失败
   normalizeNumber(value: unknown): number | null {
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    if (typeof value === 'number') {
-      return Number.isFinite(value) ? value : null;
-    }
-
-    const text = String(value).trim();
-    if (!text) {
-      return null;
-    }
-
-    const invalidTexts = ['无', 'n/a', 'na', 'none', '-', '--'];
-    if (invalidTexts.includes(text.toLowerCase())) {
-      return null;
-    }
-
-    const normalized = text
-      .replace(/\s+/g, '')
-      .replace(/,/g, '')
-      .replace(/[$￥,]/g, '');
-
-    if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
-      return null;
-    }
-
-    const parsed = Number.parseFloat(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
+    return normalizeNumberShared(value);
   }
 
   // 解析表单数据
@@ -352,65 +297,6 @@ class ApprovalProcessor {
       monthlyBudget: this.extractFormValue(formComponentValues, '本月预算金额'),
       monthlyBudgetUsed: this.extractFormValue(formComponentValues, '本月预算已用金额')
     };
-  }
-
-  /**
-   * 出纳节点：只认 activityId；同一节点多版本任务时取「最近结束」的一条（REFUSE 必须能覆盖之前的 AGREE）。
-   * 未完成则取 RUNNING。
-   */
-  getCashierTask(tasks: Task[] | undefined, processCode?: string | null): Task | null {
-    if (!tasks || !Array.isArray(tasks)) {
-      return null;
-    }
-
-    const userTasks = tasks.filter(task => task && task.userId && task.userId !== 'bpms_system');
-    if (!userTasks.length) {
-      return null;
-    }
-
-    const activityIds = this.getCashierActivityIds(processCode);
-    let pool = userTasks;
-    if (activityIds.length > 0) {
-      const filtered = userTasks.filter((task) => activityIds.includes(String(task.activityId)));
-      if (filtered.length > 0) {
-        pool = filtered;
-      } else {
-        logger.warn(
-          `tasks 中未找到与 cashierActivityIds 匹配的节点(processCode=${processCode || ''})，无法识别出纳；请核对 config.json`
-        );
-        return null;
-      }
-    }
-
-    const finishMs = (t: Task): number | null => {
-      const v = t.finishTime;
-      if (v == null) {
-        return null;
-      }
-      const n = typeof v === 'string' ? Date.parse(v) : Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const finished = pool.filter((t) => finishMs(t) != null);
-    if (finished.length > 0) {
-      return finished.sort((a, b) => (finishMs(b) ?? 0) - (finishMs(a) ?? 0))[0];
-    }
-
-    const runningTask = pool.find((task) => task.status === 'RUNNING');
-    if (runningTask) {
-      return runningTask;
-    }
-
-    return pool[pool.length - 1];
-  }
-
-  // 判断出纳是否已同意
-  isCashierApproved(cashierTask: Task | null): boolean {
-    if (!cashierTask) {
-      return false;
-    }
-    // 出纳同意的条件：任务状态为 COMPLETED 且结果为 AGREE
-    return cashierTask.status === 'COMPLETED' && cashierTask.result === 'AGREE';
   }
 
   // 从 tasks 中提取审批元数据
@@ -683,7 +569,24 @@ class ApprovalProcessor {
           currencyLabel: opCurrency,
           createTime: String(data.createTime || '')
         });
-        const opId = await database.upsertOperationExpense({
+
+        // 构造 split rows
+        const SPLIT_TYPE_MAP: Record<string, import('./database/types.ts').DeptSplitRow['splitType']> = {
+          salaryByDepartment: 'salary',
+          socialInsuranceByDepartment: 'social_insurance',
+          officeSpaceByDepartment: 'office_space',
+        };
+        const deptSplits: import('./database/types.ts').DeptSplitRow[] = [];
+        for (const [key, splitType] of Object.entries(SPLIT_TYPE_MAP)) {
+          const arr = opData[key];
+          if (Array.isArray(arr) && arr.length > 0) {
+            for (const row of arr) {
+              deptSplits.push({ splitType, department: row.department, amount: row.amount, note: row.note });
+            }
+          }
+        }
+
+        const fullOpData = {
           ...opData,
           processInstanceId: data.processInstanceId as string,
           businessId,
@@ -692,7 +595,14 @@ class ApprovalProcessor {
           currency: opCurrency as string,
           ...meta,
           rawData: instance as unknown as Record<string, unknown>
-        });
+        };
+
+        let opId: number | undefined;
+        if (deptSplits.length > 0) {
+          opId = await database.upsertOperationExpenseWithSplits(fullOpData, deptSplits);
+        } else {
+          opId = await database.upsertOperationExpense(fullOpData);
+        }
         if (opId) {
           await database.replaceAttachments('operation', opId, attachments);
         }
