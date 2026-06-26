@@ -447,18 +447,32 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const isDebug = String(debug || '') === '1';
     const isOperation = queryConfig.processKind === 'operation';
 
-    // 状态过滤
-    const statusFilters: string[] = [];
-    if (flowStatusCompletedOnly) {
-      statusFilters.push(`approval_status = 'COMPLETED'`);
-    }
-    statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
-    if (!allowRevokedBiz) {
-      statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
-    }
-    statusFilters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
-    statusFilters.push(`UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
-    const statusWhere = statusFilters.map(f => ` AND ${f}`).join('');
+    // 分摊类型感知的金额表达式：全部门查询时，对分摊记录取 JSONB 所有条目之和
+    const amountRmbExpr = isOperation
+      ? buildAllDeptAmountExpr(DEPT_SPLIT_QUERY_CONFIGS, 'COALESCE(base_currency_amount, 0)')
+      : queryConfig.amountRmbExpr;
+
+    let query = isDebug
+      ? `
+      SELECT business_id,
+             ${queryConfig.sourceAmountColumn} AS amount,
+             base_currency_amount,
+             approval_completed_at,
+             source_created_at,
+             request_date,
+             applicant_department,
+             creator_department,
+             approval_status,
+             raw_data->>'bizAction' AS biz_action,
+             raw_data->>'title' AS title
+      FROM ${queryConfig.tableName}
+      WHERE 1=1
+    `
+      : `
+      SELECT COALESCE(SUM(${amountRmbExpr}), 0)::text AS total, COUNT(*)::int AS count
+      FROM ${queryConfig.tableName}
+      WHERE 1=1
+    `;
 
     const params: unknown[] = [];
     let paramIndex = 1;
