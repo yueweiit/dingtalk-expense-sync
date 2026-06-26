@@ -482,6 +482,10 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
       ? buildAllDeptAmountExpr(DEPT_SPLIT_QUERY_CONFIGS, 'COALESCE(base_currency_amount, 0)')
       : queryConfig.amountRmbExpr;
 
+    const deptSplitColumns = isOperation
+      ? ', salary_by_department, social_insurance_by_department, office_space_by_department'
+      : '';
+
     let query = isDebug
       ? `
       SELECT business_id,
@@ -495,6 +499,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
              approval_status,
              raw_data->>'bizAction' AS biz_action,
              raw_data->>'title' AS title
+             ${deptSplitColumns}
       FROM ${queryConfig.tableName}
       WHERE 1=1
     `
