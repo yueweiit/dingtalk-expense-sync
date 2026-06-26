@@ -4,19 +4,7 @@ import dingtalk from './dingtalk.ts';
 import config from './config.ts';
 import logger from './logger.ts';
 
-// ─── SQL helpers (reused from server.ts patterns) ───
-
-interface DeptSplitConfig {
-  matchExpr: string;
-  jsonbColumn: string;
-}
-
-const DEPT_SPLIT_CONFIGS: DeptSplitConfig[] = [
-  { matchExpr: `(operation_expense ILIKE '%工资中国%' OR operation_expense ILIKE '%Salario en China%')`, jsonbColumn: 'salary_by_department' },
-  { matchExpr: `(operation_expense = '工资salario')`, jsonbColumn: 'salary_by_department' },
-  { matchExpr: `(operation_expense ILIKE '%社保中国%')`, jsonbColumn: 'social_insurance_by_department' },
-  { matchExpr: `(operation_expense ILIKE '%办公场地%')`, jsonbColumn: 'office_space_by_department' },
-];
+// ─── SQL helpers ───
 
 const TIME_COLUMN = 'COALESCE(source_created_at, request_date::timestamp)';
 
@@ -30,36 +18,46 @@ const STATUS_FILTER = `
   AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')
 `;
 
+const STATUS_FILTER_ALIASED = `
+  AND UPPER(COALESCE(NULLIF(TRIM(o.approval_status), ''), NULLIF(TRIM(o.raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')
+  AND UPPER(COALESCE(NULLIF(TRIM(o.raw_data->>'bizAction'), ''), NULLIF(TRIM(o.raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')
+  AND NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(o.raw_data->'tasks', '[]'::jsonb)) AS t
+    WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
+  )
+  AND UPPER(COALESCE(o.raw_data->>'flowResult', o.raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')
+`;
+
+/** 运营支出按部门 breakdown：UNION ALL 非拆分 + 拆分表 */
 function buildOperationBreakdownSql(dateFilter: string): string {
-  const nonSplitConditions = DEPT_SPLIT_CONFIGS.map(cfg => `NOT ${cfg.matchExpr}`).join(' AND ');
-  let unionParts = `
-    SELECT
-      COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-      COALESCE(base_currency_amount, 0) AS amount
-    FROM approval_expense_operation
-    WHERE ${nonSplitConditions}
-    ${dateFilter}
-    ${STATUS_FILTER}`;
-
-  for (const cfg of DEPT_SPLIT_CONFIGS) {
-    unionParts += `
-
-    UNION ALL
-
-    SELECT
-      COALESCE(NULLIF(TRIM(entry->>'department'), ''), 'Unknown') AS dept,
-      COALESCE((entry->>'amount')::numeric, 0) AS amount
-    FROM approval_expense_operation,
-         jsonb_array_elements(${cfg.jsonbColumn}) AS entry
-    WHERE ${cfg.matchExpr}
-      AND ${cfg.jsonbColumn} IS NOT NULL
-    ${dateFilter}
-    ${STATUS_FILTER}`;
-  }
-
+  const dateFilterAliased = dateFilter
+    .replace(/\bsource_created_at\b/g, 'o.source_created_at')
+    .replace(/\brequest_date\b/g, 'o.request_date');
   return `
     SELECT dept, COALESCE(SUM(amount), 0)::numeric AS total
-    FROM (${unionParts}) AS combined
+    FROM (
+      SELECT
+        COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+        COALESCE(base_currency_amount, 0) AS amount
+      FROM approval_expense_operation
+      WHERE NOT EXISTS (
+        SELECT 1 FROM approval_expense_dept_split ds
+        WHERE ds.business_id = approval_expense_operation.business_id
+      )
+      ${dateFilter}
+      ${STATUS_FILTER}
+
+      UNION ALL
+
+      SELECT
+        ds.department AS dept,
+        ds.amount
+      FROM approval_expense_dept_split ds
+      JOIN approval_expense_operation o ON o.business_id = ds.business_id
+      WHERE 1=1
+      ${dateFilterAliased}
+      ${STATUS_FILTER_ALIASED}
+    ) combined
     GROUP BY dept
     ORDER BY total DESC
   `;
