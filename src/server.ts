@@ -633,6 +633,61 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// 手动触发运营/采购支出同步，并立即补偿已入库但状态可能变化的记录
+app.post('/api/sync/manual', async (req: Request, res: Response) => {
+  const startedAt = new Date().toISOString();
+  const runCompensation = req.body?.compensate !== false;
+
+  try {
+    await scheduler.manualSync();
+    if (runCompensation) {
+      await scheduler.compensatePendingApprovals();
+    }
+
+    res.json({
+      success: true,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      compensation: runCompensation,
+      message: runCompensation ? '支出同步和状态补偿已完成' : '支出同步已完成',
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`手动触发支出同步失败: ${message}`);
+    res.status(500).json({
+      success: false,
+      message,
+    });
+  }
+});
+
+// 按窗口同步运营支出部门拆分：工资、社保公积金、办公场地
+app.post('/api/sync/operation-splits', async (req: Request, res: Response) => {
+  try {
+    const { startTime, endTime, splitTypes } = req.body || {};
+    if (startTime === undefined || endTime === undefined) {
+      res.status(400).json({
+        success: false,
+        message: 'startTime 和 endTime 必填',
+      });
+      return;
+    }
+
+    const result = await scheduler.syncOperationSplits({ startTime, endTime, splitTypes });
+    res.json({
+      ...result,
+      message: `支出拆分同步完成：匹配 ${result.matched}，写入 ${result.written}，跳过 ${result.skipped}，失败 ${result.failed}`,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`手动触发运营支出拆分同步失败: ${message}`);
+    res.status(500).json({
+      success: false,
+      message,
+    });
+  }
+});
+
 // 手动触发预算周报
 app.post('/api/reports/weekly-budget', async (req: Request, res: Response) => {
   const isProduction = process.env.NODE_ENV === 'production';

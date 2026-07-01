@@ -19,17 +19,59 @@ interface InstanceIdWithMeta {
   processCode: string;
 }
 
+type OperationSplitType = 'salary' | 'social_insurance' | 'office_space';
+
+interface OperationSplitSyncOptions {
+  startTime: string | number;
+  endTime: string | number;
+  splitTypes?: OperationSplitType[];
+}
+
+interface OperationSplitSyncResult {
+  success: boolean;
+  startedAt: string;
+  completedAt: string;
+  startTime: number;
+  endTime: number;
+  instanceIds: number;
+  fetched: number;
+  matched: number;
+  written: number;
+  skipped: number;
+  failed: number;
+  splitCounts: Record<OperationSplitType, number>;
+  failures: Array<{ processInstanceId: string; message: string }>;
+}
+
+const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelEs?: string; dbColumn: string }> = {
+  salary: {
+    label: '工资中国',
+    labelEs: 'Salario en China',
+    dbColumn: 'salaryByDepartment',
+  },
+  social_insurance: {
+    label: '社保公积金',
+    dbColumn: 'socialInsuranceByDepartment',
+  },
+  office_space: {
+    label: '办公场地总费用',
+    dbColumn: 'officeSpaceByDepartment',
+  },
+};
+
 class Scheduler {
   private isRunning: boolean;
   private isCompensating: boolean;
   private isFxSyncing: boolean;
   private isReporting: boolean;
+  private isOperationSplitSyncing: boolean;
 
   constructor() {
     this.isRunning = false;
     this.isCompensating = false;
     this.isFxSyncing = false;
     this.isReporting = false;
+    this.isOperationSplitSyncing = false;
   }
 
   // 将配置时间或字符串时间转换为时间戳（毫秒）
@@ -67,6 +109,53 @@ class Scheduler {
       return '采购支出';
     }
     return '其他';
+  }
+
+  normalizeTimeRange(startTime: string | number, endTime: string | number): { start: number; end: number } {
+    const start = this.toTimestamp(startTime);
+    const end = this.toTimestamp(endTime);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      throw new Error('startTime/endTime 无法解析为有效时间');
+    }
+    if (end < start) {
+      throw new Error('endTime must be greater than or equal to startTime');
+    }
+    return { start, end };
+  }
+
+  normalizeSplitTypes(splitTypes?: OperationSplitType[]): OperationSplitType[] {
+    const requested = Array.isArray(splitTypes) && splitTypes.length > 0
+      ? splitTypes
+      : (['salary', 'social_insurance', 'office_space'] as OperationSplitType[]);
+    const validTypes = new Set(Object.keys(OPERATION_SPLIT_CONFIG));
+    for (const type of requested) {
+      if (!validTypes.has(type)) {
+        throw new Error(`Invalid split type: ${type}`);
+      }
+    }
+    return [...new Set(requested)];
+  }
+
+  findMatchedSplitTypes(operationExpense: unknown, splitTypes: OperationSplitType[]): OperationSplitType[] {
+    const text = String(operationExpense || '');
+    return splitTypes.filter((type) => {
+      const configItem = OPERATION_SPLIT_CONFIG[type];
+      return text.includes(configItem.label) ||
+        Boolean(configItem.labelEs && text.includes(configItem.labelEs));
+    });
+  }
+
+  countParsedSplits(
+    parsedData: Record<string, unknown>,
+    matchedTypes: OperationSplitType[],
+    splitCounts: Record<OperationSplitType, number>
+  ): void {
+    for (const type of matchedTypes) {
+      const rows = parsedData[OPERATION_SPLIT_CONFIG[type].dbColumn];
+      if (Array.isArray(rows)) {
+        splitCounts[type] += rows.length;
+      }
+    }
   }
 
   async syncSingleProcess(processCode: string, start: number, end: number): Promise<InstanceIdWithMeta[]> {
@@ -321,6 +410,103 @@ class Scheduler {
     } finally {
       this.isCompensating = false;
       logger.info(`补偿任务耗时: ${Date.now() - taskStart}ms`);
+    }
+  }
+
+  async syncOperationSplits(options: OperationSplitSyncOptions): Promise<OperationSplitSyncResult> {
+    if (this.isOperationSplitSyncing) {
+      throw new Error('运营支出拆分同步正在运行，请稍后再试');
+    }
+    if (this.isRunning) {
+      throw new Error('审批同步正在运行，请稍后再试');
+    }
+
+    const { start, end } = this.normalizeTimeRange(options.startTime, options.endTime);
+    const splitTypes = this.normalizeSplitTypes(options.splitTypes);
+    const operationProcessCode = config.dingtalk.processCodes[0];
+    if (!operationProcessCode) {
+      throw new Error('未配置运营支出流程 processCode');
+    }
+
+    const startedAt = new Date().toISOString();
+    const summary: OperationSplitSyncResult = {
+      success: true,
+      startedAt,
+      completedAt: startedAt,
+      startTime: start,
+      endTime: end,
+      instanceIds: 0,
+      fetched: 0,
+      matched: 0,
+      written: 0,
+      skipped: 0,
+      failed: 0,
+      splitCounts: {
+        salary: 0,
+        social_insurance: 0,
+        office_space: 0,
+      },
+      failures: [],
+    };
+
+    this.isOperationSplitSyncing = true;
+    try {
+      await database.ensureApprovalExpenseSchema();
+      await this.maybeEnsureTodayFxRates();
+
+      logger.info(
+        `手动同步运营支出拆分: ${this.formatBeijingTime(start)} ~ ${this.formatBeijingTime(end)}, splitTypes=${splitTypes.join(',')}`
+      );
+
+      const ids = await this.syncSingleProcess(operationProcessCode, start, end);
+      summary.instanceIds = ids.length;
+
+      for (const item of ids) {
+        try {
+          const instance = await dingtalk.getProcessInstance(item.processInstanceId);
+          summary.fetched++;
+          instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
+          instance.processCode = instance.processCode || item.processCode;
+          instance.processType = instance.processType || this.getProcessType(item.processCode);
+
+          const parsedData = processor.parseOperationExpenseData(
+            (instance as unknown as import('./processor.js').ApprovalInstance).formComponentValues
+          );
+          const matchedTypes = this.findMatchedSplitTypes(parsedData.operationExpense, splitTypes);
+          if (matchedTypes.length === 0) {
+            summary.skipped++;
+            await dingtalk.sleep(120);
+            continue;
+          }
+
+          summary.matched++;
+          this.countParsedSplits(parsedData, matchedTypes, summary.splitCounts);
+          const result = await processor.processInstance(
+            instance as unknown as import('./processor.js').ApprovalInstance,
+            { force: true }
+          );
+
+          if (result.skipped) {
+            summary.skipped++;
+          } else {
+            summary.written++;
+          }
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          summary.failed++;
+          summary.failures.push({ processInstanceId: item.processInstanceId, message });
+          logger.error(`运营支出拆分同步失败: processInstanceId=${item.processInstanceId}, error=${message}`);
+        }
+        await dingtalk.sleep(120);
+      }
+
+      summary.completedAt = new Date().toISOString();
+      logger.info(
+        `运营支出拆分同步完成: ids=${summary.instanceIds}, fetched=${summary.fetched}, matched=${summary.matched}, written=${summary.written}, skipped=${summary.skipped}, failed=${summary.failed}`
+      );
+      return summary;
+    } finally {
+      this.isOperationSplitSyncing = false;
     }
   }
 
