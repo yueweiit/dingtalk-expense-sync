@@ -130,6 +130,20 @@ config.json
 GET /health
 ```
 
+### 手动同步
+
+```
+POST /api/sync/manual
+```
+
+触发一次运营/采购支出增量同步，并默认执行状态补偿，用于刷新已入库后又被拒绝、撤回或状态变化的审批。
+
+```
+POST /api/sync/operation-splits
+```
+
+按 `startTime` / `endTime` 时间窗口同步运营支出部门拆分数据：工资中国、社保公积金、办公场地总费用。
+
 ### 查询审批数据
 
 #### 运营支出（按部门）
