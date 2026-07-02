@@ -4,6 +4,7 @@ import processor from './processor.ts';
 import database from './database.ts';
 import logger from './logger.ts';
 import config from './config.ts';
+import { getProcessTypeLabel } from './process-config.ts';
 import { resolveProcessInstanceFetchId } from './workflowIds.ts';
 import {
   ER_API_LATEST_USD,
@@ -59,14 +60,7 @@ class Scheduler {
   }
 
   getProcessType(processCode: string): string {
-    const processCodes = config.dingtalk.processCodes;
-    const index = processCodes.indexOf(processCode);
-    if (index === 0) {
-      return '运营支出';
-    } else if (index === 1) {
-      return '采购支出';
-    }
-    return '其他';
+    return getProcessTypeLabel(processCode, config.dingtalk);
   }
 
   async syncSingleProcess(processCode: string, start: number, end: number): Promise<InstanceIdWithMeta[]> {
@@ -170,7 +164,7 @@ class Scheduler {
         if (meta) {
           instance.processInstanceId = instance.processInstanceId || meta.processInstanceId;
           instance.processCode = instance.processCode || meta.processCode;
-          instance.processType = this.getProcessType(meta.processCode);
+          instance.processType = getProcessTypeLabel(meta.processCode, config.dingtalk);
         }
         return instance;
       });
@@ -296,7 +290,7 @@ class Scheduler {
             ? '运营支出'
             : row.expense_type === 'purchase'
               ? '采购支出'
-              : this.getProcessType(row.process_code)
+              : getProcessTypeLabel(row.process_code, config.dingtalk)
         ])
       );
 

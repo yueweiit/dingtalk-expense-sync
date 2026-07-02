@@ -1,6 +1,7 @@
 import database from './database.ts';
 import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
+import { resolveOperationFormName } from './form-source.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 
 export interface FormComponentValue {
@@ -145,6 +146,14 @@ class ApprovalProcessor {
       return null;
     }
     const field = formComponentValues.find((item) => item.name && item.name.includes(fieldName));
+    return field ? field.value : null;
+  }
+
+  extractFormValueExact(formComponentValues: FormComponentValue[] | undefined | null, fieldName: string): unknown {
+    if (!formComponentValues || !Array.isArray(formComponentValues)) {
+      return null;
+    }
+    const field = formComponentValues.find((item) => String(item?.name || '').trim() === fieldName);
     return field ? field.value : null;
   }
 
@@ -416,6 +425,21 @@ class ApprovalProcessor {
       }
     }
 
+    const platform = this.extractFormValueExact(fc, '平台')
+      || this.extractFormValueExact(fc, '平台plataforma de comercio electrónico')
+      || null;
+    const platformName = this.extractFormValueExact(fc, '平台名称')
+      || this.extractFormValueExact(fc, '平台名称Nombre de la plataforma')
+      || null;
+    const storeName = this.extractFormValueExact(fc, '店铺名称')
+      || this.extractFormValueExact(fc, '店铺名称Nombre de la tienda')
+      || null;
+    const monthlyBudgetRemainingAmount = this.normalizeNumber(
+      this.extractFormValueExact(fc, '本月预算剩余金额')
+      || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
+    );
+    const paymentDetailReason = this.extractFormValueExact(fc, '付款详细事由');
+
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
       applicantDepartment: department,
@@ -445,6 +469,11 @@ class ApprovalProcessor {
       currency: this.extractFormValueLastNonEmpty(fc, '币种Moneda') || this.extractFormValue(fc, '币种'),
       paymentDate: this.extractFormValue(fc, '付款日期Fecha de pago') || this.extractFormValue(fc, '付款日期'),
       keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证'),
+      platform,
+      platformName,
+      storeName,
+      monthlyBudgetRemainingAmount,
+      paymentDetailReason,
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
@@ -590,6 +619,7 @@ class ApprovalProcessor {
           ...opData,
           processInstanceId: data.processInstanceId as string,
           businessId,
+          formName: resolveOperationFormName(instance.processCode),
           amount: opAmount as number,
           baseCurrencyAmount: opBaseCurrencyAmount as number,
           currency: opCurrency as string,

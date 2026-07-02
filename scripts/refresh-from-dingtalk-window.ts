@@ -10,6 +10,7 @@ import dingtalk from '../src/dingtalk.ts';
 import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
+import { getProcessTypeLabel } from '../src/process-config.ts';
 import type { ApprovalInstance } from '../src/processor.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -23,11 +24,7 @@ function parseArgs(argv: string[]): Record<string, string> {
 }
 
 function getProcessType(processCode: string): string {
-  const processCodes = config.dingtalk.processCodes;
-  const index = processCodes.indexOf(processCode);
-  if (index === 0) return '运营支出';
-  if (index === 1) return '采购支出';
-  return '其他';
+  return getProcessTypeLabel(processCode, config.dingtalk);
 }
 
 function extractDepartment(instance: Record<string, unknown>): string {
@@ -174,7 +171,7 @@ async function main(): Promise<void> {
     try {
       const instance = await dingtalk.getProcessInstance(processInstanceId);
       instance.processCode = instance.processCode || processCode;
-      instance.processType = getProcessType(processCode);
+      instance.processType = getProcessTypeLabel(processCode, config.dingtalk);
 
       if (targetBusinessIds.size > 0 && !targetBusinessIds.has(String(instance.businessId || ''))) {
         skippedBusinessId++;

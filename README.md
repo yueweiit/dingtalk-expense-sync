@@ -88,7 +88,16 @@ config.json
     "processCodes": [
       "PROC-0288DB08-...",
       "PROC-BFDF6F09-..."
-    ]
+    ],
+    "processTypeMap": {
+      "operation": [
+        "PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA",
+        "PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD"
+      ],
+      "purchase": [
+        "PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B"
+      ]
+    }
   },
   "scheduler": {
     "cron": "7 * * * *",
@@ -101,6 +110,8 @@ config.json
   }
 }
 ```
+
+如果未配置 `processTypeMap`，系统仍会兼容旧规则：`processCodes[0]` 视为 `operation`，`processCodes[1]` 视为 `purchase`。
 
 ### 定时任务配置
 
@@ -176,6 +187,8 @@ GET /api/fx-rate?date=2026-06-10
 | `npm run dev` | 开发模式 |
 | `npm run build` | 编译 TypeScript |
 | `npm run refresh:dingtalk` | 从钉钉全量刷新数据 |
+| `npm run refresh:dingtalk:window` | 按时间窗口重新拉取钉钉实例详情 |
+| `npm run sync:approval-expenses` | 直接从钉钉同步结构化支出表 |
 | `npm run sync:fx-rates` | 同步汇率数据 |
 | `npm run backfill:base-currency` | 回填基准货币金额 |
 

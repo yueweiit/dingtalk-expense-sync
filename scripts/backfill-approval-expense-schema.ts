@@ -15,6 +15,8 @@ import database, { pool } from '../src/database.ts';
 import dingtalk from '../src/dingtalk.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
+import { resolveOperationFormName } from '../src/form-source.ts';
+import processor from '../src/processor.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 import { normalizeNumber } from '../src/utils.ts';
 
@@ -345,12 +347,14 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   }
 
   // 运营支出
+  const operationFields = processor.parseOperationExpenseData(components as any);
   return {
     type: 'operation',
     ...common,
     applicationType: findValue(components, ['Tipo de tramite', 'Tipo de trámite', '申请类型']),
     expenseType: findValue(components, ['支出类型']),
     executionRegion: findValue(components, ['Region de ejecucion', 'Región de ejecución', '执行地区']),
+    formName: resolveOperationFormName(compact(row.process_code, 64)),
     operationExpense: findValue(components, ['Gastos de operacion', 'Gastos de operación', '管理支出']),
     employeeBenefitsExpense: findValue(components, ['Gastos de beneficios', '职工福利费']),
     bonusExpense: findValue(components, ['Bonificaciones', '奖金']),
@@ -371,6 +375,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     currency: compact(findLastValue(components, ['Moneda', '币种']), 32) || row.currency,
     paymentDate: normalizeDate(findLastValue(components, ['Fecha de pago', '付款日期'])),
     keyVoucher: compact(findValue(components, ['Comprobante clave', '关键凭证']), 2000),
+    ...operationFields,
     attachments: extractAttachments(components)
   };
 }
@@ -511,7 +516,32 @@ async function main(): Promise<void> {
           if ((parsed.payments as unknown[]).length > 0) await database.replacePurchasePayments(expenseId, parsed.payments as any);
         }
       } else {
-        expenseId = await database.upsertOperationExpense({ ...parsed, baseCurrencyAmount } as any);
+        const splitTypeMap: Record<string, 'salary' | 'social_insurance' | 'office_space'> = {
+          salaryByDepartment: 'salary',
+          socialInsuranceByDepartment: 'social_insurance',
+          officeSpaceByDepartment: 'office_space',
+        };
+        const deptSplits: Array<{ splitType: 'salary' | 'social_insurance' | 'office_space'; department: string; amount: number; note?: string }> = [];
+
+        for (const [key, splitType] of Object.entries(splitTypeMap)) {
+          const rows = parsed[key] as Array<{ department?: string; amount?: number; note?: string }> | undefined;
+          if (!Array.isArray(rows)) continue;
+          for (const row of rows) {
+            if (!row?.department || row.amount == null) continue;
+            deptSplits.push({
+              splitType,
+              department: String(row.department),
+              amount: Number(row.amount),
+              note: row.note ? String(row.note) : undefined,
+            });
+          }
+        }
+
+        if (deptSplits.length > 0) {
+          expenseId = await database.upsertOperationExpenseWithSplits({ ...parsed, baseCurrencyAmount } as any, deptSplits as any);
+        } else {
+          expenseId = await database.upsertOperationExpense({ ...parsed, baseCurrencyAmount } as any);
+        }
       }
 
       if (expenseId && (parsed.attachments as unknown[]).length > 0) {

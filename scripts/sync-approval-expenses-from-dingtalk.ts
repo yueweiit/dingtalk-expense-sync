@@ -15,6 +15,11 @@ import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
+import { resolveOperationFormName } from '../src/form-source.ts';
+import {
+  getProcessKind as resolveProcessKind,
+  getProcessTypeLabel as resolveProcessTypeLabel,
+} from '../src/process-config.ts';
 import type { ApprovalInstance } from '../src/processor.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -36,18 +41,11 @@ function parseProcessArg(value: string): string {
 }
 
 function getProcessKind(processCode: string): string {
-  const processCodes = config.dingtalk?.processCodes || [];
-  const index = processCodes.indexOf(processCode);
-  if (index === 0) return 'operation';
-  if (index === 1) return 'purchase';
-  return 'other';
+  return resolveProcessKind(processCode, config.dingtalk);
 }
 
 function getProcessType(processCode: string): string {
-  const kind = getProcessKind(processCode);
-  if (kind === 'operation') return '运营支出';
-  if (kind === 'purchase') return '采购支出';
-  return '其他';
+  return resolveProcessTypeLabel(processCode, config.dingtalk);
 }
 
 function normalizeNumber(value: unknown): number | null {
@@ -104,7 +102,7 @@ async function collectInstanceIds(startMs: number, endMs: number, processFilter:
   const items: Array<{ processInstanceId: string; processCode: string; kind: string }> = [];
 
   for (const processCode of processCodes) {
-    const kind = getProcessKind(processCode);
+    const kind = resolveProcessKind(processCode, config.dingtalk);
     if (processFilter !== 'all' && kind !== processFilter) continue;
 
     let nextToken = 0;
@@ -156,6 +154,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       ...opData,
       processInstanceId: String(instance.processInstanceId || ''),
       businessId: String(instance.businessId),
+      formName: resolveOperationFormName(String(instance.processCode || '')),
       amount: amount as number,
       currency: currency as string,
       baseCurrencyAmount: baseCurrencyAmount as number,
@@ -249,7 +248,7 @@ async function main(): Promise<void> {
       fetched++;
       instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
       instance.processCode = instance.processCode || item.processCode;
-      instance.processType = instance.processType || getProcessType(item.processCode);
+      instance.processType = instance.processType || resolveProcessTypeLabel(item.processCode, config.dingtalk);
 
       if (businessIdFilter && String(instance.businessId || '') !== businessIdFilter) {
         skipped++;

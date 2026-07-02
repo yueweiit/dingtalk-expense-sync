@@ -7,6 +7,7 @@ import dingtalk from '../src/dingtalk.ts';
 import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
+import { getProcessTypeLabel } from '../src/process-config.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 import type { ApprovalInstance } from '../src/processor.ts';
 
@@ -21,11 +22,7 @@ function parseArgs(argv: string[]): Record<string, string> {
 }
 
 function getProcessType(processCode: string): string {
-  const processCodes = config.dingtalk.processCodes;
-  const index = processCodes.indexOf(processCode);
-  if (index === 0) return '运营支出';
-  if (index === 1) return '采购支出';
-  return '其他';
+  return getProcessTypeLabel(processCode, config.dingtalk);
 }
 
 async function main(): Promise<void> {
@@ -69,7 +66,7 @@ async function main(): Promise<void> {
     business_id: r.business_id,
     fetchId: resolveProcessInstanceFetchId(r.raw_data, r.business_id, r.process_instance_id)
   }));
-  const processTypeById = new Map(rows.map((r) => [r.business_id, getProcessType(r.process_code)]));
+  const processTypeById = new Map(rows.map((r) => [r.business_id, getProcessTypeLabel(r.process_code, config.dingtalk)]));
 
   const fallbackOnly = fetchPlan.filter((p) => p.fetchId === p.business_id).length;
   console.log(

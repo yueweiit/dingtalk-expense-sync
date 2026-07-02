@@ -13,9 +13,14 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     production_type VARCHAR(64),
     monthly_budget_amount NUMERIC(18, 2),
     monthly_budget_used_amount NUMERIC(18, 2),
+    monthly_budget_remaining_amount NUMERIC(18, 2),
     application_type VARCHAR(128),
     expense_type VARCHAR(128),
     execution_region VARCHAR(128),
+    form_name VARCHAR(128),
+    platform VARCHAR(128),
+    platform_name VARCHAR(255),
+    store_name VARCHAR(255),
 
     operation_expense VARCHAR(128),
     employee_benefits_expense VARCHAR(128),
@@ -32,6 +37,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     marketing_advertising_expense VARCHAR(128),
 
     matter_description TEXT,
+    payment_detail_reason TEXT,
     beneficiary VARCHAR(500),
     amount NUMERIC(18, 2),
     base_currency_amount NUMERIC(15, 2),
@@ -58,6 +64,24 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS monthly_budget_remaining_amount NUMERIC(18, 2);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS platform VARCHAR(128);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS platform_name VARCHAR(255);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS store_name VARCHAR(255);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS payment_detail_reason TEXT;
 
 COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
 COMMENT ON COLUMN approval_expense_operation.social_insurance_by_department IS '社保中国分部门明细 — JSON array of {department, amount}';
@@ -258,11 +282,6 @@ BEGIN
             BEFORE UPDATE ON approval_expense_purchase
             FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_dept_split') THEN
-        CREATE TRIGGER set_updated_at_approval_expense_dept_split
-            BEFORE UPDATE ON approval_expense_dept_split
-            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
-    END IF;
 END;
 $$;
 
@@ -275,9 +294,13 @@ COMMENT ON COLUMN approval_expense_operation.applicant_department IS '申请部�
 COMMENT ON COLUMN approval_expense_operation.production_type IS '生产/非生产 Producción / No producción';
 COMMENT ON COLUMN approval_expense_operation.monthly_budget_amount IS '本月预算金额 Importe presupuestado del mes';
 COMMENT ON COLUMN approval_expense_operation.monthly_budget_used_amount IS '本月预算已用金额 Importe utilizado del presupuesto mensual';
+COMMENT ON COLUMN approval_expense_operation.monthly_budget_remaining_amount IS '本月预算剩余金额 Importe restante del presupuesto mensual';
 COMMENT ON COLUMN approval_expense_operation.application_type IS '申请类型 Tipo de trámite';
 COMMENT ON COLUMN approval_expense_operation.expense_type IS '支出类型';
 COMMENT ON COLUMN approval_expense_operation.execution_region IS '执行地区 Región de ejecución';
+COMMENT ON COLUMN approval_expense_operation.platform IS '平台 Plataforma';
+COMMENT ON COLUMN approval_expense_operation.platform_name IS '平台名称 Nombre de la plataforma';
+COMMENT ON COLUMN approval_expense_operation.store_name IS '店铺名称 Nombre de la tienda';
 COMMENT ON COLUMN approval_expense_operation.operation_expense IS '管理支出 Gastos de operación';
 COMMENT ON COLUMN approval_expense_operation.employee_benefits_expense IS '职工福利费 Gastos de beneficios laborales';
 COMMENT ON COLUMN approval_expense_operation.bonus_expense IS '奖金 Bonificaciones';
@@ -292,6 +315,7 @@ COMMENT ON COLUMN approval_expense_operation.sales_team_customer_service_expense
 COMMENT ON COLUMN approval_expense_operation.other_sales_related_expense IS '其他销售相关费用 Otros gastos relacionados con las ventas';
 COMMENT ON COLUMN approval_expense_operation.marketing_advertising_expense IS '市场推广与广告费用 Gastos de marketing, promoción y publicidad';
 COMMENT ON COLUMN approval_expense_operation.matter_description IS '事项说明 Explicación de asuntos';
+COMMENT ON COLUMN approval_expense_operation.payment_detail_reason IS '付款详细事由 Detalles de pago';
 COMMENT ON COLUMN approval_expense_operation.beneficiary IS '收款人 beneficiario';
 COMMENT ON COLUMN approval_expense_operation.amount IS '金额 importe';
 COMMENT ON COLUMN approval_expense_operation.base_currency_amount IS '本位币金额（人民币）：按提交日汇率折算';
@@ -438,6 +462,16 @@ CREATE INDEX IF NOT EXISTS idx_dept_split_biz
 
 CREATE INDEX IF NOT EXISTS idx_dept_split_type_dept
     ON approval_expense_dept_split(split_type, department);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_dept_split') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_dept_split
+            BEFORE UPDATE ON approval_expense_dept_split
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+END;
+$$;
 
 COMMENT ON TABLE approval_expense_dept_split IS '运营支出分部门拆分表（CQRS read model）';
 COMMENT ON COLUMN approval_expense_dept_split.business_id IS '关联审批 business_id';

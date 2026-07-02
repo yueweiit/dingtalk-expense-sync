@@ -7,6 +7,12 @@
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import {
+  getConfiguredProcessCodes,
+  normalizeProcessTypeMap,
+  resolveProcessTypeMap,
+  type ProcessTypeMap,
+} from './process-config.ts';
 
 interface DatabaseConfig {
   host: string;
@@ -23,6 +29,7 @@ interface DingtalkConfig {
   robotAppkey: string | undefined;
   robotAppsecret: string | undefined;
   processCodes: string[];
+  processTypeMap: ProcessTypeMap;
 }
 
 interface SchedulerConfig {
@@ -57,6 +64,7 @@ interface FileConfigShape {
   database?: Partial<DatabaseConfig>;
   dingtalk?: Partial<DingtalkConfig> & {
     processCodes?: string[];
+    processTypeMap?: ProcessTypeMap;
   };
   scheduler?: Partial<SchedulerConfig>;
   server?: Partial<ServerConfig>;
@@ -178,6 +186,23 @@ function parseDeptRecipients(
 }
 
 // Build configuration object with env vars taking precedence over config.json
+const rawProcessCodes =
+  (parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) as string[] | undefined) ||
+  fileConfig.dingtalk?.processCodes ||
+  [];
+const rawProcessTypeMap = normalizeProcessTypeMap(
+  (parseJsonEnv(process.env.DINGTALK_PROCESS_TYPE_MAP) as ProcessTypeMap | undefined) ||
+  fileConfig.dingtalk?.processTypeMap
+);
+const resolvedProcessTypeMap = resolveProcessTypeMap({
+  processCodes: rawProcessCodes,
+  processTypeMap: rawProcessTypeMap,
+});
+const configuredProcessCodes = getConfiguredProcessCodes({
+  processCodes: rawProcessCodes,
+  processTypeMap: rawProcessTypeMap,
+});
+
 const config: Config = Object.freeze({
   database: Object.freeze({
     host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
@@ -192,7 +217,8 @@ const config: Config = Object.freeze({
     robotCode: process.env.DINGTALK_ROBOT_CODE || fileConfig.dingtalk?.robotCode,
     robotAppkey: process.env.DINGTALK_ROBOT_APPKEY || fileConfig.dingtalk?.robotAppkey,
     robotAppsecret: process.env.DINGTALK_ROBOT_APPSECRET || fileConfig.dingtalk?.robotAppsecret,
-    processCodes: (parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) as string[] | undefined) || fileConfig.dingtalk?.processCodes || [],
+    processCodes: configuredProcessCodes,
+    processTypeMap: resolvedProcessTypeMap,
   }),
   scheduler: Object.freeze({
     cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7 * * * *',

@@ -38,9 +38,14 @@ export interface OperationExpenseData {
   productionType?: string | null;
   monthlyBudgetAmount?: number | null;
   monthlyBudgetUsedAmount?: number | null;
+  monthlyBudgetRemainingAmount?: number | null;
   applicationType?: string | null;
   expenseType?: string | null;
   executionRegion?: string | null;
+  formName?: string | null;
+  platform?: string | null;
+  platformName?: string | null;
+  storeName?: string | null;
   operationExpense?: string | null;
   employeeBenefitsExpense?: string | null;
   bonusExpense?: string | null;
@@ -55,6 +60,7 @@ export interface OperationExpenseData {
   otherSalesRelatedExpense?: string | null;
   marketingAdvertisingExpense?: string | null;
   matterDescription?: string | null;
+  paymentDetailReason?: string | null;
   beneficiary?: string | null;
   amount?: number | null;
   baseCurrencyAmount?: number | null;
