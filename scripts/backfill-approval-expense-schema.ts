@@ -15,7 +15,7 @@ import database, { pool } from '../src/database.ts';
 import dingtalk from '../src/dingtalk.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
-import { resolveOperationFormName } from '../src/form-source.ts';
+import { resolveOperationFormName, resolvePurchaseFormName } from '../src/form-source.ts';
 import processor from '../src/processor.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 import { normalizeNumber } from '../src/utils.ts';
@@ -305,6 +305,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     productionType: findValue(components, ['Produccion', 'Producción', '生产/非生产']),
     monthlyBudgetAmount: normalizeNumber(findValue(components, ['Importe presupuestado', '本月预算金额'])) || normalizeNumber(row.monthly_budget),
     monthlyBudgetUsedAmount: normalizeNumber(findValue(components, ['Importe utilizado', '本月预算已用金额'])) || normalizeNumber(row.monthly_budget_used),
+    monthlyBudgetRemainingAmount: normalizeNumber(findValue(components, ['Importe restante del presupuesto mensual', '本月预算剩余金额'])),
     processInstanceId: row.process_instance_id || null,
     businessId: row.business_id,
     rawData: raw
@@ -314,6 +315,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     return {
       type: 'purchase',
       ...common,
+      formName: resolvePurchaseFormName(compact(row.process_code, 64)),
       purchaseExpense: findValue(components, ['Gastos de Compra', '采购支出']),
       orderName: findValue(components, ['Pedido', '订单']),
       projectName: findValue(components, ['Proyecto', '项目']),

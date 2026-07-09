@@ -15,7 +15,7 @@ import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
-import { resolveOperationFormName } from '../src/form-source.ts';
+import { resolveOperationFormName, resolvePurchaseFormName } from '../src/form-source.ts';
 import {
   getProcessKind as resolveProcessKind,
   getProcessTypeLabel as resolveProcessTypeLabel,
@@ -181,6 +181,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       ...pData,
       processInstanceId: String(instance.processInstanceId || ''),
       businessId: String(instance.businessId),
+      formName: resolvePurchaseFormName(String(instance.processCode || '')),
       baseCurrencyAmount: baseCurrencyAmount as number,
       ...meta,
       rawData: instance as unknown as Record<string, unknown>

@@ -1,7 +1,7 @@
 import database from './database.ts';
 import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
-import { resolveOperationFormName } from './form-source.ts';
+import { resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 
 export interface FormComponentValue {
@@ -489,6 +489,11 @@ class ApprovalProcessor {
     const department = deptField?.value != null && String(deptField.value).trim() !== ''
       ? deptField.value
       : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+    const monthlyBudgetRemainingAmount = this.normalizeNumber(
+      this.extractFormValueExact(fc, '本月预算剩余金额')
+      || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
+      || this.extractFormValueExact(fc, '本月预算剩余金额Importe restante del presupuesto mensual')
+    );
 
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
@@ -496,6 +501,7 @@ class ApprovalProcessor {
       productionType: this.extractFormValue(fc, '生产/非生产Producción') || this.extractFormValue(fc, '生产/非生产'),
       monthlyBudgetAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算金额Importe presupuestado')),
       monthlyBudgetUsedAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算已用金额Importe utilizado')),
+      monthlyBudgetRemainingAmount,
       purchaseExpense: this.extractFormValue(fc, '采购支出Gastos de Compra') || this.extractFormValue(fc, '采购支出'),
       orderName: this.extractFormValue(fc, '订单Pedido') || this.extractFormValue(fc, '订单'),
       projectName: this.extractFormValue(fc, '项目Proyecto') || this.extractFormValue(fc, '项目'),
@@ -649,6 +655,7 @@ class ApprovalProcessor {
           ...pData,
           processInstanceId: data.processInstanceId as string,
           businessId,
+          formName: resolvePurchaseFormName(instance.processCode),
           baseCurrencyAmount: purchaseBaseCurrencyAmount as number,
           ...meta,
           rawData: instance as unknown as Record<string, unknown>

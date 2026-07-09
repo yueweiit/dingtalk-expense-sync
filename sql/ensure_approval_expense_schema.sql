@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     production_type VARCHAR(64),
     monthly_budget_amount NUMERIC(18, 2),
     monthly_budget_used_amount NUMERIC(18, 2),
+    monthly_budget_remaining_amount NUMERIC(18, 2),
+    form_name VARCHAR(128),
 
     purchase_expense VARCHAR(128),
     order_name VARCHAR(255),
@@ -144,6 +146,12 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS monthly_budget_remaining_amount NUMERIC(18, 2);
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase_items (
     id BIGSERIAL PRIMARY KEY,
@@ -346,6 +354,8 @@ COMMENT ON COLUMN approval_expense_purchase.applicant_department IS '申请部�
 COMMENT ON COLUMN approval_expense_purchase.production_type IS '生产/非生产 Producción / No producción';
 COMMENT ON COLUMN approval_expense_purchase.monthly_budget_amount IS '本月预算金额 Importe presupuestado del mes';
 COMMENT ON COLUMN approval_expense_purchase.monthly_budget_used_amount IS '本月预算已用金额 Importe utilizado del presupuesto mensual';
+COMMENT ON COLUMN approval_expense_purchase.monthly_budget_remaining_amount IS '本月预算剩余金额 Importe restante del presupuesto mensual';
+COMMENT ON COLUMN approval_expense_purchase.form_name IS '表单来源名称，标识采购支出或电商采购支出';
 COMMENT ON COLUMN approval_expense_purchase.purchase_expense IS '采购支出 Gastos de Compra';
 COMMENT ON COLUMN approval_expense_purchase.order_name IS '订单 Pedido';
 COMMENT ON COLUMN approval_expense_purchase.project_name IS '项目 Proyecto';

@@ -92,6 +92,8 @@ export interface PurchaseExpenseData {
   productionType?: string | null;
   monthlyBudgetAmount?: number | null;
   monthlyBudgetUsedAmount?: number | null;
+  monthlyBudgetRemainingAmount?: number | null;
+  formName?: string | null;
   purchaseExpense?: string | null;
   orderName?: string | null;
   projectName?: string | null;
