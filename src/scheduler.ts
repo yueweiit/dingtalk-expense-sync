@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import dingtalk from './dingtalk.ts';
+import { approvalSource } from './oa-source.ts';
 import processor from './processor.ts';
 import database from './database.ts';
 import logger from './logger.ts';
@@ -160,7 +160,7 @@ class Scheduler {
     let pageCount = 0;
 
     do {
-      const queryResult = await dingtalk.queryProcessInstanceIds(start, end, processCode, nextToken);
+      const queryResult = await approvalSource.queryProcessInstanceIds(start, end, processCode, nextToken);
 
       if (!queryResult || !queryResult.list || queryResult.list.length === 0) {
         break;
@@ -175,7 +175,7 @@ class Scheduler {
 
       logger.info(`流程 ${processCode} 第${pageCount}页: 获取到 ${queryResult.list.length} 个实例, nextToken: ${nextToken}`);
 
-      await dingtalk.sleep(150);
+      await approvalSource.sleep(150);
     } while (nextToken && nextToken !== 0);
 
     logger.info(`流程 ${processCode} 获取完成, 共 ${pageCount} 页`);
@@ -242,7 +242,7 @@ class Scheduler {
     logger.info(`共找到 ${totalInstanceIds.length} 个审批实例`);
 
     const ids = totalInstanceIds.map(item => item.processInstanceId);
-    const instanceResults = await dingtalk.getProcessInstances(ids);
+    const instanceResults = await approvalSource.getProcessInstances(ids);
     const metaById = new Map(totalInstanceIds.map((item) => [item.processInstanceId, item]));
     const fetchFailures = instanceResults.filter((item) => item.error);
     const instances = instanceResults
@@ -383,7 +383,7 @@ class Scheduler {
         ])
       );
 
-      const instanceResults = await dingtalk.getProcessInstances(fetchIds);
+      const instanceResults = await approvalSource.getProcessInstances(fetchIds);
       const fetchFailures = instanceResults.filter((item) => item.error);
       fetchFailures.forEach((item) => {
         logger.error(`补偿任务获取实例详情失败: processInstanceId=${item.id}, error=${item.error}`);
@@ -457,7 +457,7 @@ class Scheduler {
 
       for (const item of ids) {
         try {
-          const instance = await dingtalk.getProcessInstance(item.processInstanceId);
+          const instance = await approvalSource.getProcessInstance(item.processInstanceId);
           summary.fetched++;
           instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
           instance.processCode = instance.processCode || item.processCode;
@@ -469,7 +469,7 @@ class Scheduler {
           const matchedTypes = this.findMatchedSplitTypes(parsedData.operationExpense, splitTypes);
           if (matchedTypes.length === 0) {
             summary.skipped++;
-            await dingtalk.sleep(120);
+            await approvalSource.sleep(120);
             continue;
           }
 
@@ -491,7 +491,7 @@ class Scheduler {
           summary.failures.push({ processInstanceId: item.processInstanceId, message });
           logger.error(`运营支出拆分同步失败: processInstanceId=${item.processInstanceId}, error=${message}`);
         }
-        await dingtalk.sleep(120);
+        await approvalSource.sleep(120);
       }
 
       summary.completedAt = new Date().toISOString();
@@ -588,6 +588,7 @@ class Scheduler {
   async stop(): Promise<void> {
     logger.info('停止定时任务');
     await database.close();
+    await approvalSource.close();
   }
 }
 

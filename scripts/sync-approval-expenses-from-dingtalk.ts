@@ -10,7 +10,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import dingtalk from '../src/dingtalk.ts';
+import { approvalSource } from '../src/oa-source.ts';
 import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
@@ -108,7 +108,7 @@ async function collectInstanceIds(startMs: number, endMs: number, processFilter:
     let nextToken = 0;
     let page = 0;
     do {
-      const result = await dingtalk.queryProcessInstanceIds(startMs, endMs, processCode, nextToken, 20);
+      const result = await approvalSource.queryProcessInstanceIds(startMs, endMs, processCode, nextToken, 20);
       const list = result?.list || [];
       for (const id of list) {
         items.push({ processInstanceId: String(id), processCode, kind });
@@ -116,7 +116,7 @@ async function collectInstanceIds(startMs: number, endMs: number, processFilter:
       page++;
       console.log(`process=${kind} code=${processCode} page=${page} ids=${list.length}`);
       nextToken = result?.nextToken || 0;
-      await dingtalk.sleep(150);
+      await approvalSource.sleep(150);
     } while (nextToken && nextToken !== 0);
   }
 
@@ -223,7 +223,7 @@ async function main(): Promise<void> {
   await database.ensureFxRatesDailyTable();
 
   console.log(JSON.stringify({
-    sync: 'approval_expense_* from DingTalk',
+    sync: 'approval_expense_* from oa-source',
     startMs,
     endMs,
     process: processFilter,
@@ -245,7 +245,7 @@ async function main(): Promise<void> {
 
   for (const item of items) {
     try {
-      const instance = await dingtalk.getProcessInstance(item.processInstanceId);
+      const instance = await approvalSource.getProcessInstance(item.processInstanceId);
       fetched++;
       instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
       instance.processCode = instance.processCode || item.processCode;
@@ -253,7 +253,7 @@ async function main(): Promise<void> {
 
       if (businessIdFilter && String(instance.businessId || '') !== businessIdFilter) {
         skipped++;
-        await dingtalk.sleep(120);
+        await approvalSource.sleep(120);
         continue;
       }
 
@@ -263,7 +263,7 @@ async function main(): Promise<void> {
       const departmentText = getDepartmentText(instance, previewData).toLowerCase();
       if (departmentFilter && !departmentText.includes(departmentFilter)) {
         skipped++;
-        await dingtalk.sleep(120);
+        await approvalSource.sleep(120);
         continue;
       }
 
@@ -275,7 +275,7 @@ async function main(): Promise<void> {
           department: departmentText
         }));
         skipped++;
-        await dingtalk.sleep(120);
+        await approvalSource.sleep(120);
         continue;
       }
 
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`failed processInstanceId=${item.processInstanceId}: ${message}`);
     }
-    await dingtalk.sleep(120);
+    await approvalSource.sleep(120);
   }
 
   console.log(JSON.stringify({
@@ -302,11 +302,13 @@ async function main(): Promise<void> {
   }, null, 2));
 
   await database.close();
+  await approvalSource.close();
 }
 
 main().catch(async (e: unknown) => {
   console.error(e);
   await database.close().catch(() => {});
+  await approvalSource.close().catch(() => {});
   process.exit(1);
 });
 

@@ -1,9 +1,9 @@
 /**
- * 从钉钉重新拉取详情并覆盖写入库（依赖库里 raw_data.processInstanceId 或列 process_instance_id）
- * 若日志提示「仍用 business_id 兜底」且 HTTP 400：请改用 refresh-from-dingtalk-window.ts 按时间窗口拉列表 ID。
+ * 从 oa-source 重新读取审批详情并覆盖写入库（依赖库里 raw_data.processInstanceId 或列 process_instance_id）。
+ * 若日志提示「仍用 business_id 兜底」且查不到详情：请改用 refresh-from-dingtalk-window.ts 按时间窗口重建实例 ID。
  * 例：npx tsx scripts/refresh-from-dingtalk.ts --department=IT --limit=200
  */
-import dingtalk from '../src/dingtalk.ts';
+import { approvalSource } from '../src/oa-source.ts';
 import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
@@ -72,11 +72,11 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify(
       {
-        message: '开始从钉钉刷新',
+        message: '开始从 oa-source 刷新',
         count: fetchPlan.length,
         note:
           fallbackOnly > 0
-            ? `有 ${fallbackOnly} 条仍用 business_id 兜底拉详情；若仍报 invalidParameter，请先跑一次正常增量同步写入 process_instance_id/raw_data.processInstanceId`
+            ? `有 ${fallbackOnly} 条仍用 business_id 兜底拉详情；若仍查不到，请先跑一次正常增量同步写入 process_instance_id/raw_data.processInstanceId`
             : undefined,
         sample: fetchPlan.slice(0, 3)
       },
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
     )
   );
 
-  const instanceResults = await dingtalk.getProcessInstances(fetchPlan.map((p) => p.fetchId));
+  const instanceResults = await approvalSource.getProcessInstances(fetchPlan.map((p) => p.fetchId));
   const fetchFailures = instanceResults.filter((item) => item.error);
   const instances = instanceResults
     .filter((item) => item.instance)
@@ -112,10 +112,13 @@ async function main(): Promise<void> {
   );
 
   await database.close();
+  await approvalSource.close();
 }
 
-main().catch((err: unknown) => {
+main().catch(async (err: unknown) => {
   console.error(err);
+  await database.close().catch(() => {});
+  await approvalSource.close().catch(() => {});
   process.exit(1);
 });
 

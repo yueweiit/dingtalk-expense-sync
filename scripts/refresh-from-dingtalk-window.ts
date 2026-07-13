@@ -1,12 +1,12 @@
 /**
- * 按钉钉「审批实例 ID 列表」时间窗口拉取真正的 processInstanceId，再拉详情入库。
- * 适用于库里只有 business_id、raw_data 里没有 processInstanceId 导致 refresh-from-dingtalk.ts 全失败的情况。
+ * 按时间窗口从 oa-source 重建审批实例 ID，再拉详情入库。
+ * 适用于库里只有 business_id、raw_data 里没有 processInstanceId，导致 refresh-from-dingtalk.ts 无法按实例 ID 补刷的情况。
  *
  * 例（项目根目录执行）：
  *   npx tsx scripts/refresh-from-dingtalk-window.ts --month=2026-04 --department=IT
  *   npx tsx scripts/refresh-from-dingtalk-window.ts --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00 --department=IT
  */
-import dingtalk from '../src/dingtalk.ts';
+import { approvalSource } from '../src/oa-source.ts';
 import processor from '../src/processor.ts';
 import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
@@ -54,6 +54,9 @@ function resolveTimeRange(args: Record<string, string>): { startMs: number; endM
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
       throw new Error('start/end 无法解析为日期');
     }
+    if (endMs < startMs) {
+      throw new Error('end 必须大于或等于 start');
+    }
     return { startMs, endMs };
   }
   throw new Error('请指定 --month=2026-04 或同时指定 --start=... --end=...（ISO 时间字符串）');
@@ -67,7 +70,7 @@ async function collectInstanceIds(startMs: number, endMs: number): Promise<Array
     let nextToken = 0;
     let page = 0;
     do {
-      const queryResult = await dingtalk.queryProcessInstanceIds(startMs, endMs, processCode, nextToken);
+      const queryResult = await approvalSource.queryProcessInstanceIds(startMs, endMs, processCode, nextToken);
       if (!queryResult || !queryResult.list || queryResult.list.length === 0) {
         break;
       }
@@ -77,7 +80,7 @@ async function collectInstanceIds(startMs: number, endMs: number): Promise<Array
       page++;
       nextToken = queryResult.nextToken;
       console.log(`流程 ${processCode} 第${page}页: ${queryResult.list.length} 个实例 ID`);
-      await dingtalk.sleep(150);
+      await approvalSource.sleep(150);
     } while (nextToken && nextToken !== 0);
   }
 
@@ -133,7 +136,7 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify(
       {
-        message: '按时间窗口向钉钉查询实例 ID 列表（此处返回的即为详情接口所需的 processInstanceId）',
+        message: '按时间窗口向 oa-source 查询实例 ID 列表（此处返回的即为详情读取所需的 processInstanceId）',
         startMs,
         endMs,
         departmentFilter: deptKw || '(不过滤，窗口内全部写入)'
@@ -169,13 +172,13 @@ async function main(): Promise<void> {
 
   for (const { processInstanceId, processCode } of pairs) {
     try {
-      const instance = await dingtalk.getProcessInstance(processInstanceId);
+      const instance = await approvalSource.getProcessInstance(processInstanceId);
       instance.processCode = instance.processCode || processCode;
       instance.processType = getProcessTypeLabel(processCode, config.dingtalk);
 
       if (targetBusinessIds.size > 0 && !targetBusinessIds.has(String(instance.businessId || ''))) {
         skippedBusinessId++;
-        await dingtalk.sleep(120);
+        await approvalSource.sleep(120);
         continue;
       }
 
@@ -183,7 +186,7 @@ async function main(): Promise<void> {
         const d = extractDepartment(instance);
         if (!d.toUpperCase().includes(deptKw.toUpperCase())) {
           skippedDept++;
-          await dingtalk.sleep(120);
+          await approvalSource.sleep(120);
           continue;
         }
       }
@@ -199,7 +202,7 @@ async function main(): Promise<void> {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`实例 ${processInstanceId}: ${message}`);
     }
-    await dingtalk.sleep(120);
+      await approvalSource.sleep(120);
   }
 
   console.log(
@@ -218,10 +221,13 @@ async function main(): Promise<void> {
   );
 
   await database.close();
+  await approvalSource.close();
 }
 
-main().catch((err: unknown) => {
+main().catch(async (err: unknown) => {
   console.error(err);
+  await database.close().catch(() => {});
+  await approvalSource.close().catch(() => {});
   process.exit(1);
 });
 

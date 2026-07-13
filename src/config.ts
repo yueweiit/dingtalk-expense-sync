@@ -22,6 +22,14 @@ interface DatabaseConfig {
   password: string | undefined;
 }
 
+interface OaDatabaseConfig {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string | undefined;
+}
+
 interface DingtalkConfig {
   appkey: string | undefined;
   appsecret: string | undefined;
@@ -55,6 +63,7 @@ interface ServerConfig {
 
 export interface Config {
   database: Readonly<DatabaseConfig>;
+  oaDatabase: Readonly<OaDatabaseConfig>;
   dingtalk: Readonly<DingtalkConfig>;
   scheduler: Readonly<SchedulerConfig>;
   server: Readonly<ServerConfig>;
@@ -62,6 +71,7 @@ export interface Config {
 
 interface FileConfigShape {
   database?: Partial<DatabaseConfig>;
+  oaDatabase?: Partial<OaDatabaseConfig>;
   dingtalk?: Partial<DingtalkConfig> & {
     processCodes?: string[];
     processTypeMap?: ProcessTypeMap;
@@ -89,7 +99,7 @@ try {
 }
 
 // Validate required secrets are present
-const requiredEnvVars = ['DB_PASSWORD', 'DINGTALK_APPKEY', 'DINGTALK_APPSECRET'] as const;
+const requiredEnvVars = ['DB_PASSWORD'] as const;
 const missing = requiredEnvVars.filter(envVar => {
   const value = process.env[envVar];
   return !value || value.trim() === '';
@@ -99,9 +109,7 @@ if (missing.length > 0) {
   // Check if ALL missing values exist in config.json as fallback
   // Using AND logic: all missing vars must have config.json fallbacks
   const hasJsonFallback = 
-    (!missing.includes('DB_PASSWORD') || fileConfig.database?.password) &&
-    (!missing.includes('DINGTALK_APPKEY') || fileConfig.dingtalk?.appkey) &&
-    (!missing.includes('DINGTALK_APPSECRET') || fileConfig.dingtalk?.appsecret);
+    (!missing.includes('DB_PASSWORD') || fileConfig.database?.password);
   
   if (!hasJsonFallback) {
     throw new Error(
@@ -210,6 +218,13 @@ const config: Config = Object.freeze({
     database: process.env.DB_NAME || fileConfig.database?.database || 'dingtalk_approval',
     user: process.env.DB_USER || fileConfig.database?.user || 'postgres',
     password: process.env.DB_PASSWORD || fileConfig.database?.password,
+  }),
+  oaDatabase: Object.freeze({
+    host: process.env.OA_DB_HOST || fileConfig.oaDatabase?.host || process.env.DB_HOST || fileConfig.database?.host || 'localhost',
+    port: Number(process.env.OA_DB_PORT) || fileConfig.oaDatabase?.port || Number(process.env.DB_PORT) || fileConfig.database?.port || 5432,
+    database: process.env.OA_DB_NAME || fileConfig.oaDatabase?.database || 'dingtalk_oa',
+    user: process.env.OA_DB_USER || fileConfig.oaDatabase?.user || process.env.DB_USER || fileConfig.database?.user || 'postgres',
+    password: process.env.OA_DB_PASSWORD || fileConfig.oaDatabase?.password || process.env.DB_PASSWORD || fileConfig.database?.password,
   }),
   dingtalk: Object.freeze({
     appkey: process.env.DINGTALK_APPKEY || fileConfig.dingtalk?.appkey,
