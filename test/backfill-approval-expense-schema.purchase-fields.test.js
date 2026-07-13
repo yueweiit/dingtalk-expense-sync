@@ -46,7 +46,13 @@ test('backfill-approval-expense-schema writes ecommerce purchase form_name and r
       { name: '订单Pedido', value: 'PO-001' },
       { name: '项目Proyecto', value: 'TikTok Shop' },
       { name: '产品Producto', value: '直播设备' },
-      { name: '关键凭证Comprobante', value: 'voucher.pdf' },
+      {
+        name: '关键凭证Comprobante',
+        value: JSON.stringify([
+          { spaceId: 'space-1', fileId: 'file-1', fileName: '采购合同.pdf', fileType: 'pdf' },
+          { spaceId: 'space-1', fileId: 'file-2', fileName: '报价单.xlsx', fileType: 'xlsx' },
+        ]),
+      },
     ],
   };
 
@@ -98,6 +104,41 @@ test('backfill-approval-expense-schema writes ecommerce purchase form_name and r
     assert.equal(result.rows[0]?.monthly_budget_remaining_amount, '749.50');
     assert.equal(result.rows[0]?.purchase_expense, '服务类采购');
     assert.equal(result.rows[0]?.order_name, 'PO-001');
+
+    const attachments = await pool.query(
+      `select attachment_type, file_name, file_url, raw_data
+       from approval_expense_attachments
+       where parent_type = 'purchase'
+         and parent_id = (select id from approval_expense_purchase where business_id = $1)
+       order by row_no`,
+      [businessId]
+    );
+
+    assert.deepEqual(
+      attachments.rows.map((attachment) => ({
+        attachmentType: attachment.attachment_type,
+        fileName: attachment.file_name,
+        fileUrl: attachment.file_url,
+        fileId: attachment.raw_data?.fileId,
+        spaceId: attachment.raw_data?.spaceId,
+      })),
+      [
+        {
+          attachmentType: 'pdf',
+          fileName: '采购合同.pdf',
+          fileUrl: null,
+          fileId: 'file-1',
+          spaceId: 'space-1',
+        },
+        {
+          attachmentType: 'xlsx',
+          fileName: '报价单.xlsx',
+          fileUrl: null,
+          fileId: 'file-2',
+          spaceId: 'space-1',
+        },
+      ]
+    );
   } finally {
     await pool.query('delete from approval_expense_purchase_payments where purchase_id in (select id from approval_expense_purchase where business_id = $1)', [businessId]);
     await pool.query('delete from approval_expense_purchase_processors where purchase_id in (select id from approval_expense_purchase where business_id = $1)', [businessId]);

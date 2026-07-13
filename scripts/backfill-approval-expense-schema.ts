@@ -216,8 +216,16 @@ function extractAttachments(components: unknown[]): Array<Record<string, unknown
   for (const item of components) {
     const name = (item as Record<string, unknown>)?.name || '';
     if (!nameMatches(name, ['关键凭证', 'Comprobante', '附件', 'Adjunto'])) continue;
-    const value = componentValue(item);
+    let value = componentValue(item);
     if (!value) continue;
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        const parsed = parseJsonMaybe(trimmed);
+        if (parsed != null) value = parsed;
+      }
+    }
 
     if (typeof value === 'string') {
       const trimmed = value.trim();
@@ -228,14 +236,18 @@ function extractAttachments(components: unknown[]): Array<Record<string, unknown
       for (const v of value) {
         if (typeof v === 'string' && v.trim()) {
           attachments.push({ attachmentType: '关键凭证', fileName: v.trim().split('/').pop() || v.trim(), fileUrl: v.trim(), rawData: v });
-        } else if (v && typeof v === 'object') {
-          const url = (v as Record<string, unknown>).url || (v as Record<string, unknown>).fileUrl || (v as Record<string, unknown>).downloadUrl || '';
-          if (url) attachments.push({ attachmentType: (v as Record<string, unknown>).type || '关键凭证', fileName: (v as Record<string, unknown>).fileName || (v as Record<string, unknown>).name || String(url).split('/').pop() || '', fileUrl: url, rawData: v });
-        }
+      } else if (v && typeof v === 'object') {
+        const file = v as Record<string, unknown>;
+        const url = file.url || file.fileUrl || file.downloadUrl || '';
+        const fileName = file.fileName || file.name || (url ? String(url).split('/').pop() : '') || '';
+        if (url || fileName || file.fileId) attachments.push({ attachmentType: file.type || file.fileType || '关键凭证', fileName, fileUrl: url, rawData: v });
       }
+    }
     } else if (typeof value === 'object') {
-      const url = (value as Record<string, unknown>).url || (value as Record<string, unknown>).fileUrl || (value as Record<string, unknown>).downloadUrl || '';
-      if (url) attachments.push({ attachmentType: (value as Record<string, unknown>).type || '关键凭证', fileName: (value as Record<string, unknown>).fileName || (value as Record<string, unknown>).name || String(url).split('/').pop() || '', fileUrl: url, rawData: value });
+      const file = value as Record<string, unknown>;
+      const url = file.url || file.fileUrl || file.downloadUrl || '';
+      const fileName = file.fileName || file.name || (url ? String(url).split('/').pop() : '') || '';
+      if (url || fileName || file.fileId) attachments.push({ attachmentType: file.type || file.fileType || '关键凭证', fileName, fileUrl: url, rawData: value });
     }
   }
   return attachments;

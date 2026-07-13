@@ -354,8 +354,17 @@ class ApprovalProcessor {
       if (!name.includes('关键凭证') && !name.includes('Comprobante') && !name.includes('附件') && !name.includes('Adjunto')) {
         continue;
       }
-      const value = item.value;
+      let value = item.value;
       if (!value) continue;
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+          try {
+            value = JSON.parse(trimmed);
+          } catch {}
+        }
+      }
 
       if (typeof value === 'string') {
         const trimmed = value.trim();
@@ -378,10 +387,12 @@ class ApprovalProcessor {
             });
           } else if (v && typeof v === 'object') {
             const url = (v as Record<string, unknown>).url || (v as Record<string, unknown>).fileUrl || (v as Record<string, unknown>).downloadUrl || '';
-            if (url) {
+            const file = v as Record<string, unknown>;
+            const fileName = file.fileName || file.name || (url ? String(url).split('/').pop() : '') || '';
+            if (url || fileName || file.fileId) {
               attachments.push({
-                attachmentType: String((v as Record<string, unknown>).type || '关键凭证'),
-                fileName: String((v as Record<string, unknown>).fileName || (v as Record<string, unknown>).name || String(url).split('/').pop() || ''),
+                attachmentType: String(file.type || file.fileType || '关键凭证'),
+                fileName: String(fileName),
                 fileUrl: String(url),
                 rawData: v
               });
@@ -390,10 +401,12 @@ class ApprovalProcessor {
         }
       } else if (typeof value === 'object') {
         const url = (value as Record<string, unknown>).url || (value as Record<string, unknown>).fileUrl || (value as Record<string, unknown>).downloadUrl || '';
-        if (url) {
+        const file = value as Record<string, unknown>;
+        const fileName = file.fileName || file.name || (url ? String(url).split('/').pop() : '') || '';
+        if (url || fileName || file.fileId) {
           attachments.push({
-            attachmentType: String((value as Record<string, unknown>).type || '关键凭证'),
-            fileName: String((value as Record<string, unknown>).fileName || (value as Record<string, unknown>).name || String(url).split('/').pop() || ''),
+            attachmentType: String(file.type || file.fileType || '关键凭证'),
+            fileName: String(fileName),
             fileUrl: String(url),
             rawData: value
           });
