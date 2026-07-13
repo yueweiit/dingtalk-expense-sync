@@ -1,0 +1,127 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const test = require('node:test');
+
+function loadModule(moduleName) {
+  const srcPath = path.join('..', 'src', moduleName);
+  const distPath = path.join('..', 'dist', 'src', moduleName);
+  try {
+    return require(srcPath);
+  } catch (error) {
+    if (error && error.code !== 'MODULE_NOT_FOUND') throw error;
+    return require(distPath);
+  }
+}
+
+const processorModule = loadModule('processor');
+const databaseModule = loadModule('database');
+const processor = processorModule.default || processorModule;
+const database = databaseModule.default || databaseModule;
+const pool = databaseModule.pool || databaseModule.default?.pool;
+
+function operationInstance(businessId, status, tasks = []) {
+  return {
+    businessId,
+    processInstanceId: `pid-${businessId}`,
+    processCode: 'PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD',
+    processType: '运营支出',
+    status,
+    createTime: '2026-07-12T10:00:00+08:00',
+    tasks,
+    formComponentValues: [
+      { componentType: 'DepartmentField', value: '测试部门' },
+      { name: '申请日期', value: '2026-07-12' },
+      { name: '生产/非生产', value: '非生产' },
+      { name: '管理支出', value: '工资中国' },
+      { name: '金额importe', value: '100' },
+      { name: '币种Moneda', value: '人民币RMB' },
+      {
+        componentType: 'TableField',
+        id: 'TableField_13B0RI3JBQXS0',
+        details: [[
+          { id: 'DepartmentField_ROW1', value: '测试部门' },
+          { id: 'MoneyField_T2TFVV7BXN40', value: '100' },
+          { id: 'TextField_SZ57CIDK9J40', value: '工资拆分' },
+        ]],
+      },
+    ],
+  };
+}
+
+async function splitCount(businessId) {
+  const result = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM approval_expense_dept_split WHERE business_id = $1',
+    [businessId]
+  );
+  return result.rows[0].count;
+}
+
+async function clean(businessId) {
+  await pool.query('DELETE FROM approval_expense_dept_split WHERE business_id = $1', [businessId]);
+  await pool.query('DELETE FROM approval_expense_operation WHERE business_id = $1', [businessId]);
+}
+
+test('审批中运营单据保留部门拆分', async () => {
+  const businessId = `test-split-running-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    assert.equal(await splitCount(businessId), 1);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test('运营单据变为已撤回后清理历史部门拆分', async () => {
+  const businessId = `test-split-terminated-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    assert.equal(await splitCount(businessId), 1);
+
+    await processor.processInstance(operationInstance(businessId, 'TERMINATED'));
+    assert.equal(await splitCount(businessId), 0);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test('运营单据变为已驳回后清理历史部门拆分', async () => {
+  const businessId = `test-split-refused-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    assert.equal(await splitCount(businessId), 1);
+
+    await processor.processInstance(
+      operationInstance(businessId, 'COMPLETED', [{ userId: 'approver-1', result: 'REFUSE' }])
+    );
+    assert.equal(await splitCount(businessId), 0);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test('部门拆分回填会清理已撤回单据的历史拆分', async () => {
+  const businessId = `test-split-backfill-terminated-${Date.now()}`;
+  const expenseModule = loadModule(path.join('database', 'expense'));
+  const backfillDeptSplits = expenseModule.backfillDeptSplits || expenseModule.default?.backfillDeptSplits;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    assert.equal(await splitCount(businessId), 1);
+
+    await pool.query(
+      "UPDATE approval_expense_operation SET approval_status = 'TERMINATED' WHERE business_id = $1",
+      [businessId]
+    );
+    await backfillDeptSplits();
+    assert.equal(await splitCount(businessId), 0);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test.after(async () => {
+  await pool.end();
+});

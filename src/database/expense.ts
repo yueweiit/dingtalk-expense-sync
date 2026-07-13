@@ -407,6 +407,58 @@ export async function replaceAttachments(parentType: string, parentId: number, a
 
 // ==================== Department Split (CQRS read model) ====================
 
+interface DeptSplitStatusSource {
+  approvalStatus?: unknown;
+  rawData?: unknown;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizedStatus(value: unknown): string {
+  return String(value || '').trim().toUpperCase();
+}
+
+function shouldKeepDeptSplits(source: DeptSplitStatusSource): boolean {
+  const rawData = asRecord(source.rawData);
+  const approvalStatus = normalizedStatus(source.approvalStatus || rawData.status);
+  const bizAction = normalizedStatus(rawData.bizAction || rawData.biz_action);
+  const flowResult = normalizedStatus(rawData.flowResult || rawData.flow_result || rawData.result);
+  const terminalStatuses = new Set(['TERMINATED', 'CANCELED', 'CANCELLED']);
+  const terminalActions = new Set(['REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED']);
+
+  if (terminalStatuses.has(approvalStatus) || terminalActions.has(bizAction)) {
+    return false;
+  }
+  if (flowResult === 'REFUSE' || flowResult === 'REJECT') {
+    return false;
+  }
+
+  const tasks = Array.isArray(rawData.tasks) ? rawData.tasks : [];
+  return !tasks.some((task) => {
+    const result = normalizedStatus(asRecord(task).result);
+    return result === 'REFUSE' || result === 'REJECT';
+  });
+}
+
+function aggregateDeptSplits(splits: DeptSplitRow[]): DeptSplitRow[] {
+  const grouped = new Map<string, DeptSplitRow>();
+  for (const split of splits) {
+    const key = `${split.splitType}\u0000${split.department}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.amount += Number(split.amount) || 0;
+      if (!existing.note && split.note) existing.note = split.note;
+    } else {
+      grouped.set(key, { ...split, amount: Number(split.amount) || 0 });
+    }
+  }
+  return [...grouped.values()];
+}
+
 /**
  * 唯一写入函数（single writer）。
  * 所有写入路径（processor / rebuild / backfill）都通过这一个函数。
@@ -418,11 +470,12 @@ export async function replaceDeptSplitsForBusiness(
   tx?: Parameters<Parameters<typeof db.transaction>[0]>[0]
 ): Promise<void> {
   const executor = tx || db;
+  const normalizedSplits = aggregateDeptSplits(splits);
   await executor.delete(approvalExpenseDeptSplit)
     .where(eq(approvalExpenseDeptSplit.businessId, businessId));
-  if (splits.length > 0) {
+  if (normalizedSplits.length > 0) {
     await executor.insert(approvalExpenseDeptSplit).values(
-      splits.map(s => ({
+      normalizedSplits.map(s => ({
         businessId,
         splitType: s.splitType,
         department: s.department,
@@ -588,7 +641,8 @@ export async function upsertOperationExpenseWithSplits(
     if (!opId) return undefined;
 
     // 2. 同事务写入 split
-    await replaceDeptSplitsForBusiness(data.businessId, splits, tx);
+    const effectiveSplits = shouldKeepDeptSplits(data) ? splits : [];
+    await replaceDeptSplitsForBusiness(data.businessId, effectiveSplits, tx);
     return opId;
   });
 }
@@ -599,6 +653,8 @@ export async function upsertOperationExpenseWithSplits(
  */
 export async function rebuildDeptSplits(businessId: string): Promise<number> {
   const rows = await db.select({
+    approvalStatus: approvalExpenseOperation.approvalStatus,
+    rawData: approvalExpenseOperation.rawData,
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
@@ -607,7 +663,7 @@ export async function rebuildDeptSplits(businessId: string): Promise<number> {
     .limit(1);
   if (!rows.length) return 0;
 
-  const splits = parseSplitsFromJsonb(rows[0]);
+  const splits = shouldKeepDeptSplits(rows[0]) ? parseSplitsFromJsonb(rows[0]) : [];
   await replaceDeptSplitsForBusiness(businessId, splits);
   return splits.length;
 }
@@ -616,19 +672,25 @@ export async function rebuildDeptSplits(businessId: string): Promise<number> {
 export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: number }> {
   const ops = await db.select({
     businessId: approvalExpenseOperation.businessId,
+    approvalStatus: approvalExpenseOperation.approvalStatus,
+    rawData: approvalExpenseOperation.rawData,
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
   }).from(approvalExpenseOperation)
-    .where(sql`${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
+    .where(sql`(${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
             OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
-            OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL`);
+            OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL)
+            OR EXISTS (
+              SELECT 1 FROM ${approvalExpenseDeptSplit} ds
+              WHERE ds.business_id = ${approvalExpenseOperation.businessId}
+            )`);
 
   let rebuilt = 0;
   await db.transaction(async (tx) => {
     for (const op of ops) {
       if (!op.businessId) continue;
-      const splits = parseSplitsFromJsonb(op);
+      const splits = shouldKeepDeptSplits(op) ? parseSplitsFromJsonb(op) : [];
       await replaceDeptSplitsForBusiness(op.businessId, splits, tx);
       if (splits.length > 0) rebuilt++;
     }
@@ -640,23 +702,43 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
 export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: number }> {
   const ops = await db.select({
     businessId: approvalExpenseOperation.businessId,
+    approvalStatus: approvalExpenseOperation.approvalStatus,
+    rawData: approvalExpenseOperation.rawData,
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
   }).from(approvalExpenseOperation)
-    .where(sql`(${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
+    .where(sql`(
+              (${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL)
-            AND NOT EXISTS (
-              SELECT 1 FROM ${approvalExpenseDeptSplit} ds
-              WHERE ds.business_id = ${approvalExpenseOperation.businessId}
+              AND NOT EXISTS (
+                SELECT 1 FROM ${approvalExpenseDeptSplit} ds
+                WHERE ds.business_id = ${approvalExpenseOperation.businessId}
+              )
+            )
+            OR (
+              EXISTS (
+                SELECT 1 FROM ${approvalExpenseDeptSplit} ds
+                WHERE ds.business_id = ${approvalExpenseOperation.businessId}
+              )
+              AND (
+                UPPER(COALESCE(${approvalExpenseOperation.approvalStatus}, ${approvalExpenseOperation.rawData}->>'status', '')) IN ('TERMINATED', 'CANCELED', 'CANCELLED')
+                OR UPPER(COALESCE(${approvalExpenseOperation.rawData}->>'bizAction', ${approvalExpenseOperation.rawData}->>'biz_action', '')) IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')
+                OR UPPER(COALESCE(${approvalExpenseOperation.rawData}->>'flowResult', ${approvalExpenseOperation.rawData}->>'flow_result', ${approvalExpenseOperation.rawData}->>'result', '')) IN ('REFUSE', 'REJECT')
+                OR EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements(COALESCE(${approvalExpenseOperation.rawData}->'tasks', '[]'::jsonb)) AS t
+                  WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
+                )
+              )
             )`);
 
   let rebuilt = 0;
   await db.transaction(async (tx) => {
     for (const op of ops) {
       if (!op.businessId) continue;
-      const splits = parseSplitsFromJsonb(op);
+      const splits = shouldKeepDeptSplits(op) ? parseSplitsFromJsonb(op) : [];
       await replaceDeptSplitsForBusiness(op.businessId, splits, tx);
       if (splits.length > 0) rebuilt++;
     }

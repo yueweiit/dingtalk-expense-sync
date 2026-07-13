@@ -633,12 +633,7 @@ class ApprovalProcessor {
           rawData: instance as unknown as Record<string, unknown>
         };
 
-        let opId: number | undefined;
-        if (deptSplits.length > 0) {
-          opId = await database.upsertOperationExpenseWithSplits(fullOpData, deptSplits);
-        } else {
-          opId = await database.upsertOperationExpense(fullOpData);
-        }
+        const opId = await database.upsertOperationExpenseWithSplits(fullOpData, deptSplits);
         if (opId) {
           await database.replaceAttachments('operation', opId, attachments);
         }
