@@ -16,6 +16,7 @@ import database, { pool } from '../src/database.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
 import { resolveOperationFormName, resolvePurchaseFormName } from '../src/form-source.ts';
+import { collectOperationDeptSplits } from '../src/operation-dept-splits.ts';
 import {
   getProcessKind as resolveProcessKind,
   getProcessTypeLabel as resolveProcessTypeLabel,
@@ -150,7 +151,8 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       currencyLabel: currency,
       createTime: String(instance.createTime || '')
     });
-    const id = await database.upsertOperationExpense({
+    const deptSplits = collectOperationDeptSplits(opData);
+    const id = await database.upsertOperationExpenseWithSplits({
       ...opData,
       processInstanceId: String(instance.processInstanceId || ''),
       businessId: String(instance.businessId),
@@ -160,7 +162,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       baseCurrencyAmount: baseCurrencyAmount as number,
       ...meta,
       rawData: instance as unknown as Record<string, unknown>
-    });
+    }, deptSplits);
     if (id) {
       await database.replaceAttachments('operation', id, attachments);
     }

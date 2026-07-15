@@ -2,6 +2,8 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
 
+process.env.DB_PASSWORD ??= 'test-password';
+
 function loadModule(moduleName) {
   const srcPath = path.join('..', 'src', moduleName);
   const distPath = path.join('..', 'dist', 'src', moduleName);
@@ -15,9 +17,36 @@ function loadModule(moduleName) {
 
 const processorModule = loadModule('processor');
 const databaseModule = loadModule('database');
+const operationDeptSplitsModule = loadModule('operation-dept-splits');
 const processor = processorModule.default || processorModule;
 const database = databaseModule.default || databaseModule;
 const pool = databaseModule.pool || databaseModule.default?.pool;
+const collectOperationDeptSplits =
+  operationDeptSplitsModule.collectOperationDeptSplits || operationDeptSplitsModule.default?.collectOperationDeptSplits;
+
+test('collectOperationDeptSplits converts configured split arrays and ignores empty ecommerce splits', () => {
+  assert.deepEqual(
+    collectOperationDeptSplits({
+      salaryByDepartment: [{ department: '设计部', amount: 100, note: '工资' }],
+      socialInsuranceByDepartment: [{ department: '人事部', amount: 200 }],
+      officeSpaceByDepartment: [{ department: '行政部', amount: 300 }],
+    }),
+    [
+      { splitType: 'salary', department: '设计部', amount: 100, note: '工资' },
+      { splitType: 'social_insurance', department: '人事部', amount: 200, note: undefined },
+      { splitType: 'office_space', department: '行政部', amount: 300, note: undefined },
+    ]
+  );
+
+  assert.deepEqual(
+    collectOperationDeptSplits({
+      salaryByDepartment: null,
+      socialInsuranceByDepartment: null,
+      officeSpaceByDepartment: null,
+    }),
+    []
+  );
+});
 
 function operationInstance(businessId, status, tasks = []) {
   return {

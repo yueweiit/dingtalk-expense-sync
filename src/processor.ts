@@ -2,6 +2,7 @@ import database from './database.ts';
 import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
 import { resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
+import { collectOperationDeptSplits } from './operation-dept-splits.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 
 export interface FormComponentValue {
@@ -438,15 +439,6 @@ class ApprovalProcessor {
       }
     }
 
-    const platform = this.extractFormValueExact(fc, '平台')
-      || this.extractFormValueExact(fc, '平台plataforma de comercio electrónico')
-      || null;
-    const platformName = this.extractFormValueExact(fc, '平台名称')
-      || this.extractFormValueExact(fc, '平台名称Nombre de la plataforma')
-      || null;
-    const storeName = this.extractFormValueExact(fc, '店铺名称')
-      || this.extractFormValueExact(fc, '店铺名称Nombre de la tienda')
-      || null;
     const monthlyBudgetRemainingAmount = this.normalizeNumber(
       this.extractFormValueExact(fc, '本月预算剩余金额')
       || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
@@ -482,9 +474,9 @@ class ApprovalProcessor {
       currency: this.extractFormValueLastNonEmpty(fc, '币种Moneda') || this.extractFormValue(fc, '币种'),
       paymentDate: this.extractFormValue(fc, '付款日期Fecha de pago') || this.extractFormValue(fc, '付款日期'),
       keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证'),
-      platform,
-      platformName,
-      storeName,
+      platform: null,
+      platformName: null,
+      storeName: null,
       monthlyBudgetRemainingAmount,
       paymentDetailReason,
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
@@ -618,21 +610,7 @@ class ApprovalProcessor {
           createTime: String(data.createTime || '')
         });
 
-        // 构造 split rows
-        const SPLIT_TYPE_MAP: Record<string, import('./database/types.ts').DeptSplitRow['splitType']> = {
-          salaryByDepartment: 'salary',
-          socialInsuranceByDepartment: 'social_insurance',
-          officeSpaceByDepartment: 'office_space',
-        };
-        const deptSplits: import('./database/types.ts').DeptSplitRow[] = [];
-        for (const [key, splitType] of Object.entries(SPLIT_TYPE_MAP)) {
-          const arr = opData[key];
-          if (Array.isArray(arr) && arr.length > 0) {
-            for (const row of arr) {
-              deptSplits.push({ splitType, department: row.department, amount: row.amount, note: row.note });
-            }
-          }
-        }
+        const deptSplits = collectOperationDeptSplits(opData);
 
         const fullOpData = {
           ...opData,

@@ -106,7 +106,7 @@ test('parseOperationExpenseData keeps existing operation parsing and split table
   ]);
 });
 
-test('parseOperationExpenseData extracts new optional operation fields without colliding names', () => {
+test('parseOperationExpenseData ignores retired platform fields and keeps ecommerce sales fields', () => {
   const processor = getProcessor();
   const result = processor.parseOperationExpenseData([
     { name: '\u5e73\u53f0\u540d\u79f0', value: 'Amazon MX' },
@@ -114,15 +114,22 @@ test('parseOperationExpenseData extracts new optional operation fields without c
     { name: '\u5e97\u94fa\u540d\u79f0', value: 'North Store' },
     { name: '\u672c\u6708\u9884\u7b97\u5269\u4f59\u91d1\u989d', value: '9988.66' },
     { name: '\u4ed8\u6b3e\u8be6\u7ec6\u4e8b\u7531', value: '\u7ad9\u5185\u5e7f\u544a\u9884\u5145' },
+    { name: '\u9500\u552e\u8d39\u7528', value: '\u5e7f\u544a\u6295\u653e' },
+    { name: '\u9500\u552e\u6e20\u9053\u7ba1\u7406\u4e0e\u4f63\u91d1\u8d39\u7528', value: '\u5e73\u53f0\u4f63\u91d1' },
     { name: '\u91d1\u989dimporte', value: '12.30' },
     { name: '\u5e01\u79cdMoneda', value: 'USD' }
   ]);
 
-  assert.equal(result.platform, 'Amazon');
-  assert.equal(result.platformName, 'Amazon MX');
-  assert.equal(result.storeName, 'North Store');
+  assert.equal(result.platform, null);
+  assert.equal(result.platformName, null);
+  assert.equal(result.storeName, null);
   assert.equal(result.monthlyBudgetRemainingAmount, 9988.66);
   assert.equal(result.paymentDetailReason, '\u7ad9\u5185\u5e7f\u544a\u9884\u5145');
+  assert.equal(result.salesExpense, '\u5e7f\u544a\u6295\u653e');
+  assert.equal(result.salesChannelCommissionExpense, '\u5e73\u53f0\u4f63\u91d1');
+  assert.equal(result.salaryByDepartment, null);
+  assert.equal(result.socialInsuranceByDepartment, null);
+  assert.equal(result.officeSpaceByDepartment, null);
   assert.equal(result.amount, 12.3);
   assert.equal(result.currency, 'USD');
 });
@@ -143,7 +150,7 @@ test('parseOperationExpenseData leaves new fields empty when old forms do not pr
   assert.equal(result.paymentDetailReason, null);
 });
 
-test('parseOperationExpenseData reads bilingual platform fields from new ecommerce operation form', () => {
+test('parseOperationExpenseData keeps retired bilingual platform fields empty', () => {
   const processor = getProcessor();
   const result = processor.parseOperationExpenseData([
     { name: '\u672c\u6708\u9884\u7b97\u5269\u4f59\u91d1\u989dSaldo restante del presupuesto mensual', value: '0.00' },
@@ -154,9 +161,9 @@ test('parseOperationExpenseData reads bilingual platform fields from new ecommer
     { name: '\u5e01\u79cdMoneda', value: '\u4eba\u6c11\u5e01RMB' }
   ]);
 
-  assert.equal(result.platform, '\u6296\u97f3Douyin');
+  assert.equal(result.platform, null);
   assert.equal(result.platformName, null);
-  assert.equal(result.storeName, '\u6d4b\u8bd5');
+  assert.equal(result.storeName, null);
   assert.equal(result.monthlyBudgetRemainingAmount, 0);
 });
 

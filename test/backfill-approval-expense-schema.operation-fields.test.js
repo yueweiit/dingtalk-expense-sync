@@ -54,6 +54,18 @@ test('backfill-approval-expense-schema writes new ecommerce operation fields', a
   };
 
   try {
+    await database.upsertOperationExpenseWithSplits(
+      {
+        businessId,
+        processInstanceId,
+        formName: '电商运营支出',
+        applicantDepartment: '测试部门',
+        amount: 100,
+        currency: '人民币CNY',
+      },
+      [{ splitType: 'salary', department: '测试部门', amount: 100, note: '旧拆分' }]
+    );
+
     await pool.query(
       `insert into approval_instances
         (business_id, title, process_code, process_type, status, originator_dept_name, create_time, update_time, process_instance_id, raw_data)
@@ -100,11 +112,17 @@ test('backfill-approval-expense-schema writes new ecommerce operation fields', a
     );
 
     assert.equal(result.rows[0]?.form_name, '电商运营支出');
-    assert.equal(result.rows[0]?.platform, '抖音Douyin');
-    assert.equal(result.rows[0]?.platform_name, '抖音旗舰店');
-    assert.equal(result.rows[0]?.store_name, '测试店铺');
+    assert.equal(result.rows[0]?.platform, null);
+    assert.equal(result.rows[0]?.platform_name, null);
+    assert.equal(result.rows[0]?.store_name, null);
     assert.equal(result.rows[0]?.monthly_budget_remaining_amount, '88.80');
     assert.equal(result.rows[0]?.payment_detail_reason, '直播投流预充值');
+
+    const splitResult = await pool.query(
+      'select count(*)::int as count from approval_expense_dept_split where business_id = $1',
+      [businessId]
+    );
+    assert.equal(splitResult.rows[0]?.count, 0);
   } finally {
     await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
     await pool.query('delete from approval_expense_operation where business_id = $1', [businessId]);

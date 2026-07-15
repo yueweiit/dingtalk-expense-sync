@@ -16,6 +16,7 @@ import dingtalk from '../src/dingtalk.ts';
 import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
 import { resolveOperationFormName, resolvePurchaseFormName } from '../src/form-source.ts';
+import { collectOperationDeptSplits } from '../src/operation-dept-splits.ts';
 import processor from '../src/processor.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 import { normalizeNumber } from '../src/utils.ts';
@@ -530,32 +531,8 @@ async function main(): Promise<void> {
           if ((parsed.payments as unknown[]).length > 0) await database.replacePurchasePayments(expenseId, parsed.payments as any);
         }
       } else {
-        const splitTypeMap: Record<string, 'salary' | 'social_insurance' | 'office_space'> = {
-          salaryByDepartment: 'salary',
-          socialInsuranceByDepartment: 'social_insurance',
-          officeSpaceByDepartment: 'office_space',
-        };
-        const deptSplits: Array<{ splitType: 'salary' | 'social_insurance' | 'office_space'; department: string; amount: number; note?: string }> = [];
-
-        for (const [key, splitType] of Object.entries(splitTypeMap)) {
-          const rows = parsed[key] as Array<{ department?: string; amount?: number; note?: string }> | undefined;
-          if (!Array.isArray(rows)) continue;
-          for (const row of rows) {
-            if (!row?.department || row.amount == null) continue;
-            deptSplits.push({
-              splitType,
-              department: String(row.department),
-              amount: Number(row.amount),
-              note: row.note ? String(row.note) : undefined,
-            });
-          }
-        }
-
-        if (deptSplits.length > 0) {
-          expenseId = await database.upsertOperationExpenseWithSplits({ ...parsed, baseCurrencyAmount } as any, deptSplits as any);
-        } else {
-          expenseId = await database.upsertOperationExpense({ ...parsed, baseCurrencyAmount } as any);
-        }
+        const deptSplits = collectOperationDeptSplits(parsed);
+        expenseId = await database.upsertOperationExpenseWithSplits({ ...parsed, baseCurrencyAmount } as any, deptSplits);
       }
 
       if (expenseId && (parsed.attachments as unknown[]).length > 0) {
