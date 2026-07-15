@@ -10,6 +10,7 @@ interface QueryResultRow {
   result?: string | null;
   originator_user_id?: string | null;
   originator_user_name?: string | null;
+  snapshot_user_name?: string | null;
   originator_dept_id?: string | null;
   originator_dept_name?: string | null;
   create_time?: Date | string | null;
@@ -71,6 +72,19 @@ function toText(value: unknown): string | null {
   }
   const text = String(value).trim();
   return text || null;
+}
+
+export function resolveOriginatorUserName(
+  sourceName: unknown,
+  userId: unknown,
+  snapshotName: unknown
+): string | undefined {
+  const source = toText(sourceName);
+  const user = toText(userId);
+  const snapshot = toText(snapshotName);
+  const sourceLooksLikeUserId = !source || source === user || /^\d+$/.test(source);
+
+  return (sourceLooksLikeUserId ? snapshot || source : source || snapshot) || user || undefined;
 }
 
 function toApiString(value: unknown): string | undefined {
@@ -142,11 +156,19 @@ function adaptInstanceRow(row: QueryResultRow): Record<string, unknown> {
     toText(rawPayload.business_id) ||
     processInstanceId ||
     '';
-  const originatorUserName =
+  const originatorUserId =
+    toText(rawPayload.originatorUserId) ||
+    toText(row.originator_user_id) ||
+    undefined;
+  const sourceOriginatorUserName =
     toText(rawPayload.originatorUserName) ||
     toText(rawPayload.originator_user_name) ||
-    toText(row.originator_user_name) ||
-    undefined;
+    toText(row.originator_user_name);
+  const originatorUserName = resolveOriginatorUserName(
+    sourceOriginatorUserName,
+    originatorUserId,
+    row.snapshot_user_name
+  );
   const approvalNo =
     toText(rawPayload.approvalNo) ||
     toText(rawPayload.approval_no) ||
@@ -173,10 +195,7 @@ function adaptInstanceRow(row: QueryResultRow): Record<string, unknown> {
       toIsoString(row.finish_time) ||
       undefined,
     finishTime: toIsoString(rawPayload.finishTime) || toIsoString(row.finish_time) || undefined,
-    originatorUserId:
-      toText(rawPayload.originatorUserId) ||
-      toText(row.originator_user_id) ||
-      undefined,
+    originatorUserId,
     originatorDeptId:
       toText(rawPayload.originatorDeptId) ||
       toText(row.originator_dept_id) ||
@@ -262,16 +281,32 @@ export function createOaApprovalSource(client: Queryable = oaPool) {
             finish_time,
             updated_at,
             form_component_values,
-            raw_payload
-          from ding_approval_instance
-          where deleted_at is null
+            raw_payload,
+            snapshot_row.name AS snapshot_user_name
+          from ding_approval_instance AS source
+          left join lateral (
+            select snapshot.name
+            from ding_user_snapshot AS snapshot
+            where snapshot.corp_id = source.corp_id
+              and snapshot.user_id = coalesce(
+                nullif(trim(source.originator_user_id), ''),
+                nullif(trim(source.raw_payload->>'originatorUserId'), ''),
+                nullif(trim(source.raw_payload->>'originator_user_id'), '')
+              )
+              and snapshot.is_current = true
+              and snapshot.fetch_status = 'success'
+              and coalesce(trim(snapshot.name), '') <> ''
+            order by snapshot.valid_from desc, snapshot.id desc
+            limit 1
+          ) AS snapshot_row on true
+          where source.deleted_at is null
             and (
-              process_instance_id = $1
-              or coalesce(raw_payload->>'businessId', '') = $1
+              source.process_instance_id = $1
+              or coalesce(source.raw_payload->>'businessId', '') = $1
             )
           order by
-            case when process_instance_id = $1 then 0 else 1 end,
-            create_time desc
+            case when source.process_instance_id = $1 then 0 else 1 end,
+            source.create_time desc
           limit 1
         `,
         [processInstanceId]
@@ -311,14 +346,30 @@ export function createOaApprovalSource(client: Queryable = oaPool) {
             finish_time,
             updated_at,
             form_component_values,
-            raw_payload
-          from ding_approval_instance
-          where deleted_at is null
+            raw_payload,
+            snapshot_row.name AS snapshot_user_name
+          from ding_approval_instance AS source
+          left join lateral (
+            select snapshot.name
+            from ding_user_snapshot AS snapshot
+            where snapshot.corp_id = source.corp_id
+              and snapshot.user_id = coalesce(
+                nullif(trim(source.originator_user_id), ''),
+                nullif(trim(source.raw_payload->>'originatorUserId'), ''),
+                nullif(trim(source.raw_payload->>'originator_user_id'), '')
+              )
+              and snapshot.is_current = true
+              and snapshot.fetch_status = 'success'
+              and coalesce(trim(snapshot.name), '') <> ''
+            order by snapshot.valid_from desc, snapshot.id desc
+            limit 1
+          ) AS snapshot_row on true
+          where source.deleted_at is null
             and (
-              process_instance_id = any($1::text[])
-              or coalesce(raw_payload->>'businessId', '') = any($1::text[])
+              source.process_instance_id = any($1::text[])
+              or coalesce(source.raw_payload->>'businessId', '') = any($1::text[])
             )
-          order by create_time desc, process_instance_id desc
+          order by source.create_time desc, source.process_instance_id desc
         `,
         [ids]
       );

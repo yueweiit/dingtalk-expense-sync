@@ -136,6 +136,49 @@ test('getProcessInstance adapts raw payload and falls back to structured columns
   });
 });
 
+test('getProcessInstance uses snapshot name when the source name is a user id', async () => {
+  const sourceModule = loadModule('oa-source');
+  const createOaApprovalSource =
+    sourceModule.createOaApprovalSource || sourceModule.default?.createOaApprovalSource;
+
+  const source = createOaApprovalSource(
+    createFakeClient(() => ({
+      rows: [{
+        process_instance_id: 'PROC-INSTANCE-SNAPSHOT',
+        process_code: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
+        status: 'COMPLETED',
+        originator_user_id: '15598386624892751',
+        originator_user_name: '15598386624892751',
+        snapshot_user_name: 'Snapshot User',
+        create_time: new Date('2026-07-15T00:00:00.000Z'),
+        form_component_values: [],
+        raw_payload: {
+          businessId: 'BIZ-SNAPSHOT',
+          originatorUserId: '15598386624892751',
+          originatorUserName: '15598386624892751',
+          formComponentValues: [],
+          tasks: [],
+        },
+      }],
+    }))
+  );
+
+  const instance = await source.getProcessInstance('PROC-INSTANCE-SNAPSHOT');
+
+  assert.equal(instance.originatorUserName, 'Snapshot User');
+});
+
+test('resolveOriginatorUserName preserves a readable source name', () => {
+  const sourceModule = loadModule('oa-source');
+  const resolveOriginatorUserName =
+    sourceModule.resolveOriginatorUserName || sourceModule.default?.resolveOriginatorUserName;
+
+  assert.equal(
+    resolveOriginatorUserName('Source User', 'source-user', 'Different Snapshot User'),
+    'Source User'
+  );
+});
+
 test('getProcessInstance can fall back to businessId lookup when processInstanceId is missing upstream', async () => {
   const sourceModule = loadModule('oa-source');
   const createOaApprovalSource =
