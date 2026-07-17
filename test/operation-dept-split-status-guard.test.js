@@ -1,7 +1,9 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
+const dotenv = require('dotenv');
 
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 process.env.DB_PASSWORD ??= 'test-password';
 
 function loadModule(moduleName) {
@@ -77,6 +79,34 @@ function operationInstance(businessId, status, tasks = []) {
   };
 }
 
+function individualIncomeTaxInstance(businessId) {
+  return {
+    businessId,
+    processInstanceId: `pid-${businessId}`,
+    processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
+    processType: '运营支出',
+    status: 'RUNNING',
+    createTime: '2026-07-16T10:00:00+08:00',
+    formComponentValues: [
+      { componentType: 'DepartmentField', value: '测试部门' },
+      { name: '申请日期', value: '2026-07-16' },
+      { name: '生产/非生产', value: '非生产' },
+      { name: '税费Impuestos', value: '个税' },
+      { name: '金额importe', value: '1234.56' },
+      { name: '币种Moneda', value: '人民币RMB' },
+      {
+        componentType: 'TableField',
+        name: '薪酬税费总支出(分部门)',
+        details: [[
+          { id: 'DepartmentField_TAX_1', value: '测试部门' },
+          { id: 'MoneyField_TAX_1', value: '1234.56' },
+          { id: 'TextField_TAX_1', value: '六月个税' },
+        ]],
+      },
+    ],
+  };
+}
+
 async function splitCount(businessId) {
   const result = await pool.query(
     'SELECT COUNT(*)::int AS count FROM approval_expense_dept_split WHERE business_id = $1',
@@ -96,6 +126,35 @@ test('审批中运营单据保留部门拆分', async () => {
   try {
     await processor.processInstance(operationInstance(businessId, 'RUNNING'));
     assert.equal(await splitCount(businessId), 1);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test('个税分部门明细会写入运营主表和部门拆分表', async () => {
+  const businessId = `test-split-tax-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(individualIncomeTaxInstance(businessId));
+
+    const operation = await pool.query(
+      'SELECT individual_income_tax_by_department FROM approval_expense_operation WHERE business_id = $1',
+      [businessId]
+    );
+    assert.deepEqual(operation.rows[0].individual_income_tax_by_department, [
+      { department: '测试部门', amount: 1234.56, note: '六月个税' },
+    ]);
+
+    const splits = await pool.query(
+      'SELECT split_type, department, amount::text AS amount, note FROM approval_expense_dept_split WHERE business_id = $1',
+      [businessId]
+    );
+    assert.deepEqual(splits.rows, [{
+      split_type: 'individual_income_tax',
+      department: '测试部门',
+      amount: '1234.56',
+      note: '六月个税',
+    }]);
   } finally {
     await clean(businessId);
   }

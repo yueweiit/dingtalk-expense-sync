@@ -193,7 +193,8 @@ class ApprovalProcessor {
     fc: FormComponentValue[] | undefined | null,
     tableFieldId: string,
     moneyFieldId: string = 'MoneyField_T2TFVV7BXN40',
-    textFieldId: string | null = 'TextField_SZ57CIDK9J40'
+    textFieldId: string | null = 'TextField_SZ57CIDK9J40',
+    tableFieldName: string | null = null
   ): Array<{ department: string; amount: number; note: string }> | null {
     if (!fc || !Array.isArray(fc)) {
       return null;
@@ -201,7 +202,10 @@ class ApprovalProcessor {
 
     // 查找TableField
     const tableField = fc.find(
-      (item) => item.componentType === 'TableField' && item.id === tableFieldId
+      (item) => item.componentType === 'TableField' && (
+        item.id === tableFieldId ||
+        (tableFieldName && String(item.name || '').includes(tableFieldName))
+      )
     );
 
     if (!tableField) {
@@ -224,9 +228,9 @@ class ApprovalProcessor {
           const cellId = String(cell.id || '');
           if (cellId.startsWith('DepartmentField_')) {
             department = String(cell.value || '').trim();
-          } else if (cellId === moneyFieldId) {
+          } else if (cellId === moneyFieldId || (!moneyFieldId && cellId.startsWith('MoneyField_'))) {
             amount = this.normalizeNumber(cell.value) || 0;
-          } else if (textFieldId && cellId === textFieldId) {
+          } else if ((textFieldId && cellId === textFieldId) || (!textFieldId && cellId.startsWith('TextField_'))) {
             note = String(cell.value || '').trim();
           }
         }
@@ -253,9 +257,9 @@ class ApprovalProcessor {
               const cellKey = String(cell.key || '');
               if (cellKey.startsWith('DepartmentField_')) {
                 department = String(cell.value || '').trim();
-              } else if (cellKey === moneyFieldId) {
+              } else if (cellKey === moneyFieldId || (!moneyFieldId && cellKey.startsWith('MoneyField_'))) {
                 amount = this.normalizeNumber(cell.value) || 0;
-              } else if (textFieldId && cellKey === textFieldId) {
+              } else if ((textFieldId && cellKey === textFieldId) || (!textFieldId && cellKey.startsWith('TextField_'))) {
                 note = String(cell.value || '').trim();
               }
             }
@@ -439,6 +443,12 @@ class ApprovalProcessor {
       }
     }
 
+    const taxExpense = this.extractFormValue(fc, '税费Impuestos') || this.extractFormValue(fc, '税费');
+    const isIndividualIncomeTax = /个税|个人所得税|impuesto.*renta|income.*tax/i.test(String(taxExpense || ''));
+    const individualIncomeTaxByDepartment = isIndividualIncomeTax
+      ? this.extractTableFieldData(fc, '', '', null, '薪酬税费总支出')
+      : null;
+
     const monthlyBudgetRemainingAmount = this.normalizeNumber(
       this.extractFormValueExact(fc, '本月预算剩余金额')
       || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
@@ -460,7 +470,7 @@ class ApprovalProcessor {
       salaryExpense: this.extractFormValue(fc, '工资salario') || this.extractFormValue(fc, '工资'),
       administrativeExpense: this.extractFormValue(fc, '管理费用Gastos administrativos') || this.extractFormValue(fc, '管理费用'),
       vehicleUsageExpense: this.extractFormValue(fc, '车辆使用费gastos de uso') || this.extractFormValue(fc, '车辆使用费'),
-      taxExpense: this.extractFormValue(fc, '税费Impuestos') || this.extractFormValue(fc, '税费'),
+      taxExpense,
       financeRelatedExpense: this.extractFormValue(fc, '财务相关费用Gastos relacionados con finanzas') || this.extractFormValue(fc, '财务相关费用'),
       salesExpense: this.extractFormValue(fc, '销售费用Gastos de venta') || this.extractFormValue(fc, '销售费用'),
       salesChannelCommissionExpense: this.extractFormValue(fc, '销售渠道管理与佣金费用Gastos de gestión de canales') || this.extractFormValue(fc, '销售渠道管理'),
@@ -482,6 +492,7 @@ class ApprovalProcessor {
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
+      individualIncomeTaxByDepartment,
     };
   }
 

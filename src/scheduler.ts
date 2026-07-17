@@ -20,7 +20,7 @@ interface InstanceIdWithMeta {
   processCode: string;
 }
 
-type OperationSplitType = 'salary' | 'social_insurance' | 'office_space';
+type OperationSplitType = 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax';
 
 interface OperationSplitSyncOptions {
   startTime: string | number;
@@ -44,7 +44,7 @@ interface OperationSplitSyncResult {
   failures: Array<{ processInstanceId: string; message: string }>;
 }
 
-const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelEs?: string; dbColumn: string }> = {
+const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelEs?: string; dbColumn: string; sourceField?: string }> = {
   salary: {
     label: '工资中国',
     labelEs: 'Salario en China',
@@ -57,6 +57,12 @@ const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelE
   office_space: {
     label: '办公场地总费用',
     dbColumn: 'officeSpaceByDepartment',
+  },
+  individual_income_tax: {
+    label: '个税',
+    labelEs: 'Impuesto sobre la renta',
+    dbColumn: 'individualIncomeTaxByDepartment',
+    sourceField: 'taxExpense',
   },
 };
 
@@ -120,7 +126,7 @@ class Scheduler {
   normalizeSplitTypes(splitTypes?: OperationSplitType[]): OperationSplitType[] {
     const requested = Array.isArray(splitTypes) && splitTypes.length > 0
       ? splitTypes
-      : (['salary', 'social_insurance', 'office_space'] as OperationSplitType[]);
+      : (['salary', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
     const validTypes = new Set(Object.keys(OPERATION_SPLIT_CONFIG));
     for (const type of requested) {
       if (!validTypes.has(type)) {
@@ -130,10 +136,10 @@ class Scheduler {
     return [...new Set(requested)];
   }
 
-  findMatchedSplitTypes(operationExpense: unknown, splitTypes: OperationSplitType[]): OperationSplitType[] {
-    const text = String(operationExpense || '');
+  findMatchedSplitTypes(parsedData: Record<string, unknown>, splitTypes: OperationSplitType[]): OperationSplitType[] {
     return splitTypes.filter((type) => {
       const configItem = OPERATION_SPLIT_CONFIG[type];
+      const text = String(parsedData[configItem.sourceField || 'operationExpense'] || '');
       return text.includes(configItem.label) ||
         Boolean(configItem.labelEs && text.includes(configItem.labelEs));
     });
@@ -439,6 +445,7 @@ class Scheduler {
         salary: 0,
         social_insurance: 0,
         office_space: 0,
+        individual_income_tax: 0,
       },
       failures: [],
     };
@@ -466,7 +473,7 @@ class Scheduler {
           const parsedData = processor.parseOperationExpenseData(
             (instance as unknown as import('./processor.js').ApprovalInstance).formComponentValues
           );
-          const matchedTypes = this.findMatchedSplitTypes(parsedData.operationExpense, splitTypes);
+          const matchedTypes = this.findMatchedSplitTypes(parsedData, splitTypes);
           if (matchedTypes.length === 0) {
             summary.skipped++;
             await approvalSource.sleep(120);

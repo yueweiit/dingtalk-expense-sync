@@ -156,6 +156,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
     salaryByDepartment: data.salaryByDepartment ?? null,
     socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
     officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
+    individualIncomeTaxByDepartment: data.individualIncomeTaxByDepartment ?? null,
     rawData: data.rawData || {}
   }).onConflictDoUpdate({
     target: approvalExpenseOperation.businessId,
@@ -210,6 +211,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
       salaryByDepartment: sql`EXCLUDED.salary_by_department`,
       socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
       officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
+      individualIncomeTaxByDepartment: sql`EXCLUDED.individual_income_tax_by_department`,
       rawData: sql`EXCLUDED.raw_data`,
       updatedAt: sql`CURRENT_TIMESTAMP`
     }
@@ -491,12 +493,14 @@ function parseSplitsFromJsonb(row: {
   salaryByDepartment: unknown;
   socialInsuranceByDepartment: unknown;
   officeSpaceByDepartment: unknown;
+  individualIncomeTaxByDepartment: unknown;
 }): DeptSplitRow[] {
   const splits: DeptSplitRow[] = [];
   const mapping: Array<{ key: keyof typeof row; type: DeptSplitRow['splitType'] }> = [
     { key: 'salaryByDepartment', type: 'salary' },
     { key: 'socialInsuranceByDepartment', type: 'social_insurance' },
     { key: 'officeSpaceByDepartment', type: 'office_space' },
+    { key: 'individualIncomeTaxByDepartment', type: 'individual_income_tax' },
   ];
   for (const m of mapping) {
     const arr = row[m.key];
@@ -579,6 +583,7 @@ export async function upsertOperationExpenseWithSplits(
       salaryByDepartment: data.salaryByDepartment ?? null,
       socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
+      individualIncomeTaxByDepartment: data.individualIncomeTaxByDepartment ?? null,
       rawData: data.rawData || {}
     }).onConflictDoUpdate({
       target: approvalExpenseOperation.businessId,
@@ -633,6 +638,7 @@ export async function upsertOperationExpenseWithSplits(
         salaryByDepartment: sql`EXCLUDED.salary_by_department`,
         socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
         officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
+        individualIncomeTaxByDepartment: sql`EXCLUDED.individual_income_tax_by_department`,
         rawData: sql`EXCLUDED.raw_data`,
         updatedAt: sql`CURRENT_TIMESTAMP`
       }
@@ -658,6 +664,7 @@ export async function rebuildDeptSplits(businessId: string): Promise<number> {
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
+    individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
   }).from(approvalExpenseOperation)
     .where(eq(approvalExpenseOperation.businessId, businessId))
     .limit(1);
@@ -677,10 +684,12 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
+    individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
   }).from(approvalExpenseOperation)
     .where(sql`(${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
             OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
-            OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL)
+            OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL
+            OR ${approvalExpenseOperation.individualIncomeTaxByDepartment} IS NOT NULL)
             OR EXISTS (
               SELECT 1 FROM ${approvalExpenseDeptSplit} ds
               WHERE ds.business_id = ${approvalExpenseOperation.businessId}
@@ -707,11 +716,13 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
+    individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
   }).from(approvalExpenseOperation)
     .where(sql`(
               (${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
-             OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL)
+             OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL
+             OR ${approvalExpenseOperation.individualIncomeTaxByDepartment} IS NOT NULL)
               AND NOT EXISTS (
                 SELECT 1 FROM ${approvalExpenseDeptSplit} ds
                 WHERE ds.business_id = ${approvalExpenseOperation.businessId}

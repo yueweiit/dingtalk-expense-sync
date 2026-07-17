@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     salary_by_department JSONB,
     social_insurance_by_department JSONB,
     office_space_by_department JSONB,
+    individual_income_tax_by_department JSONB,
     raw_data JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -83,9 +84,13 @@ ADD COLUMN IF NOT EXISTS store_name VARCHAR(255);
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS payment_detail_reason TEXT;
 
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS individual_income_tax_by_department JSONB;
+
 COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
 COMMENT ON COLUMN approval_expense_operation.social_insurance_by_department IS '社保中国分部门明细 — JSON array of {department, amount}';
 COMMENT ON COLUMN approval_expense_operation.office_space_by_department IS '办公场地总费用分部门明细 — JSON array of {department, amount}';
+COMMENT ON COLUMN approval_expense_operation.individual_income_tax_by_department IS '个税分部门明细 — JSON array of {department, amount, note}';
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     id BIGSERIAL PRIMARY KEY,
@@ -456,13 +461,20 @@ COMMENT ON COLUMN approval_expense_attachments.created_at IS '本表记录创建
 CREATE TABLE IF NOT EXISTS approval_expense_dept_split (
     id BIGSERIAL PRIMARY KEY,
     business_id VARCHAR(64) NOT NULL,
-    split_type VARCHAR(32) NOT NULL CHECK (split_type IN ('salary', 'social_insurance', 'office_space')),
+    split_type VARCHAR(32) NOT NULL CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax')),
     department VARCHAR(500) NOT NULL,
     amount NUMERIC(18, 2) NOT NULL,
     note TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE approval_expense_dept_split
+DROP CONSTRAINT IF EXISTS approval_expense_dept_split_split_type_check;
+
+ALTER TABLE approval_expense_dept_split
+ADD CONSTRAINT approval_expense_dept_split_split_type_check
+CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax'));
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_dept_split_biz_type_dept
     ON approval_expense_dept_split(business_id, split_type, department);
@@ -485,7 +497,7 @@ $$;
 
 COMMENT ON TABLE approval_expense_dept_split IS '运营支出分部门拆分表（CQRS read model）';
 COMMENT ON COLUMN approval_expense_dept_split.business_id IS '关联审批 business_id';
-COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space';
+COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space/individual_income_tax';
 COMMENT ON COLUMN approval_expense_dept_split.department IS '部门名称';
 COMMENT ON COLUMN approval_expense_dept_split.amount IS '拆分金额';
 COMMENT ON COLUMN approval_expense_dept_split.note IS '备注';

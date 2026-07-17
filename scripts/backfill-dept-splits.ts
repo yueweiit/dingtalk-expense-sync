@@ -31,14 +31,16 @@ async function main() {
       const whereClause = isBackfill
         ? `WHERE (salary_by_department IS NOT NULL
                 OR social_insurance_by_department IS NOT NULL
-                OR office_space_by_department IS NOT NULL)
+                OR office_space_by_department IS NOT NULL
+                OR individual_income_tax_by_department IS NOT NULL)
            AND NOT EXISTS (
              SELECT 1 FROM approval_expense_dept_split ds
              WHERE ds.business_id = approval_expense_operation.business_id
            )`
         : `WHERE salary_by_department IS NOT NULL
               OR social_insurance_by_department IS NOT NULL
-              OR office_space_by_department IS NOT NULL`;
+              OR office_space_by_department IS NOT NULL
+              OR individual_income_tax_by_department IS NOT NULL`;
 
       const result = await pool.query(
         `SELECT COUNT(*)::int AS cnt FROM approval_expense_operation ${whereClause}`

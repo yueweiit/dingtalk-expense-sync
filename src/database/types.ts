@@ -81,6 +81,7 @@ export interface OperationExpenseData {
   salaryByDepartment?: Array<{ department: string; amount: number; note?: string }> | null;
   socialInsuranceByDepartment?: Array<{ department: string; amount: number }> | null;
   officeSpaceByDepartment?: Array<{ department: string; amount: number }> | null;
+  individualIncomeTaxByDepartment?: Array<{ department: string; amount: number; note?: string }> | null;
   rawData?: Record<string, unknown>;
 }
 
@@ -181,7 +182,7 @@ export interface AttachmentData {
 }
 
 export interface DeptSplitRow {
-  splitType: 'salary' | 'social_insurance' | 'office_space';
+  splitType: 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax';
   department: string;
   amount: number;
   note?: string;
