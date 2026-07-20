@@ -99,10 +99,10 @@ async function ensureExpenseSchema(): Promise<void> {
 }
 
 async function collectInstanceIds(startMs: number, endMs: number, processFilter: string): Promise<Array<{ processInstanceId: string; processCode: string; kind: string }>> {
-  const processCodes = config.dingtalk?.processCodes || [];
+  const allProcessCodes = config.dingtalk.allProcessCodes;
   const items: Array<{ processInstanceId: string; processCode: string; kind: string }> = [];
 
-  for (const processCode of processCodes) {
+  for (const processCode of allProcessCodes) {
     const kind = resolveProcessKind(processCode, config.dingtalk);
     if (processFilter !== 'all' && kind !== processFilter) continue;
 

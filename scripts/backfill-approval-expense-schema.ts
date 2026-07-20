@@ -401,11 +401,11 @@ async function findDingtalkInstanceByBusinessId(row: Record<string, unknown>, ca
   const dateText = normalizeDate(row.create_time) || dateFromBusinessId(businessId);
   if (!businessId || !dateText) return null;
 
-  const configuredCodes = Array.isArray(config.dingtalk?.processCodes) ? config.dingtalk.processCodes : [];
-  const processCodes = [...new Set([processCode, ...configuredCodes].filter(Boolean) as string[])];
+  const configuredCodes = config.dingtalk.allProcessCodes;
+  const candidateProcessCodes = [...new Set([processCode, ...configuredCodes].filter(Boolean) as string[])];
   const dates = [...new Set([addDays(dateText, -1), dateText, addDays(dateText, 1)].filter(Boolean) as string[])];
 
-  for (const code of processCodes) {
+  for (const code of candidateProcessCodes) {
     for (const day of dates) {
       const range = dayRangeMs(day);
       if (!range) continue;

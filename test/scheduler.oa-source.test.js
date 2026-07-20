@@ -9,7 +9,7 @@ function writeFile(targetPath, content) {
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
-function createSchedulerFixture() {
+function createSchedulerFixture({ failingProcessCode = null } = {}) {
   const fixtureBase = path.join(__dirname, '..', '.tmp-test-fixtures');
   fs.mkdirSync(fixtureBase, { recursive: true });
   const fixtureRoot = fs.mkdtempSync(path.join(fixtureBase, 'scheduler-fixture-'));
@@ -30,6 +30,9 @@ function createSchedulerFixture() {
       export const approvalSource = {
         async queryProcessInstanceIds(start, end, processCode, nextToken = 0) {
           state.queryCalls.push({ start, end, processCode, nextToken });
+          if (processCode === ${JSON.stringify(failingProcessCode)}) {
+            throw new Error('simulated process fetch failure');
+          }
           return { list: nextToken === 0 ? ['INS-1'] : [], nextToken: 0 };
         },
         async getProcessInstances(ids) {
@@ -125,7 +128,11 @@ function createSchedulerFixture() {
           cron: '7 * * * *',
         },
         dingtalk: {
-          processCodes: ['PROC-TEST'],
+          allProcessCodes: ['PROC-OP-1', 'PROC-OP-2', 'PROC-PURCHASE-1'],
+          processTypeMap: {
+            operation: ['PROC-OP-1', 'PROC-OP-2'],
+            purchase: ['PROC-PURCHASE-1'],
+          },
         },
       };
     `
@@ -193,4 +200,47 @@ test('scheduler runtime reads ids and details through approvalSource', async (t)
   assert.deepEqual(oaSourceModule.state.batchCalls, [['INS-1']]);
   assert.equal(processorModule.state.processedBatches.length, 1);
   assert.equal(processorModule.state.processedBatches[0][0].businessId, 'BIZ-1');
+});
+
+test('manual operation split sync reads every operation process code', async (t) => {
+  const fixtureSrc = createSchedulerFixture();
+  t.after(() => {
+    fs.rmSync(path.dirname(fixtureSrc), { recursive: true, force: true });
+  });
+  const schedulerModule = await import(pathToFileURL(path.join(fixtureSrc, 'scheduler.ts')).href);
+  const oaSourceModule = await import(pathToFileURL(path.join(fixtureSrc, 'oa-source.ts')).href);
+
+  const scheduler = schedulerModule.default?.default ?? schedulerModule.default ?? schedulerModule;
+  const result = await scheduler.syncOperationSplits({
+    startTime: '2026-07-01T00:00:00+08:00',
+    endTime: '2026-07-01T23:59:59+08:00',
+  });
+
+  assert.equal(result.instanceIds, 2);
+  assert.deepEqual(
+    oaSourceModule.state.queryCalls.map((item) => item.processCode),
+    ['PROC-OP-1', 'PROC-OP-2']
+  );
+});
+
+test('manual operation split sync reports failure when one operation process cannot be fetched', async (t) => {
+  const fixtureSrc = createSchedulerFixture({ failingProcessCode: 'PROC-OP-1' });
+  t.after(() => {
+    fs.rmSync(path.dirname(fixtureSrc), { recursive: true, force: true });
+  });
+  const schedulerModule = await import(pathToFileURL(path.join(fixtureSrc, 'scheduler.ts')).href);
+  const oaSourceModule = await import(pathToFileURL(path.join(fixtureSrc, 'oa-source.ts')).href);
+
+  const scheduler = schedulerModule.default?.default ?? schedulerModule.default ?? schedulerModule;
+  const result = await scheduler.syncOperationSplits({
+    startTime: '2026-07-01T00:00:00+08:00',
+    endTime: '2026-07-01T23:59:59+08:00',
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.failed, 1);
+  assert.deepEqual(
+    oaSourceModule.state.queryCalls.map((item) => item.processCode),
+    ['PROC-OP-1', 'PROC-OP-2']
+  );
 });

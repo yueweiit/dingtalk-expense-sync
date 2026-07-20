@@ -27,7 +27,6 @@ interface ProcessInstanceDetailResponse {
 class DingTalkAPI {
   private appkey: string | undefined;
   private appsecret: string | undefined;
-  private processCodes: string[];
   private accessToken: string | null;
   private tokenExpireTime: number | null;
   private readonly maxRetryTimes: number;
@@ -36,7 +35,6 @@ class DingTalkAPI {
   constructor() {
     this.appkey = config.dingtalk.appkey;
     this.appsecret = config.dingtalk.appsecret;
-    this.processCodes = config.dingtalk.processCodes;
     this.accessToken = null;
     this.tokenExpireTime = null;
     this.maxRetryTimes = 3;

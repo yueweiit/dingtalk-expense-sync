@@ -290,14 +290,14 @@ class Scheduler {
       await database.ensureApprovalExpenseSchema();
       await this.maybeEnsureTodayFxRates();
       const end = Date.now();
-      const processCodes = config.dingtalk.processCodes;
+      const allProcessCodes = config.dingtalk.allProcessCodes;
 
-      logger.info(`开始增量同步审批数据，结束时间(北京时间): ${this.formatBeijingTime(end)}, 流程数量: ${processCodes.length}`);
+      logger.info(`开始增量同步审批数据，结束时间(北京时间): ${this.formatBeijingTime(end)}, 流程数量: ${allProcessCodes.length}`);
 
       let failedProcessCount = 0;
       const fallbackStart = this.getFallbackStartTime();
 
-      for (const processCode of processCodes) {
+      for (const processCode of allProcessCodes) {
         const cursorKey = `process:${processCode}`;
         try {
           const cursor = await database.getSyncCursor(cursorKey);
@@ -423,9 +423,9 @@ class Scheduler {
 
     const { start, end } = this.normalizeTimeRange(options.startTime, options.endTime);
     const splitTypes = this.normalizeSplitTypes(options.splitTypes);
-    const operationProcessCode = config.dingtalk.processCodes[0];
-    if (!operationProcessCode) {
-      throw new Error('未配置运营支出流程 processCode');
+    const operationProcessCodes = config.dingtalk.processTypeMap.operation;
+    if (operationProcessCodes.length === 0) {
+      throw new Error('未配置运营支出流程码 DINGTALK_PROCESS_TYPE_MAP.operation');
     }
 
     const startedAt = new Date().toISOString();
@@ -456,51 +456,63 @@ class Scheduler {
       await this.maybeEnsureTodayFxRates();
 
       logger.info(
-        `手动同步运营支出拆分: ${this.formatBeijingTime(start)} ~ ${this.formatBeijingTime(end)}, splitTypes=${splitTypes.join(',')}`
+        `手动同步运营支出拆分: ${this.formatBeijingTime(start)} ~ ${this.formatBeijingTime(end)}, processes=${operationProcessCodes.length}, splitTypes=${splitTypes.join(',')}`
       );
 
-      const ids = await this.syncSingleProcess(operationProcessCode, start, end);
-      summary.instanceIds = ids.length;
-
-      for (const item of ids) {
+      for (const operationProcessCode of operationProcessCodes) {
+        let ids: InstanceIdWithMeta[];
         try {
-          const instance = await approvalSource.getProcessInstance(item.processInstanceId);
-          summary.fetched++;
-          instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
-          instance.processCode = instance.processCode || item.processCode;
-          instance.processType = instance.processType || this.getProcessType(item.processCode);
-
-          const parsedData = processor.parseOperationExpenseData(
-            (instance as unknown as import('./processor.js').ApprovalInstance).formComponentValues
-          );
-          const matchedTypes = this.findMatchedSplitTypes(parsedData, splitTypes);
-          if (matchedTypes.length === 0) {
-            summary.skipped++;
-            await approvalSource.sleep(120);
-            continue;
-          }
-
-          summary.matched++;
-          this.countParsedSplits(parsedData, matchedTypes, summary.splitCounts);
-          const result = await processor.processInstance(
-            instance as unknown as import('./processor.js').ApprovalInstance,
-            { force: true }
-          );
-
-          if (result.skipped) {
-            summary.skipped++;
-          } else {
-            summary.written++;
-          }
+          ids = await this.syncSingleProcess(operationProcessCode, start, end);
+          summary.instanceIds += ids.length;
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error);
           summary.failed++;
-          summary.failures.push({ processInstanceId: item.processInstanceId, message });
-          logger.error(`运营支出拆分同步失败: processInstanceId=${item.processInstanceId}, error=${message}`);
+          summary.failures.push({ processInstanceId: `process:${operationProcessCode}`, message });
+          logger.error(`运营支出拆分流程拉取失败: processCode=${operationProcessCode}, error=${message}`);
+          continue;
         }
-        await approvalSource.sleep(120);
+
+        for (const item of ids) {
+          try {
+            const instance = await approvalSource.getProcessInstance(item.processInstanceId);
+            summary.fetched++;
+            instance.processInstanceId = instance.processInstanceId || item.processInstanceId;
+            instance.processCode = instance.processCode || item.processCode;
+            instance.processType = instance.processType || this.getProcessType(item.processCode);
+
+            const parsedData = processor.parseOperationExpenseData(
+              (instance as unknown as import('./processor.js').ApprovalInstance).formComponentValues
+            );
+            const matchedTypes = this.findMatchedSplitTypes(parsedData, splitTypes);
+            if (matchedTypes.length === 0) {
+              summary.skipped++;
+              await approvalSource.sleep(120);
+              continue;
+            }
+
+            summary.matched++;
+            this.countParsedSplits(parsedData, matchedTypes, summary.splitCounts);
+            const result = await processor.processInstance(
+              instance as unknown as import('./processor.js').ApprovalInstance,
+              { force: true }
+            );
+
+            if (result.skipped) {
+              summary.skipped++;
+            } else {
+              summary.written++;
+            }
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            summary.failed++;
+            summary.failures.push({ processInstanceId: item.processInstanceId, message });
+            logger.error(`运营支出拆分同步失败: processInstanceId=${item.processInstanceId}, error=${message}`);
+          }
+          await approvalSource.sleep(120);
+        }
       }
 
+      summary.success = summary.failed === 0;
       summary.completedAt = new Date().toISOString();
       logger.info(
         `运营支出拆分同步完成: ids=${summary.instanceIds}, fetched=${summary.fetched}, matched=${summary.matched}, written=${summary.written}, skipped=${summary.skipped}, failed=${summary.failed}`

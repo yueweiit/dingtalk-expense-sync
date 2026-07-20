@@ -1,3 +1,10 @@
+import {
+  NEW_ECOMMERCE_OPERATION_FORM_CODE,
+  NEW_ECOMMERCE_PURCHASE_FORM_CODE,
+  OLD_OPERATION_FORM_CODE,
+  OLD_PURCHASE_FORM_CODE,
+} from './form-source.ts';
+
 export type ProcessKind = 'operation' | 'purchase' | 'other';
 
 export interface ProcessTypeMap {
@@ -6,70 +13,110 @@ export interface ProcessTypeMap {
 }
 
 interface ProcessConfigShape {
-  processCodes?: string[];
   processTypeMap?: ProcessTypeMap | null | undefined;
 }
 
 const KNOWN_PROCESS_KINDS: Array<Exclude<ProcessKind, 'other'>> = ['operation', 'purchase'];
+const PROCESS_CODE_PATTERN = /^PROC-[A-F0-9-]+$/i;
 
-function uniqueCodes(codes: string[]): string[] {
-  return [...new Set(codes)];
-}
+const REQUIRED_PROCESS_CODES: Required<ProcessTypeMap> = {
+  operation: [
+    OLD_OPERATION_FORM_CODE,
+    NEW_ECOMMERCE_OPERATION_FORM_CODE,
+  ],
+  purchase: [
+    OLD_PURCHASE_FORM_CODE,
+    NEW_ECOMMERCE_PURCHASE_FORM_CODE,
+  ],
+};
 
 function normalizeCodeList(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  return uniqueCodes(
-    value
-      .map((item) => String(item || '').trim())
-      .filter(Boolean)
-  );
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function uniqueCodes(codes: string[]): string[] {
+  return [...new Set(codes)];
 }
 
 export function normalizeProcessTypeMap(value: unknown): Required<ProcessTypeMap> {
-  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const raw = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 
   return {
+    operation: uniqueCodes(normalizeCodeList(raw.operation)),
+    purchase: uniqueCodes(normalizeCodeList(raw.purchase)),
+  };
+}
+
+export function validateProcessTypeMap(value: unknown): Required<ProcessTypeMap> {
+  const raw = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+  const errors: string[] = [];
+
+  if (!raw) {
+    throw new Error('DINGTALK_PROCESS_TYPE_MAP 必须是包含 operation 和 purchase 的 JSON 对象');
+  }
+
+  const rawCodesByKind = {
     operation: normalizeCodeList(raw.operation),
     purchase: normalizeCodeList(raw.purchase),
   };
-}
 
-export function buildLegacyProcessTypeMap(processCodes: string[] | undefined): Required<ProcessTypeMap> {
-  const normalizedCodes = normalizeCodeList(processCodes);
-
-  return {
-    operation: normalizedCodes[0] ? [normalizedCodes[0]] : [],
-    purchase: normalizedCodes[1] ? [normalizedCodes[1]] : [],
-  };
-}
-
-export function resolveProcessTypeMap(config: ProcessConfigShape): Required<ProcessTypeMap> {
-  const legacyMap = buildLegacyProcessTypeMap(config.processCodes);
-  const explicitMap = normalizeProcessTypeMap(config.processTypeMap);
-  const hasExplicitMapping = KNOWN_PROCESS_KINDS.some((kind) => explicitMap[kind].length > 0);
-
-  if (!hasExplicitMapping) {
-    return legacyMap;
+  for (const kind of KNOWN_PROCESS_KINDS) {
+    const codes = rawCodesByKind[kind];
+    if (!Array.isArray(raw[kind])) {
+      errors.push(`${kind} 必须是流程码数组`);
+      continue;
+    }
+    if (codes.length !== uniqueCodes(codes).length) {
+      errors.push(`${kind} 包含重复流程码`);
+    }
+    for (const code of codes) {
+      if (!PROCESS_CODE_PATTERN.test(code)) {
+        errors.push(`${kind} 包含非法流程码 ${code}`);
+      }
+    }
   }
 
-  return {
-    operation: uniqueCodes([...legacyMap.operation, ...explicitMap.operation]),
-    purchase: uniqueCodes([...legacyMap.purchase, ...explicitMap.purchase]),
-  };
+  const normalized = normalizeProcessTypeMap(raw);
+  const duplicatedAcrossKinds = normalized.operation.filter((code) => normalized.purchase.includes(code));
+  if (duplicatedAcrossKinds.length > 0) {
+    errors.push(`流程码不能同时属于 operation 和 purchase: ${duplicatedAcrossKinds.join(', ')}`);
+  }
+
+  for (const kind of KNOWN_PROCESS_KINDS) {
+    const otherKind = kind === 'operation' ? 'purchase' : 'operation';
+    for (const code of REQUIRED_PROCESS_CODES[kind]) {
+      if (normalized[kind].includes(code)) continue;
+      if (normalized[otherKind].includes(code)) {
+        errors.push(`${code} 必须属于 ${kind}，不能归入 ${otherKind}`);
+      } else {
+        errors.push(`缺少 ${kind} 流程码 ${code}`);
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`DINGTALK_PROCESS_TYPE_MAP 配置无效: ${errors.join('；')}`);
+  }
+
+  return normalized;
 }
 
 export function getConfiguredProcessCodes(config: ProcessConfigShape): string[] {
-  const resolvedMap = resolveProcessTypeMap(config);
-  const legacyCodes = normalizeCodeList(config.processCodes);
-
-  return uniqueCodes([
-    ...resolvedMap.operation,
-    ...resolvedMap.purchase,
-    ...legacyCodes,
-  ]);
+  const processTypeMap = validateProcessTypeMap(config.processTypeMap);
+  return [
+    ...processTypeMap.operation,
+    ...processTypeMap.purchase,
+  ];
 }
 
 export function getProcessKind(processCode: string | null | undefined, config: ProcessConfigShape): ProcessKind {
@@ -78,35 +125,13 @@ export function getProcessKind(processCode: string | null | undefined, config: P
     return 'other';
   }
 
-  const explicitMap = normalizeProcessTypeMap(config.processTypeMap);
-  const hasExplicitMapping = KNOWN_PROCESS_KINDS.some((kind) => explicitMap[kind].length > 0);
-
-  if (explicitMap.operation.includes(value)) {
+  const processTypeMap = normalizeProcessTypeMap(config.processTypeMap);
+  if (processTypeMap.operation.includes(value)) {
     return 'operation';
   }
-  if (explicitMap.purchase.includes(value)) {
+  if (processTypeMap.purchase.includes(value)) {
     return 'purchase';
   }
-
-  if (hasExplicitMapping) {
-    const legacyMap = buildLegacyProcessTypeMap(config.processCodes);
-    if (legacyMap.operation.includes(value)) {
-      return 'operation';
-    }
-    if (legacyMap.purchase.includes(value)) {
-      return 'purchase';
-    }
-    return 'other';
-  }
-
-  const resolvedMap = resolveProcessTypeMap(config);
-  if (resolvedMap.operation.includes(value)) {
-    return 'operation';
-  }
-  if (resolvedMap.purchase.includes(value)) {
-    return 'purchase';
-  }
-
   return 'other';
 }
 
