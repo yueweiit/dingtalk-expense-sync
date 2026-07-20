@@ -22,6 +22,7 @@ import {
   getProcessTypeLabel as resolveProcessTypeLabel,
 } from '../src/process-config.ts';
 import type { ApprovalInstance } from '../src/processor.ts';
+import type { PurchaseItemData, PurchaseProcessorData } from '../src/database/types.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};
@@ -189,7 +190,13 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       rawData: instance as unknown as Record<string, unknown>
     });
     if (id) {
+      const purchaseItems = Array.isArray(pData.items) ? pData.items as PurchaseItemData[] : [];
+      const purchaseProcessors = Array.isArray(pData.processors) ? pData.processors as PurchaseProcessorData[] : [];
       await database.replaceAttachments('purchase', id, attachments);
+      await database.replacePurchaseDetails(id, {
+        items: purchaseItems,
+        processors: purchaseProcessors,
+      });
     }
     if (id) {
       const payments = [];

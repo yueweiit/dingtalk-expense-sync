@@ -88,6 +88,13 @@ class Database {
     return expense.replacePurchaseProcessors(purchaseId, processors);
   }
 
+  async replacePurchaseDetails(
+    purchaseId: number,
+    details: { items: PurchaseItemData[]; processors: PurchaseProcessorData[] }
+  ): Promise<void> {
+    return expense.replacePurchaseDetails(purchaseId, details);
+  }
+
   async replacePurchasePayments(purchaseId: number, payments: PurchasePaymentData[]): Promise<void> {
     return expense.replacePurchasePayments(purchaseId, payments);
   }

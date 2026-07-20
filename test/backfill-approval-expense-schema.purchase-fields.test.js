@@ -47,6 +47,30 @@ test('backfill-approval-expense-schema writes ecommerce purchase form_name and r
       { name: '项目Proyecto', value: 'TikTok Shop' },
       { name: '产品Producto', value: '直播设备' },
       {
+        name: '采购需求明细Detalle de requisitos de compra',
+        componentType: 'TableField',
+        value: JSON.stringify([[
+          { name: '物品名称', value: '手机壳' },
+          { name: '编码', value: 'CASE-001' },
+          { name: '数量', value: '10' },
+          { name: '总金额', value: '81.60' },
+        ]]),
+      },
+      {
+        name: '加工商明细Detalle de procesadores',
+        componentType: 'TableField',
+        value: JSON.stringify([[
+          { name: '加工商名字', value: '测试加工商' },
+          { name: 'ODT', value: 'ODT-001' },
+          { name: '数量', value: '5' },
+          { name: '总金额', value: '16.00' },
+        ]]),
+      },
+      {
+        name: '清关服务Servicios de despacho aduanero',
+        value: JSON.stringify(['报关服务', '清关代理', '报关服务']),
+      },
+      {
         name: '关键凭证Comprobante',
         value: JSON.stringify([
           { spaceId: 'space-1', fileId: 'file-1', fileName: '采购合同.pdf', fileType: 'pdf' },
@@ -94,7 +118,8 @@ test('backfill-approval-expense-schema writes ecommerce purchase form_name and r
          form_name,
          monthly_budget_remaining_amount::text as monthly_budget_remaining_amount,
          purchase_expense,
-         order_name
+         order_name,
+         customs_clearance_service
        from approval_expense_purchase
        where business_id = $1`,
       [businessId]
@@ -104,6 +129,24 @@ test('backfill-approval-expense-schema writes ecommerce purchase form_name and r
     assert.equal(result.rows[0]?.monthly_budget_remaining_amount, '749.50');
     assert.equal(result.rows[0]?.purchase_expense, '服务类采购');
     assert.equal(result.rows[0]?.order_name, 'PO-001');
+    assert.equal(result.rows[0]?.customs_clearance_service, '报关服务、清关代理');
+
+    const details = await pool.query(
+      `select
+         (select item_name from approval_expense_purchase_items where purchase_id = p.id order by row_no limit 1) as item_name,
+         (select total_amount::text from approval_expense_purchase_items where purchase_id = p.id order by row_no limit 1) as item_total_amount,
+         (select processor_name from approval_expense_purchase_processors where purchase_id = p.id order by row_no limit 1) as processor_name,
+         (select total_amount::text from approval_expense_purchase_processors where purchase_id = p.id order by row_no limit 1) as processor_total_amount
+       from approval_expense_purchase p
+       where p.business_id = $1`,
+      [businessId]
+    );
+    assert.deepEqual(details.rows[0], {
+      item_name: '手机壳',
+      item_total_amount: '81.60',
+      processor_name: '测试加工商',
+      processor_total_amount: '16.00',
+    });
 
     const attachments = await pool.query(
       `select attachment_type, file_name, file_url, raw_data

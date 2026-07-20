@@ -3,7 +3,9 @@ import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
 import { resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
 import { collectOperationDeptSplits } from './operation-dept-splits.ts';
+import { normalizePurchaseMultiSelect, parsePurchaseDetails } from './purchase-details.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
+import type { PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
 
 export interface FormComponentValue {
   name?: string;
@@ -499,6 +501,7 @@ class ApprovalProcessor {
   // 解析采购支出全部字段（写入 approval_expense_purchase）
   parsePurchaseExpenseData(formComponentValues?: FormComponentValue[]): Record<string, unknown> {
     const fc = formComponentValues;
+    const purchaseDetails = parsePurchaseDetails(fc);
     const deptField = Array.isArray(fc)
       ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
       : null;
@@ -540,9 +543,11 @@ class ApprovalProcessor {
       pdsClassification: this.extractFormValue(fc, 'PDS分类Clasificación PDS') || this.extractFormValue(fc, 'PDS分类'),
       pieceworkOutsourcing: this.extractFormValue(fc, '计件外包Outsourcing por pieza') || this.extractFormValue(fc, '计件外包'),
       logisticsTransportService: this.extractFormValue(fc, '物流及运输服务Servicios de logística') || this.extractFormValue(fc, '物流'),
-      customsClearanceService: this.extractFormValue(fc, '清关服务Servicios de despacho aduanero') || this.extractFormValue(fc, '清关'),
+      customsClearanceService: normalizePurchaseMultiSelect(this.extractFormValue(fc, '清关服务Servicios de despacho aduanero') || this.extractFormValue(fc, '清关')),
       detailSummaryAmount: this.normalizeNumber(this.extractFormValue(fc, '明细汇总金额Monto total detallado') || this.extractFormValue(fc, '明细汇总金额')),
-      keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证')
+      keyVoucher: this.extractFormValue(fc, '关键凭证Comprobante') || this.extractFormValue(fc, '关键凭证'),
+      items: purchaseDetails.items,
+      processors: purchaseDetails.processors,
     };
   }
 
@@ -658,7 +663,13 @@ class ApprovalProcessor {
           rawData: instance as unknown as Record<string, unknown>
         });
         if (purchaseId) {
+          const purchaseItems = Array.isArray(pData.items) ? pData.items as PurchaseItemData[] : [];
+          const purchaseProcessors = Array.isArray(pData.processors) ? pData.processors as PurchaseProcessorData[] : [];
           await database.replaceAttachments('purchase', purchaseId, attachments);
+          await database.replacePurchaseDetails(purchaseId, {
+            items: purchaseItems,
+            processors: purchaseProcessors,
+          });
         }
         if (purchaseId) {
           const payments = [];

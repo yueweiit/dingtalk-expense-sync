@@ -21,6 +21,7 @@ import {
 } from './types.ts';
 
 interface ExpenseInstanceQueryRow extends Record<string, unknown>, ExpenseInstanceRow {}
+type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseInstanceRow[]> {
   const result = await db.execute<ExpenseInstanceQueryRow>(sql`
@@ -323,48 +324,62 @@ export async function upsertPurchaseExpense(data: PurchaseExpenseData): Promise<
   return row?.id;
 }
 
+async function replacePurchaseItemsWithExecutor(executor: DatabaseTransaction, purchaseId: number, items: PurchaseItemData[]): Promise<void> {
+  await executor.delete(approvalExpensePurchaseItems).where(eq(approvalExpensePurchaseItems.purchaseId, purchaseId));
+  for (const item of items) {
+    await executor.insert(approvalExpensePurchaseItems).values({
+      purchaseId,
+      rowNo: item.rowNo || 1,
+      itemName: item.itemName?.substring(0, 500) || null,
+      imageUrl: item.imageUrl || null,
+      itemCode: item.itemCode?.substring(0, 128) || null,
+      itemSpecification: item.itemSpecification || null,
+      quantity: decimalValue(item.quantity),
+      inventory: decimalValue(item.inventory),
+      unit: item.unit?.substring(0, 64) || null,
+      unitPrice: decimalValue(item.unitPrice),
+      totalAmount: decimalValue(item.totalAmount),
+      rawData: item.rawData || {}
+    });
+  }
+}
+
+async function replacePurchaseProcessorsWithExecutor(executor: DatabaseTransaction, purchaseId: number, processors: PurchaseProcessorData[]): Promise<void> {
+  await executor.delete(approvalExpensePurchaseProcessors).where(eq(approvalExpensePurchaseProcessors.purchaseId, purchaseId));
+  for (const p of processors) {
+    await executor.insert(approvalExpensePurchaseProcessors).values({
+      purchaseId,
+      rowNo: p.rowNo || 1,
+      processorName: p.processorName?.substring(0, 500) || null,
+      processorPhone: p.processorPhone?.substring(0, 64) || null,
+      odt: p.odt?.substring(0, 128) || null,
+      salesOrderNo: p.salesOrderNo?.substring(0, 128) || null,
+      processingMaterial: p.processingMaterial || null,
+      quantity: decimalValue(p.quantity),
+      unitPrice: decimalValue(p.unitPrice),
+      totalAmount: decimalValue(p.totalAmount),
+      specificationRequirementDescription: p.specificationRequirementDescription || null,
+      deliveryDate: p.deliveryDate || null,
+      rawData: p.rawData || {}
+    });
+  }
+}
+
 export async function replacePurchaseItems(purchaseId: number, items: PurchaseItemData[]): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx.delete(approvalExpensePurchaseItems).where(eq(approvalExpensePurchaseItems.purchaseId, purchaseId));
-    for (const item of items) {
-      await tx.insert(approvalExpensePurchaseItems).values({
-        purchaseId,
-        rowNo: item.rowNo || 1,
-        itemName: item.itemName?.substring(0, 500) || null,
-        imageUrl: item.imageUrl || null,
-        itemCode: item.itemCode?.substring(0, 128) || null,
-        itemSpecification: item.itemSpecification || null,
-        quantity: decimalValue(item.quantity),
-        inventory: decimalValue(item.inventory),
-        unit: item.unit?.substring(0, 64) || null,
-        unitPrice: decimalValue(item.unitPrice),
-        totalAmount: decimalValue(item.totalAmount),
-        rawData: item.rawData || {}
-      });
-    }
-  });
+  await db.transaction(async (tx) => replacePurchaseItemsWithExecutor(tx, purchaseId, items));
 }
 
 export async function replacePurchaseProcessors(purchaseId: number, processors: PurchaseProcessorData[]): Promise<void> {
+  await db.transaction(async (tx) => replacePurchaseProcessorsWithExecutor(tx, purchaseId, processors));
+}
+
+export async function replacePurchaseDetails(
+  purchaseId: number,
+  details: { items: PurchaseItemData[]; processors: PurchaseProcessorData[] }
+): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx.delete(approvalExpensePurchaseProcessors).where(eq(approvalExpensePurchaseProcessors.purchaseId, purchaseId));
-    for (const p of processors) {
-      await tx.insert(approvalExpensePurchaseProcessors).values({
-        purchaseId,
-        rowNo: p.rowNo || 1,
-        processorName: p.processorName?.substring(0, 500) || null,
-        processorPhone: p.processorPhone?.substring(0, 64) || null,
-        odt: p.odt?.substring(0, 128) || null,
-        salesOrderNo: p.salesOrderNo?.substring(0, 128) || null,
-        processingMaterial: p.processingMaterial || null,
-        quantity: decimalValue(p.quantity),
-        unitPrice: decimalValue(p.unitPrice),
-        totalAmount: decimalValue(p.totalAmount),
-        specificationRequirementDescription: p.specificationRequirementDescription || null,
-        deliveryDate: p.deliveryDate || null,
-        rawData: p.rawData || {}
-      });
-    }
+    await replacePurchaseItemsWithExecutor(tx, purchaseId, details.items);
+    await replacePurchaseProcessorsWithExecutor(tx, purchaseId, details.processors);
   });
 }
 

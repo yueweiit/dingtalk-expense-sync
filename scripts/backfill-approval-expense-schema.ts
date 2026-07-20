@@ -19,6 +19,7 @@ import { resolveOperationFormName, resolvePurchaseFormName } from '../src/form-s
 import { collectOperationDeptSplits } from '../src/operation-dept-splits.ts';
 import processor from '../src/processor.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
+import { normalizePurchaseMultiSelect, parsePurchaseDetails } from '../src/purchase-details.ts';
 import { normalizeNumber } from '../src/utils.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -182,36 +183,6 @@ function approvalMeta(raw: unknown): Record<string, unknown> {
   };
 }
 
-function labelFromRow(rowObj: unknown, tokens: string[]): unknown {
-  if (!rowObj || typeof rowObj !== 'object') return null;
-  for (const [key, rawValue] of Object.entries(rowObj as Record<string, unknown>)) {
-    if (!nameMatches(key, tokens)) continue;
-    if (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
-      return (rawValue as Record<string, unknown>).value ?? (rawValue as Record<string, unknown>).label ?? (rawValue as Record<string, unknown>).text ?? (rawValue as Record<string, unknown>).name ?? rawValue;
-    }
-    return rawValue;
-  }
-  return null;
-}
-
-function extractTableRows(components: unknown[], tableTokens: string[]): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [];
-  for (const item of components) {
-    const type = norm((item as Record<string, unknown>)?.componentType);
-    const value = componentValue(item);
-    const looksLikeTable = type.includes('table') || type.includes('detail') || Array.isArray(value);
-    if (!looksLikeTable) continue;
-    if (tableTokens.length && !nameMatches((item as Record<string, unknown>)?.name, tableTokens)) continue;
-    const parsed = parseJsonMaybe(value);
-    if (Array.isArray(parsed)) {
-      for (const row of parsed) {
-        if (row && typeof row === 'object') rows.push(row as Record<string, unknown>);
-      }
-    }
-  }
-  return rows;
-}
-
 function extractAttachments(components: unknown[]): Array<Record<string, unknown>> {
   const attachments: Array<Record<string, unknown>> = [];
   for (const item of components) {
@@ -254,41 +225,6 @@ function extractAttachments(components: unknown[]): Array<Record<string, unknown
   return attachments;
 }
 
-function buildPurchaseItemRows(components: unknown[]): Array<Record<string, unknown>> {
-  const rows = extractTableRows(components, ['Desglose de los gastos', '需求明细']);
-  return rows.map((raw, index) => ({
-    rowNo: index + 1,
-    itemName: compact(labelFromRow(raw, ['Nombre del articulo', 'Nombre del artículo', '物品名称']), 500),
-    imageUrl: compact(labelFromRow(raw, ['Imagen', '图片'])),
-    itemCode: compact(labelFromRow(raw, ['Codigo', 'Código', '编码']), 128),
-    itemSpecification: compact(labelFromRow(raw, ['Especificacion', 'Especificación', '规格'])),
-    quantity: normalizeNumber(labelFromRow(raw, ['Cantidad', '数量'])),
-    inventory: normalizeNumber(labelFromRow(raw, ['Inventario', '库存'])),
-    unit: compact(labelFromRow(raw, ['Unidad', '单位']), 64),
-    unitPrice: normalizeNumber(labelFromRow(raw, ['Precio Unitario', 'Precio', '单价'])),
-    totalAmount: normalizeNumber(labelFromRow(raw, ['Monto Total', '总金额'])),
-    rawData: raw
-  }));
-}
-
-function buildProcessorRows(components: unknown[]): Array<Record<string, unknown>> {
-  const rows = extractTableRows(components, ['procesadores', '加工商明细']);
-  return rows.map((raw, index) => ({
-    rowNo: index + 1,
-    processorName: compact(labelFromRow(raw, ['Nombre del proveedor', '加工商名字']), 500),
-    processorPhone: compact(labelFromRow(raw, ['Telefono', 'Teléfono', '加工商电话']), 64),
-    odt: compact(labelFromRow(raw, ['ODT']), 128),
-    salesOrderNo: compact(labelFromRow(raw, ['orden de venta', '销售订单']), 128),
-    processingMaterial: compact(labelFromRow(raw, ['Materiales de Procesamiento', '加工物料'])),
-    quantity: normalizeNumber(labelFromRow(raw, ['Cantidad', '数量'])),
-    unitPrice: normalizeNumber(labelFromRow(raw, ['Precio Unitario', '单价'])),
-    totalAmount: normalizeNumber(labelFromRow(raw, ['Monto Total', '总金额'])),
-    specificationRequirementDescription: compact(labelFromRow(raw, ['Descripcion', 'Descripción', '需求说明'])),
-    deliveryDate: normalizeDate(labelFromRow(raw, ['Fecha de entrega', '交付日期'])),
-    rawData: raw
-  }));
-}
-
 function buildPaymentRows(components: unknown[]): Array<Record<string, unknown>> {
   const amount = normalizeNumber(findLastValue(components, ['importe', '金额']));
   const currency = compact(findLastValue(components, ['Moneda', '币种']), 32);
@@ -325,6 +261,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   };
 
   if (isPurchase) {
+    const purchaseDetails = parsePurchaseDetails(components);
     return {
       type: 'purchase',
       ...common,
@@ -351,11 +288,11 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
       pdsClassification: findValue(components, ['Clasificacion PDS', 'Clasificación PDS', 'PDS分类']),
       pieceworkOutsourcing: findValue(components, ['Outsourcing por pieza', '计件外包']),
       logisticsTransportService: findValue(components, ['logística y transporte', '物流']),
-      customsClearanceService: findValue(components, ['despacho aduanero', '清关']),
+      customsClearanceService: normalizePurchaseMultiSelect(findValue(components, ['despacho aduanero', '清关'])),
       detailSummaryAmount: normalizeNumber(findValue(components, ['Monto total detallado', '明细汇总金额'])),
       keyVoucher: compact(findValue(components, ['Comprobante clave', '关键凭证']), 2000),
-      items: buildPurchaseItemRows(components),
-      processors: buildProcessorRows(components),
+      items: purchaseDetails.items,
+      processors: purchaseDetails.processors,
       payments: buildPaymentRows(components),
       attachments: extractAttachments(components)
     };
@@ -526,8 +463,10 @@ async function main(): Promise<void> {
       if (parsed.type === 'purchase') {
         expenseId = await database.upsertPurchaseExpense({ ...parsed, baseCurrencyAmount } as any);
         if (expenseId) {
-          if ((parsed.items as unknown[]).length > 0) await database.replacePurchaseItems(expenseId, parsed.items as any);
-          if ((parsed.processors as unknown[]).length > 0) await database.replacePurchaseProcessors(expenseId, parsed.processors as any);
+          await database.replacePurchaseDetails(expenseId, {
+            items: Array.isArray(parsed.items) ? parsed.items as any : [],
+            processors: Array.isArray(parsed.processors) ? parsed.processors as any : [],
+          });
           if ((parsed.payments as unknown[]).length > 0) await database.replacePurchasePayments(expenseId, parsed.payments as any);
         }
       } else {

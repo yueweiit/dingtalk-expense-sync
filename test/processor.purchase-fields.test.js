@@ -56,6 +56,72 @@ test('parsePurchaseExpenseData extracts ecommerce purchase remaining budget fiel
   assert.equal(result.keyVoucher, 'voucher.pdf');
 });
 
+test('parsePurchaseExpenseData keeps purchase detail tables and normalizes customs multi-select values', () => {
+  const processor = getProcessor();
+  const result = processor.parsePurchaseExpenseData([
+    {
+      name: '采购需求明细Detalle de requisitos de compra',
+      componentType: 'TableField',
+      value: JSON.stringify([
+        {
+          物品名称: '手机壳',
+          编码: 'CASE-001',
+          规格: '透明',
+          数量: '10',
+          库存: '2',
+          单位: '个',
+          单价: '8.16',
+          总金额: '81.60',
+        },
+      ]),
+    },
+    {
+      name: '加工商明细Detalle de procesadores',
+      componentType: 'TableField',
+      value: JSON.stringify([
+        {
+          加工商名字: '测试加工商',
+          加工商电话: '13800000000',
+          ODT: 'ODT-001',
+          销售订单: 'SO-001',
+          加工物料: '塑料',
+          数量: '5',
+          单价: '3.20',
+          总金额: '16.00',
+          需求说明: '透明注塑',
+          交付日期: '2026-07-31',
+        },
+      ]),
+    },
+    {
+      name: '清关服务Servicios de despacho aduanero',
+      value: JSON.stringify(['报关服务', '清关代理', '报关服务']),
+    },
+  ]);
+
+  assert.deepEqual(
+    result.items?.map(({ rowNo, itemName, itemCode, quantity, totalAmount }) => ({
+      rowNo,
+      itemName,
+      itemCode,
+      quantity,
+      totalAmount,
+    })),
+    [{ rowNo: 1, itemName: '手机壳', itemCode: 'CASE-001', quantity: 10, totalAmount: 81.6 }]
+  );
+  assert.deepEqual(
+    result.processors?.map(({ rowNo, processorName, odt, quantity, totalAmount }) => ({
+      rowNo,
+      processorName,
+      odt,
+      quantity,
+      totalAmount,
+    })),
+    [{ rowNo: 1, processorName: '测试加工商', odt: 'ODT-001', quantity: 5, totalAmount: 16 }]
+  );
+  assert.equal(result.customsClearanceService, '报关服务、清关代理');
+});
+
 test('resolvePurchaseFormName maps legacy and ecommerce purchase process codes', () => {
   const formSourceModule = getFormSourceModule();
   const resolvePurchaseFormName =
