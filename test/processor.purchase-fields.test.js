@@ -135,5 +135,21 @@ test('resolvePurchaseFormName maps legacy and ecommerce purchase process codes',
     resolvePurchaseFormName('PROC-6E11B527-2F82-439C-817D-C868DE086C97'),
     '电商采购支出'
   );
+  assert.equal(
+    resolvePurchaseFormName('PROC-481342D0-27B4-461C-A543-4AB0A96D2EDF'),
+    '悦为智能采购支出'
+  );
   assert.equal(resolvePurchaseFormName('PROC-UNKNOWN'), null);
+});
+
+test('Yuewei Intelligent purchase form uses its fixed department', () => {
+  const formSourceModule = getFormSourceModule();
+  const resolveFixedDepartment =
+    formSourceModule.resolveFixedApplicantDepartment || formSourceModule.default?.resolveFixedApplicantDepartment;
+
+  assert.equal(
+    resolveFixedDepartment('PROC-481342D0-27B4-461C-A543-4AB0A96D2EDF'),
+    '悦为智能 YW Tech_Ai'
+  );
+  assert.equal(resolveFixedDepartment('PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B'), null);
 });

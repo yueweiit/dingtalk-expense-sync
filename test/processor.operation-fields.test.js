@@ -180,7 +180,23 @@ test('resolveOperationFormName maps old and new operation process codes to stabl
     resolveOperationFormName('PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD'),
     '\u7535\u5546\u8fd0\u8425\u652f\u51fa'
   );
+  assert.equal(
+    resolveOperationFormName('PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8'),
+    '\u60a6\u4e3a\u667a\u80fd\u8fd0\u8425\u652f\u51fa'
+  );
   assert.equal(resolveOperationFormName('PROC-UNKNOWN'), null);
+});
+
+test('Yuewei Intelligent operation form uses its fixed department', () => {
+  const formSourceModule = getFormSourceModule();
+  const resolveFixedDepartment =
+    formSourceModule.resolveFixedApplicantDepartment || formSourceModule.default?.resolveFixedApplicantDepartment;
+
+  assert.equal(
+    resolveFixedDepartment('PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8'),
+    '\u60a6\u4e3a\u667a\u80fd YW Tech_Ai'
+  );
+  assert.equal(resolveFixedDepartment('PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA'), null);
 });
 
 test('getStandaloneOperationProcessCodes returns isolated process-code lists for legacy and ecommerce sync', () => {
