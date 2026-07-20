@@ -87,6 +87,48 @@ ADD COLUMN IF NOT EXISTS payment_detail_reason TEXT;
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS individual_income_tax_by_department JSONB;
 
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'approval_expense_operation'
+          AND column_name = 'source_created_at'
+          AND data_type = 'timestamp without time zone'
+    ) THEN
+        ALTER TABLE approval_expense_operation
+        ALTER COLUMN source_created_at TYPE TIMESTAMPTZ
+        USING source_created_at AT TIME ZONE 'UTC';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'approval_expense_operation'
+          AND column_name = 'source_updated_at'
+          AND data_type = 'timestamp without time zone'
+    ) THEN
+        ALTER TABLE approval_expense_operation
+        ALTER COLUMN source_updated_at TYPE TIMESTAMPTZ
+        USING source_updated_at AT TIME ZONE 'UTC';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'approval_expense_operation'
+          AND column_name = 'approval_completed_at'
+          AND data_type = 'timestamp without time zone'
+    ) THEN
+        ALTER TABLE approval_expense_operation
+        ALTER COLUMN approval_completed_at TYPE TIMESTAMPTZ
+        USING approval_completed_at AT TIME ZONE 'UTC';
+    END IF;
+END $$;
+
 COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
 COMMENT ON COLUMN approval_expense_operation.social_insurance_by_department IS '社保中国分部门明细 — JSON array of {department, amount}';
 COMMENT ON COLUMN approval_expense_operation.office_space_by_department IS '办公场地总费用分部门明细 — JSON array of {department, amount}';
@@ -157,6 +199,48 @@ ADD COLUMN IF NOT EXISTS monthly_budget_remaining_amount NUMERIC(18, 2);
 
 ALTER TABLE approval_expense_purchase
 ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'approval_expense_purchase'
+          AND column_name = 'source_created_at'
+          AND data_type = 'timestamp without time zone'
+    ) THEN
+        ALTER TABLE approval_expense_purchase
+        ALTER COLUMN source_created_at TYPE TIMESTAMPTZ
+        USING source_created_at AT TIME ZONE 'UTC';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'approval_expense_purchase'
+          AND column_name = 'source_updated_at'
+          AND data_type = 'timestamp without time zone'
+    ) THEN
+        ALTER TABLE approval_expense_purchase
+        ALTER COLUMN source_updated_at TYPE TIMESTAMPTZ
+        USING source_updated_at AT TIME ZONE 'UTC';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'approval_expense_purchase'
+          AND column_name = 'approval_completed_at'
+          AND data_type = 'timestamp without time zone'
+    ) THEN
+        ALTER TABLE approval_expense_purchase
+        ALTER COLUMN approval_completed_at TYPE TIMESTAMPTZ
+        USING approval_completed_at AT TIME ZONE 'UTC';
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS approval_expense_purchase_items (
     id BIGSERIAL PRIMARY KEY,

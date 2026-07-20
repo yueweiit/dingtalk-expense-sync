@@ -3,10 +3,11 @@ import { sendMarkdownToUsers } from './dingtalk-robot.ts';
 import dingtalk from './dingtalk.ts';
 import config from './config.ts';
 import logger from './logger.ts';
+import { approvalExpenseTimeExpr, formatUtcDate, utcDateRange } from './utc-time.ts';
 
 // ─── SQL helpers ───
 
-const TIME_COLUMN = 'COALESCE(source_created_at, request_date::timestamp)';
+const TIME_COLUMN = approvalExpenseTimeExpr();
 
 const STATUS_FILTER = `
   AND UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')
@@ -79,27 +80,25 @@ function buildPurchaseBreakdownSql(dateFilter: string): string {
 
 // ─── Date helpers ───
 
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function buildUtcDateFilter(startDate: string, endDate: string): string {
+  const range = utcDateRange(startDate, endDate);
+  return `AND ${TIME_COLUMN} >= '${range.start}'::timestamptz AND ${TIME_COLUMN} < '${range.endExclusive}'::timestamptz`;
 }
 
 function getLastWeekRange(): { start: string; end: string } {
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
+  const dayOfWeek = now.getUTCDay(); // 0=Sun, 1=Mon...
   const daysBack = dayOfWeek === 0 ? 6 : dayOfWeek - 1 + 7;
   const lastMonday = new Date(now);
-  lastMonday.setDate(now.getDate() - daysBack);
+  lastMonday.setUTCDate(now.getUTCDate() - daysBack);
   const lastSunday = new Date(lastMonday);
-  lastSunday.setDate(lastMonday.getDate() + 6);
-  return { start: formatDate(lastMonday), end: formatDate(lastSunday) };
+  lastSunday.setUTCDate(lastMonday.getUTCDate() + 6);
+  return { start: formatUtcDate(lastMonday), end: formatUtcDate(lastSunday) };
 }
 
 function getCurrentMonth(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 // ─── Data queries ───
@@ -110,7 +109,7 @@ interface DeptExpense {
 }
 
 async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Map<string, number>> {
-  const dateFilter = `AND ${TIME_COLUMN} >= '${startDate}' AND ${TIME_COLUMN} <= '${endDate} 23:59:59'`;
+  const dateFilter = buildUtcDateFilter(startDate, endDate);
 
   const client = await pool.connect();
   try {
@@ -142,7 +141,7 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, { bu
   const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
   const lastDay = new Date(year, monthNum, 0).getDate();
   const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
-  const monthDateFilter = `AND ${TIME_COLUMN} >= '${startOfMonth}' AND ${TIME_COLUMN} <= '${endOfMonth} 23:59:59'`;
+  const monthDateFilter = buildUtcDateFilter(startOfMonth, endOfMonth);
 
   const client = await pool.connect();
   try {

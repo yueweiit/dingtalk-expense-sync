@@ -5,6 +5,7 @@ import logger from './logger.ts';
 import config from './config.ts';
 import { normalizeCurrencyToIso } from './fxToCny.ts';
 import scheduler from './scheduler.ts';
+import { approvalExpenseTimeExpr, utcDateRange } from './utc-time.ts';
 
 const app = express();
 const PORT = config.server.port;
@@ -163,7 +164,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     } = req.query;
 
     const queryConfig = getExpenseQueryConfig(processKind);
-    const timeColumn = 'COALESCE(source_created_at, request_date::timestamp)';
+    const timeColumn = approvalExpenseTimeExpr();
 
     /** 默认排除钉钉 biz_action 为撤销类（仍可能被标成流程完结）的单据 */
     const allowRevokedBiz = String(include_revoked || '').toLowerCase() === '1';
@@ -241,17 +242,21 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
       const lastDay = new Date(Number(year), monthNum, 0).getDate();
       const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
-      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
-      params.push(startOfMonth, endOfMonth + ' 23:59:59');
+      const range = utcDateRange(startOfMonth, endOfMonth);
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}::timestamptz AND ${timeColumn} < $${paramIndex++}::timestamptz`;
+      params.push(range.start, range.endExclusive);
     } else if (start_date && end_date) {
-      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
-      params.push(start_date, end_date + ' 23:59:59');
+      const range = utcDateRange(String(start_date), String(end_date));
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}::timestamptz AND ${timeColumn} < $${paramIndex++}::timestamptz`;
+      params.push(range.start, range.endExclusive);
     } else if (start_date) {
-      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}`;
-      params.push(start_date);
+      const range = utcDateRange(String(start_date));
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}::timestamptz`;
+      params.push(range.start);
     } else if (end_date) {
-      timeFilter = ` AND ${timeColumn} <= $${paramIndex++}`;
-      params.push(end_date + ' 23:59:59');
+      const range = utcDateRange(String(end_date), String(end_date));
+      timeFilter = ` AND ${timeColumn} < $${paramIndex++}::timestamptz`;
+      params.push(range.endExclusive);
     }
 
     let query: string;
@@ -434,7 +439,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     } = req.query;
 
     const queryConfig = getExpenseQueryConfig(processKind);
-    const timeColumn = 'COALESCE(source_created_at, request_date::timestamp)';
+    const timeColumn = approvalExpenseTimeExpr();
 
     const allowRevokedBiz = String(include_revoked || '').toLowerCase() === '1';
     const flowStatusCompletedOnly = String(flow_status || '').toLowerCase() === 'completed';
@@ -480,17 +485,21 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
       const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
       const lastDay = new Date(Number(year), monthNum, 0).getDate();
       const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
-      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
-      params.push(startOfMonth, endOfMonth + ' 23:59:59');
+      const range = utcDateRange(startOfMonth, endOfMonth);
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}::timestamptz AND ${timeColumn} < $${paramIndex++}::timestamptz`;
+      params.push(range.start, range.endExclusive);
     } else if (start_date && end_date) {
-      timeFilter = ` AND ${timeColumn} >= $${paramIndex++} AND ${timeColumn} <= $${paramIndex++}`;
-      params.push(start_date, end_date + ' 23:59:59');
+      const range = utcDateRange(String(start_date), String(end_date));
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}::timestamptz AND ${timeColumn} < $${paramIndex++}::timestamptz`;
+      params.push(range.start, range.endExclusive);
     } else if (start_date) {
-      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}`;
-      params.push(start_date);
+      const range = utcDateRange(String(start_date));
+      timeFilter = ` AND ${timeColumn} >= $${paramIndex++}::timestamptz`;
+      params.push(range.start);
     } else if (end_date) {
-      timeFilter = ` AND ${timeColumn} <= $${paramIndex++}`;
-      params.push(end_date + ' 23:59:59');
+      const range = utcDateRange(String(end_date), String(end_date));
+      timeFilter = ` AND ${timeColumn} < $${paramIndex++}::timestamptz`;
+      params.push(range.endExclusive);
     }
 
     // 总额查询：直接 SUM(base_currency_amount)
