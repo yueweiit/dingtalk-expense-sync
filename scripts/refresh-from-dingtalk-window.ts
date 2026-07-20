@@ -64,9 +64,9 @@ function resolveTimeRange(args: Record<string, string>): { startMs: number; endM
 
 async function collectInstanceIds(startMs: number, endMs: number): Promise<Array<{ processInstanceId: string; processCode: string }>> {
   const items: Array<{ processInstanceId: string; processCode: string }> = [];
-  const processCodes = config.dingtalk.processCodes || [];
+  const allProcessCodes = config.dingtalk.allProcessCodes;
 
-  for (const processCode of processCodes) {
+  for (const processCode of allProcessCodes) {
     let nextToken = 0;
     let page = 0;
     do {

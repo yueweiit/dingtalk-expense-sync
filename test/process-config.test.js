@@ -19,99 +19,96 @@ function getProcessConfigModule() {
   return loadModule('process-config');
 }
 
-test('buildLegacyProcessTypeMap preserves the original first-two-codes behavior', () => {
-  const processConfig = getProcessConfigModule();
-  const buildLegacyProcessTypeMap =
-    processConfig.buildLegacyProcessTypeMap || processConfig.default?.buildLegacyProcessTypeMap;
-
-  assert.deepEqual(
-    buildLegacyProcessTypeMap([
-      'PROC-OLD-OPERATION',
-      'PROC-PURCHASE',
-      'PROC-IGNORED-OTHER',
-    ]),
-    {
-      operation: ['PROC-OLD-OPERATION'],
-      purchase: ['PROC-PURCHASE'],
-    }
-  );
-});
-
-test('resolveProcessTypeMap merges explicit mapping with legacy compatibility', () => {
-  const processConfig = getProcessConfigModule();
-  const resolveProcessTypeMap =
-    processConfig.resolveProcessTypeMap || processConfig.default?.resolveProcessTypeMap;
-
-  assert.deepEqual(
-    resolveProcessTypeMap({
-      processCodes: ['PROC-OLD-OPERATION', 'PROC-PURCHASE'],
-      processTypeMap: {
-        operation: ['PROC-NEW-ECOMMERCE-OPERATION'],
-      },
-    }),
-    {
-      operation: ['PROC-OLD-OPERATION', 'PROC-NEW-ECOMMERCE-OPERATION'],
-      purchase: ['PROC-PURCHASE'],
-    }
-  );
-});
-
-test('getConfiguredProcessCodes keeps mapped codes and unmapped legacy codes together', () => {
-  const processConfig = getProcessConfigModule();
-  const getConfiguredProcessCodes =
-    processConfig.getConfiguredProcessCodes || processConfig.default?.getConfiguredProcessCodes;
-
-  assert.deepEqual(
-    getConfiguredProcessCodes({
-      processCodes: ['PROC-OLD-OPERATION', 'PROC-PURCHASE', 'PROC-UNMAPPED'],
-      processTypeMap: {
-        operation: ['PROC-NEW-ECOMMERCE-OPERATION'],
-      },
-    }),
-    ['PROC-OLD-OPERATION', 'PROC-NEW-ECOMMERCE-OPERATION', 'PROC-PURCHASE', 'PROC-UNMAPPED']
-  );
-});
-
-test('getProcessKind and getProcessTypeLabel classify both old and new operation forms', () => {
-  const processConfig = getProcessConfigModule();
-  const getProcessKind = processConfig.getProcessKind || processConfig.default?.getProcessKind;
-  const getProcessTypeLabel =
-    processConfig.getProcessTypeLabel || processConfig.default?.getProcessTypeLabel;
-
-  const config = {
-    processCodes: ['PROC-OLD-OPERATION', 'PROC-PURCHASE'],
-    processTypeMap: {
-      operation: ['PROC-NEW-ECOMMERCE-OPERATION'],
-    },
+function expectedProcessTypeMap() {
+  const forms = loadModule('form-source');
+  return {
+    operation: [
+      forms.OLD_OPERATION_FORM_CODE,
+      forms.NEW_ECOMMERCE_OPERATION_FORM_CODE,
+    ],
+    purchase: [
+      forms.OLD_PURCHASE_FORM_CODE,
+      forms.NEW_ECOMMERCE_PURCHASE_FORM_CODE,
+    ],
   };
+}
 
-  assert.equal(getProcessKind('PROC-OLD-OPERATION', config), 'operation');
-  assert.equal(getProcessKind('PROC-NEW-ECOMMERCE-OPERATION', config), 'operation');
-  assert.equal(getProcessKind('PROC-PURCHASE', config), 'purchase');
-  assert.equal(getProcessKind('PROC-UNKNOWN', config), 'other');
+test('strict process mapping keeps all known process codes in their required groups', () => {
+  const processConfig = getProcessConfigModule();
+  const processTypeMap = expectedProcessTypeMap();
 
-  assert.equal(getProcessTypeLabel('PROC-OLD-OPERATION', config), '运营支出');
-  assert.equal(getProcessTypeLabel('PROC-NEW-ECOMMERCE-OPERATION', config), '运营支出');
-  assert.equal(getProcessTypeLabel('PROC-PURCHASE', config), '采购支出');
-  assert.equal(getProcessTypeLabel('PROC-UNKNOWN', config), '其他');
+  assert.deepEqual(
+    processConfig.validateProcessTypeMap(processTypeMap),
+    processTypeMap
+  );
+  assert.deepEqual(
+    processConfig.getConfiguredProcessCodes({ processTypeMap }),
+    [
+      ...processTypeMap.operation,
+      ...processTypeMap.purchase,
+    ]
+  );
 });
 
-test('getProcessKind prefers explicit processTypeMap over expanded processCodes at runtime', () => {
+test('strict process mapping rejects a known operation code placed in purchase', () => {
   const processConfig = getProcessConfigModule();
-  const getProcessKind = processConfig.getProcessKind || processConfig.default?.getProcessKind;
+  const processTypeMap = expectedProcessTypeMap();
+  const oldOperationCode = processTypeMap.operation.shift();
+  processTypeMap.purchase.push(oldOperationCode);
+
+  assert.throws(
+    () => processConfig.validateProcessTypeMap(processTypeMap),
+    /operation|运营/i
+  );
+});
+
+test('strict process mapping rejects a missing known process code', () => {
+  const processConfig = getProcessConfigModule();
+  const processTypeMap = expectedProcessTypeMap();
+  processTypeMap.purchase.pop();
+
+  assert.throws(
+    () => processConfig.validateProcessTypeMap(processTypeMap),
+    /missing|缺少/i
+  );
+});
+
+test('strict process mapping rejects a code assigned to both groups', () => {
+  const processConfig = getProcessConfigModule();
+  const processTypeMap = expectedProcessTypeMap();
+  processTypeMap.purchase.push(processTypeMap.operation[0]);
+
+  assert.throws(
+    () => processConfig.validateProcessTypeMap(processTypeMap),
+    /both|同时/i
+  );
+});
+
+test('strict process mapping rejects duplicate codes within one group', () => {
+  const processConfig = getProcessConfigModule();
+  const processTypeMap = expectedProcessTypeMap();
+  processTypeMap.operation.push(processTypeMap.operation[0]);
+
+  assert.throws(
+    () => processConfig.validateProcessTypeMap(processTypeMap),
+    /重复|duplicate/i
+  );
+});
+
+test('process kind only comes from the explicit process type map', () => {
+  const processConfig = getProcessConfigModule();
+  const processTypeMap = expectedProcessTypeMap();
 
   assert.equal(
-    getProcessKind('PROC-PURCHASE', {
-      processCodes: [
-        'PROC-OLD-OPERATION',
-        'PROC-NEW-ECOMMERCE-OPERATION',
-        'PROC-PURCHASE',
-      ],
-      processTypeMap: {
-        operation: ['PROC-OLD-OPERATION', 'PROC-NEW-ECOMMERCE-OPERATION'],
-        purchase: ['PROC-PURCHASE'],
-      },
-    }),
+    processConfig.getProcessKind(processTypeMap.operation[0], { processTypeMap }),
+    'operation'
+  );
+  assert.equal(
+    processConfig.getProcessKind(processTypeMap.purchase[0], { processTypeMap }),
     'purchase'
+  );
+  assert.equal(
+    processConfig.getProcessKind('PROC-UNKNOWN', { processTypeMap }),
+    'other'
   );
 });

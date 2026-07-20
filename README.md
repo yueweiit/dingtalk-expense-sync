@@ -85,17 +85,14 @@ config.json
 ```json
 {
   "dingtalk": {
-    "processCodes": [
-      "PROC-0288DB08-...",
-      "PROC-BFDF6F09-..."
-    ],
     "processTypeMap": {
       "operation": [
         "PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA",
         "PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD"
       ],
       "purchase": [
-        "PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B"
+        "PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B",
+        "PROC-6E11B527-2F82-439C-817D-C868DE086C97"
       ]
     }
   },
@@ -111,7 +108,7 @@ config.json
 }
 ```
 
-如果未配置 `processTypeMap`，系统仍会兼容旧规则：`processCodes[0]` 视为 `operation`，`processCodes[1]` 视为 `purchase`。
+`processTypeMap` 是唯一流程配置来源。四个现有流程码必须全部在正确分组中；缺失、错分、重复或继续配置旧 `processCodes` 都会导致项目拒绝启动。
 
 ### 定时任务配置
 

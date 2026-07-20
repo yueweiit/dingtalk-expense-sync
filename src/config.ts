@@ -8,9 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import {
-  getConfiguredProcessCodes,
-  normalizeProcessTypeMap,
-  resolveProcessTypeMap,
+  validateProcessTypeMap,
   type ProcessTypeMap,
 } from './process-config.ts';
 
@@ -36,8 +34,8 @@ interface DingtalkConfig {
   robotCode: string | undefined;
   robotAppkey: string | undefined;
   robotAppsecret: string | undefined;
-  processCodes: string[];
-  processTypeMap: ProcessTypeMap;
+  allProcessCodes: string[];
+  processTypeMap: Required<ProcessTypeMap>;
 }
 
 interface SchedulerConfig {
@@ -73,7 +71,7 @@ interface FileConfigShape {
   database?: Partial<DatabaseConfig>;
   oaDatabase?: Partial<OaDatabaseConfig>;
   dingtalk?: Partial<DingtalkConfig> & {
-    processCodes?: string[];
+    processCodes?: unknown;
     processTypeMap?: ProcessTypeMap;
   };
   scheduler?: Partial<SchedulerConfig>;
@@ -194,22 +192,22 @@ function parseDeptRecipients(
 }
 
 // Build configuration object with env vars taking precedence over config.json
-const rawProcessCodes =
-  (parseJsonEnv(process.env.DINGTALK_PROCESS_CODES) as string[] | undefined) ||
-  fileConfig.dingtalk?.processCodes ||
-  [];
-const rawProcessTypeMap = normalizeProcessTypeMap(
-  (parseJsonEnv(process.env.DINGTALK_PROCESS_TYPE_MAP) as ProcessTypeMap | undefined) ||
-  fileConfig.dingtalk?.processTypeMap
-);
-const resolvedProcessTypeMap = resolveProcessTypeMap({
-  processCodes: rawProcessCodes,
-  processTypeMap: rawProcessTypeMap,
-});
-const configuredProcessCodes = getConfiguredProcessCodes({
-  processCodes: rawProcessCodes,
-  processTypeMap: rawProcessTypeMap,
-});
+if (process.env.DINGTALK_PROCESS_CODES?.trim()) {
+  throw new Error('DINGTALK_PROCESS_CODES 已废弃，请仅配置 DINGTALK_PROCESS_TYPE_MAP');
+}
+if (fileConfig.dingtalk?.processCodes !== undefined) {
+  throw new Error('config.json 中的 dingtalk.processCodes 已废弃，请仅配置 dingtalk.processTypeMap');
+}
+
+const processTypeMapEnv = process.env.DINGTALK_PROCESS_TYPE_MAP;
+const rawProcessTypeMap = processTypeMapEnv?.trim()
+  ? parseJsonEnv(processTypeMapEnv) as ProcessTypeMap | undefined
+  : fileConfig.dingtalk?.processTypeMap;
+const resolvedProcessTypeMap = validateProcessTypeMap(rawProcessTypeMap);
+const allProcessCodes = [
+  ...resolvedProcessTypeMap.operation,
+  ...resolvedProcessTypeMap.purchase,
+];
 
 const config: Config = Object.freeze({
   database: Object.freeze({
@@ -232,7 +230,7 @@ const config: Config = Object.freeze({
     robotCode: process.env.DINGTALK_ROBOT_CODE || fileConfig.dingtalk?.robotCode,
     robotAppkey: process.env.DINGTALK_ROBOT_APPKEY || fileConfig.dingtalk?.robotAppkey,
     robotAppsecret: process.env.DINGTALK_ROBOT_APPSECRET || fileConfig.dingtalk?.robotAppsecret,
-    processCodes: configuredProcessCodes,
+    allProcessCodes,
     processTypeMap: resolvedProcessTypeMap,
   }),
   scheduler: Object.freeze({

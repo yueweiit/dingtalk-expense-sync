@@ -11,58 +11,69 @@ function writeFile(targetPath, content) {
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
-test('config can load with only OA database credentials and without DingTalk app credentials', () => {
+function runConfigFixture(envLines, configJson = null) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-config-fixture-'));
   const fixtureSrc = path.join(fixtureRoot, 'src');
-  writeFile(
-    path.join(fixtureRoot, '.env'),
-    [
-      'DB_PASSWORD=test-db-password',
-      'OA_DB_HOST=127.0.0.1',
-      'OA_DB_PORT=5432',
-      'OA_DB_NAME=dingtalk_oa',
-      'OA_DB_USER=postgres',
-      'OA_DB_PASSWORD=test-oa-password',
-      'DINGTALK_PROCESS_CODES=["PROC-TEST-1"]',
-    ].join('\n')
-  );
+  writeFile(path.join(fixtureRoot, '.env'), envLines.join('\n'));
+  if (configJson) {
+    writeFile(path.join(fixtureRoot, 'config.json'), JSON.stringify(configJson));
+  }
 
-  writeFile(
-    path.join(fixtureSrc, 'config.ts'),
-    fs.readFileSync(path.join(__dirname, '..', 'src', 'config.ts'), 'utf8')
-  );
-  writeFile(
-    path.join(fixtureSrc, 'process-config.ts'),
-    fs.readFileSync(path.join(__dirname, '..', 'src', 'process-config.ts'), 'utf8')
-  );
+  for (const fileName of ['config.ts', 'process-config.ts', 'form-source.ts']) {
+    writeFile(
+      path.join(fixtureSrc, fileName),
+      fs.readFileSync(path.join(__dirname, '..', 'src', fileName), 'utf8')
+    );
+  }
+
+  const childEnv = { ...process.env, NODE_PATH: path.join(__dirname, '..', 'node_modules') };
+  delete childEnv.DINGTALK_APPKEY;
+  delete childEnv.DINGTALK_APPSECRET;
+  delete childEnv.DINGTALK_PROCESS_CODES;
+  delete childEnv.DINGTALK_PROCESS_TYPE_MAP;
 
   const child = spawnSync(
     process.execPath,
     [
       '--import',
       'tsx',
-        '--eval',
-        [
+      '--eval',
+      [
         `import * as configModule from ${JSON.stringify(pathToFileURL(path.join(fixtureSrc, 'config.ts')).href)};`,
         'const config = configModule.default?.default ?? configModule.default ?? configModule;',
         'console.log(JSON.stringify({',
         '  oaDatabase: config.oaDatabase,',
         '  appkey: config.dingtalk.appkey ?? null,',
         '  appsecret: config.dingtalk.appsecret ?? null,',
+        '  allProcessCodes: config.dingtalk.allProcessCodes,',
         '}));',
       ].join('\n'),
     ],
     {
       cwd: path.join(__dirname, '..'),
       encoding: 'utf8',
-      env: {
-        ...process.env,
-        DINGTALK_APPKEY: '',
-        DINGTALK_APPSECRET: '',
-        NODE_PATH: path.join(__dirname, '..', 'node_modules'),
-      },
+      env: childEnv,
     }
   );
+
+  fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  return child;
+}
+
+const completeProcessTypeMap = [
+  'DINGTALK_PROCESS_TYPE_MAP={"operation":["PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA","PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD"],"purchase":["PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B","PROC-6E11B527-2F82-439C-817D-C868DE086C97"]}',
+];
+
+test('config loads with OA database credentials and a complete process type map', () => {
+  const child = runConfigFixture([
+    'DB_PASSWORD=test-db-password',
+    'OA_DB_HOST=127.0.0.1',
+    'OA_DB_PORT=5432',
+    'OA_DB_NAME=dingtalk_oa',
+    'OA_DB_USER=postgres',
+    'OA_DB_PASSWORD=test-oa-password',
+    ...completeProcessTypeMap,
+  ]);
 
   assert.equal(child.status, 0, child.stderr || child.stdout);
   const lines = child.stdout
@@ -73,4 +84,59 @@ test('config can load with only OA database credentials and without DingTalk app
   assert.equal(parsed.oaDatabase.database, 'dingtalk_oa');
   assert.equal(parsed.appkey, null);
   assert.equal(parsed.appsecret, null);
+  assert.equal(parsed.allProcessCodes.length, 4);
+});
+
+test('config rejects the deprecated process code array even when it is otherwise valid', () => {
+  const child = runConfigFixture([
+    'DB_PASSWORD=test-db-password',
+    'DINGTALK_PROCESS_CODES=["PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA","PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B"]',
+    ...completeProcessTypeMap,
+  ]);
+
+  assert.notEqual(child.status, 0);
+  assert.match(child.stderr || child.stdout, /DINGTALK_PROCESS_CODES.*废弃|deprecated/i);
+});
+
+test('config rejects the deprecated process code array from config.json', () => {
+  const child = runConfigFixture(
+    [
+      'DB_PASSWORD=test-db-password',
+      ...completeProcessTypeMap,
+    ],
+    {
+      dingtalk: {
+        processCodes: ['PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA'],
+      },
+    }
+  );
+
+  assert.notEqual(child.status, 0);
+  assert.match(child.stderr || child.stdout, /dingtalk\.processCodes.*废弃|deprecated/i);
+});
+
+test('config rejects an invalid environment map instead of falling back to config.json', () => {
+  const child = runConfigFixture(
+    [
+      'DB_PASSWORD=test-db-password',
+      'DINGTALK_PROCESS_TYPE_MAP=null',
+    ],
+    {
+      dingtalk: {
+        processTypeMap: {
+          operation: [
+            'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
+            'PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD',
+          ],
+          purchase: [
+            'PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B',
+            'PROC-6E11B527-2F82-439C-817D-C868DE086C97',
+          ],
+        },
+      },
+    }
+  );
+
+  assert.notEqual(child.status, 0);
+  assert.match(child.stderr || child.stdout, /DINGTALK_PROCESS_TYPE_MAP.*必须|invalid/i);
 });
