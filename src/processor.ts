@@ -1,7 +1,7 @@
 import database from './database.ts';
 import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
-import { resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
+import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
 import { collectOperationDeptSplits } from './operation-dept-splits.ts';
 import { normalizePurchaseMultiSelect, parsePurchaseDetails } from './purchase-details.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
@@ -615,9 +615,12 @@ class ApprovalProcessor {
       const meta = this.parseApprovalMeta(instance);
       const attachments = this.extractAttachments(instance.formComponentValues);
       const processType = instance.processType || data.processType || '';
+      const fixedApplicantDepartment = resolveFixedApplicantDepartment(instance.processCode);
 
       if (String(processType).includes('运营') || String(processType).includes('杩愯惀')) {
         const opData = this.parseOperationExpenseData(instance.formComponentValues);
+        const opApplicantDepartment = fixedApplicantDepartment ||
+          (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null);
         const opAmount = opData.amount ?? data.amount;
         const opCurrency = opData.currency ?? data.currency;
         const opBaseCurrencyAmount = await convertAmountToCny({
@@ -630,6 +633,7 @@ class ApprovalProcessor {
 
         const fullOpData = {
           ...opData,
+          applicantDepartment: opApplicantDepartment,
           processInstanceId: data.processInstanceId as string,
           businessId,
           formName: resolveOperationFormName(instance.processCode),
@@ -637,6 +641,7 @@ class ApprovalProcessor {
           baseCurrencyAmount: opBaseCurrencyAmount as number,
           currency: opCurrency as string,
           ...meta,
+          creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
           rawData: instance as unknown as Record<string, unknown>
         };
 
@@ -646,6 +651,8 @@ class ApprovalProcessor {
         }
       } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
         const pData = this.parsePurchaseExpenseData(instance.formComponentValues);
+        const purchaseApplicantDepartment = fixedApplicantDepartment ||
+          (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null);
         const purchaseAmount = pData.detailSummaryAmount ?? data.amount;
         const purchaseCurrency = pData.currency ?? data.currency;
         const purchaseBaseCurrencyAmount = await convertAmountToCny({
@@ -655,11 +662,13 @@ class ApprovalProcessor {
         });
         const purchaseId = await database.upsertPurchaseExpense({
           ...pData,
+          applicantDepartment: purchaseApplicantDepartment,
           processInstanceId: data.processInstanceId as string,
           businessId,
           formName: resolvePurchaseFormName(instance.processCode),
           baseCurrencyAmount: purchaseBaseCurrencyAmount as number,
           ...meta,
+          creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
           rawData: instance as unknown as Record<string, unknown>
         });
         if (purchaseId) {

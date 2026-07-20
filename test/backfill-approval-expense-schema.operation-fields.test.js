@@ -127,6 +127,82 @@ test('backfill-approval-expense-schema writes new ecommerce operation fields', a
     await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
     await pool.query('delete from approval_expense_operation where business_id = $1', [businessId]);
     await pool.query('delete from approval_instances where business_id = $1', [businessId]);
-    await pool.end();
   }
+});
+
+test('backfill-approval-expense-schema assigns Yuewei Intelligent operation records to the fixed department', async () => {
+  const databaseModule = loadModule('database');
+  const database = databaseModule.default || databaseModule;
+  const pool = databaseModule.pool || databaseModule.default?.pool;
+
+  await database.ensureApprovalExpenseSchema();
+
+  const businessId = `test-backfill-yw-intelligent-operation-${Date.now()}`;
+  const processCode = 'PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8';
+  const processInstanceId = `pid-${businessId}`;
+  const rawData = {
+    businessId,
+    processCode,
+    processType: '运营支出',
+    processInstanceId,
+    status: 'COMPLETED',
+    createTime: '2026-07-20T09:30:00+08:00',
+    updateTime: '2026-07-20T09:30:00+08:00',
+    originatorDeptName: '错误来源部门',
+    formComponentValues: [
+      { componentType: 'DepartmentField', value: '错误表单部门' },
+      { name: '金额importe', value: '100' },
+      { name: '币种Moneda', value: '人民币CNY' },
+    ],
+  };
+
+  try {
+    await pool.query(
+      `insert into approval_instances
+        (business_id, process_code, process_type, status, originator_dept_name, create_time, update_time, process_instance_id, raw_data)
+       values
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+      [
+        businessId,
+        processCode,
+        '运营支出',
+        'COMPLETED',
+        '错误来源部门',
+        '2026-07-20T09:30:00+08:00',
+        '2026-07-20T09:30:00+08:00',
+        processInstanceId,
+        JSON.stringify(rawData),
+      ]
+    );
+
+    const tsxCli = path.resolve(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs');
+    const scriptResult = spawnSync(
+      process.execPath,
+      [tsxCli, 'scripts/backfill-approval-expense-schema.ts', `--businessId=${businessId}`],
+      { cwd: path.resolve(__dirname, '..'), env: process.env, encoding: 'utf8' }
+    );
+
+    assert.equal(scriptResult.status, 0, scriptResult.stderr || scriptResult.stdout);
+    const result = await pool.query(
+      `select form_name, applicant_department, creator_department
+       from approval_expense_operation
+       where business_id = $1`,
+      [businessId]
+    );
+    assert.deepEqual(result.rows[0], {
+      form_name: '悦为智能运营支出',
+      applicant_department: '悦为智能 YW Tech_Ai',
+      creator_department: '悦为智能 YW Tech_Ai',
+    });
+  } finally {
+    await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
+    await pool.query('delete from approval_expense_operation where business_id = $1', [businessId]);
+    await pool.query('delete from approval_instances where business_id = $1', [businessId]);
+  }
+});
+
+test.after(async () => {
+  const databaseModule = loadModule('database');
+  const pool = databaseModule.pool || databaseModule.default?.pool;
+  await pool.end();
 });

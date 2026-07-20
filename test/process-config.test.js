@@ -25,10 +25,12 @@ function expectedProcessTypeMap() {
     operation: [
       forms.OLD_OPERATION_FORM_CODE,
       forms.NEW_ECOMMERCE_OPERATION_FORM_CODE,
+      forms.YW_INTELLIGENT_OPERATION_FORM_CODE,
     ],
     purchase: [
       forms.OLD_PURCHASE_FORM_CODE,
       forms.NEW_ECOMMERCE_PURCHASE_FORM_CODE,
+      forms.YW_INTELLIGENT_PURCHASE_FORM_CODE,
     ],
   };
 }
@@ -110,5 +112,22 @@ test('process kind only comes from the explicit process type map', () => {
   assert.equal(
     processConfig.getProcessKind('PROC-UNKNOWN', { processTypeMap }),
     'other'
+  );
+});
+
+test('strict process mapping keeps Yuewei Intelligent codes in their required groups', () => {
+  const processConfig = getProcessConfigModule();
+  const forms = loadModule('form-source');
+  const processTypeMap = expectedProcessTypeMap();
+
+  assert.equal(forms.YW_INTELLIGENT_OPERATION_FORM_CODE, 'PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8');
+  assert.equal(forms.YW_INTELLIGENT_PURCHASE_FORM_CODE, 'PROC-481342D0-27B4-461C-A543-4AB0A96D2EDF');
+  assert.equal(
+    processConfig.getProcessKind(forms.YW_INTELLIGENT_OPERATION_FORM_CODE, { processTypeMap }),
+    'operation'
+  );
+  assert.equal(
+    processConfig.getProcessKind(forms.YW_INTELLIGENT_PURCHASE_FORM_CODE, { processTypeMap }),
+    'purchase'
   );
 });
