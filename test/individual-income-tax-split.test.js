@@ -23,12 +23,18 @@ test('parses individual income tax department rows only when tax type is individ
 
   assert.deepEqual(parsed.individualIncomeTaxByDepartment, [{
     department: 'SG 销售小组Grupo de ventas',
+    departmentId: null,
+    departmentSource: 'name_only',
     amount: 1234.56,
     note: '6月个税',
   }]);
   assert.deepEqual(collectOperationDeptSplits(parsed), [{
     splitType: 'individual_income_tax',
     department: 'SG 销售小组Grupo de ventas',
+    departmentId: null,
+    departmentSource: 'name_only',
+    departmentPathIds: null,
+    departmentPathNames: null,
     amount: 1234.56,
     note: '6月个税',
   }]);

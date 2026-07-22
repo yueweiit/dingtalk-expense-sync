@@ -3,6 +3,7 @@ import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
 import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
 import { collectOperationDeptSplits } from './operation-dept-splits.ts';
+import approvalSource from './oa-source.ts';
 import { normalizePurchaseMultiSelect, parsePurchaseDetails } from './purchase-details.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 import type { PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
@@ -12,6 +13,7 @@ export interface FormComponentValue {
   value?: unknown;
   componentType?: string;
   id?: string;
+  extendValue?: unknown;
   details?: FormComponentValue[][];
 }
 
@@ -116,6 +118,8 @@ interface DeptSplitTypeConfig {
   dbColumn: string;
 }
 
+type DepartmentSnapshotLookup = Pick<typeof approvalSource, 'getDepartmentSnapshots'>;
+
 const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
   {
     label: '工资中国',
@@ -141,7 +145,8 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
   },
 ];
 
-class ApprovalProcessor {
+export class ApprovalProcessor {
+  constructor(private readonly departmentSnapshotLookup: DepartmentSnapshotLookup = approvalSource) {}
 
   // 从表单值中提取字段（第一个匹配）
   extractFormValue(formComponentValues: FormComponentValue[] | undefined | null, fieldName: string): unknown {
@@ -197,7 +202,13 @@ class ApprovalProcessor {
     moneyFieldId: string = 'MoneyField_T2TFVV7BXN40',
     textFieldId: string | null = 'TextField_SZ57CIDK9J40',
     tableFieldName: string | null = null
-  ): Array<{ department: string; amount: number; note: string }> | null {
+  ): Array<{
+    department: string;
+    departmentId: string | null;
+    departmentSource: 'id' | 'name_only';
+    amount: number;
+    note: string;
+  }> | null {
     if (!fc || !Array.isArray(fc)) {
       return null;
     }
@@ -215,7 +226,13 @@ class ApprovalProcessor {
     }
 
     // 解析每一行数据
-    const rows: Array<{ department: string; amount: number; note: string }> = [];
+    const rows: Array<{
+      department: string;
+      departmentId: string | null;
+      departmentSource: 'id' | 'name_only';
+      amount: number;
+      note: string;
+    }> = [];
 
     // 优先使用 details 字段（新版钉钉 API 格式）
     if (tableField.details && Array.isArray(tableField.details)) {
@@ -223,6 +240,7 @@ class ApprovalProcessor {
         if (!Array.isArray(row)) continue;
 
         let department = '';
+        let departmentId: string | null = null;
         let amount = 0;
         let note = '';
 
@@ -230,6 +248,7 @@ class ApprovalProcessor {
           const cellId = String(cell.id || '');
           if (cellId.startsWith('DepartmentField_')) {
             department = String(cell.value || '').trim();
+            departmentId = this.extractDepartmentId(cell.extendValue);
           } else if (cellId === moneyFieldId || (!moneyFieldId && cellId.startsWith('MoneyField_'))) {
             amount = this.normalizeNumber(cell.value) || 0;
           } else if ((textFieldId && cellId === textFieldId) || (!textFieldId && cellId.startsWith('TextField_'))) {
@@ -239,7 +258,13 @@ class ApprovalProcessor {
 
         // 只添加有部门和金额的有效行
         if (department && amount > 0) {
-          rows.push({ department, amount, note });
+          rows.push({
+            department,
+            departmentId,
+            departmentSource: departmentId ? 'id' : 'name_only',
+            amount,
+            note,
+          });
         }
       }
     }
@@ -252,6 +277,7 @@ class ApprovalProcessor {
             if (!row || !Array.isArray(row.rowValue)) continue;
 
             let department = '';
+            let departmentId: string | null = null;
             let amount = 0;
             let note = '';
 
@@ -259,6 +285,7 @@ class ApprovalProcessor {
               const cellKey = String(cell.key || '');
               if (cellKey.startsWith('DepartmentField_')) {
                 department = String(cell.value || '').trim();
+                departmentId = this.extractDepartmentId(cell.extendValue);
               } else if (cellKey === moneyFieldId || (!moneyFieldId && cellKey.startsWith('MoneyField_'))) {
                 amount = this.normalizeNumber(cell.value) || 0;
               } else if ((textFieldId && cellKey === textFieldId) || (!textFieldId && cellKey.startsWith('TextField_'))) {
@@ -268,7 +295,13 @@ class ApprovalProcessor {
 
             // 只添加有部门和金额的有效行
             if (department && amount > 0) {
-              rows.push({ department, amount, note });
+              rows.push({
+                department,
+                departmentId,
+                departmentSource: departmentId ? 'id' : 'name_only',
+                amount,
+                note,
+              });
             }
           }
         }
@@ -280,6 +313,49 @@ class ApprovalProcessor {
     }
 
     return rows.length > 0 ? rows : null;
+  }
+
+  private extractDepartmentId(extendValue: unknown): string | null {
+    const candidates = Array.isArray(extendValue) ? extendValue : [extendValue];
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+      const record = candidate as Record<string, unknown>;
+      const id = record.id ?? record.itemId ?? record.deptId ?? record.dept_id;
+      const normalized = String(id || '').trim();
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
+  async enrichOperationDepartmentPaths(data: Record<string, unknown>): Promise<void> {
+    const splitFields = [
+      'salaryByDepartment',
+      'socialInsuranceByDepartment',
+      'officeSpaceByDepartment',
+      'individualIncomeTaxByDepartment',
+    ];
+    const rows = splitFields.flatMap((field) => {
+      const value = data[field];
+      return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => !!row && typeof row === 'object') : [];
+    });
+    const departmentIds = [...new Set(rows
+      .map((row) => String(row.departmentId || '').trim())
+      .filter(Boolean))];
+    if (!departmentIds.length) return;
+
+    try {
+      const snapshots = await this.departmentSnapshotLookup.getDepartmentSnapshots(departmentIds);
+      for (const row of rows) {
+        const departmentId = String(row.departmentId || '').trim();
+        const snapshot = snapshots.get(departmentId);
+        if (!snapshot) continue;
+        row.departmentPathIds = snapshot.departmentPathIds;
+        row.departmentPathNames = snapshot.departmentPathNames;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`Department path lookup failed; syncing without path snapshots: ${message}`);
+    }
   }
 
   normalizeNumber(value: unknown): number | null {
@@ -435,7 +511,13 @@ class ApprovalProcessor {
 
     const operationExpense = this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出');
     const opExpenseStr = String(operationExpense || '');
-    const deptSplitResults: Record<string, Array<{ department: string; amount: number; note: string }> | null> = {};
+    const deptSplitResults: Record<string, Array<{
+      department: string;
+      departmentId: string | null;
+      departmentSource: 'id' | 'name_only';
+      amount: number;
+      note: string;
+    }> | null> = {};
     for (const cfg of DEPT_SPLIT_TYPES) {
       const matches = opExpenseStr.includes(cfg.label) || (cfg.labelEs ? opExpenseStr.includes(cfg.labelEs) : false);
       if (matches && cfg.tableFieldId) {
@@ -629,6 +711,7 @@ class ApprovalProcessor {
           createTime: String(data.createTime || '')
         });
 
+        await this.enrichOperationDepartmentPaths(opData);
         const deptSplits = collectOperationDeptSplits(opData);
 
         const fullOpData = {

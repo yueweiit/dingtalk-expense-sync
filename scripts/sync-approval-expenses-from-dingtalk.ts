@@ -146,6 +146,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
 
   if (kind === 'operation') {
     const opData = processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
+    await processor.enrichOperationDepartmentPaths(opData);
     const opApplicantDepartment = fixedApplicantDepartment ||
       (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null);
     const amount = opData.amount ?? normalizeNumber(processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).amount);

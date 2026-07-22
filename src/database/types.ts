@@ -78,10 +78,10 @@ export interface OperationExpenseData {
   sourceCreatedAt?: string | null;
   sourceUpdatedAt?: string | null;
   creatorDepartment?: string | null;
-  salaryByDepartment?: Array<{ department: string; amount: number; note?: string }> | null;
-  socialInsuranceByDepartment?: Array<{ department: string; amount: number }> | null;
-  officeSpaceByDepartment?: Array<{ department: string; amount: number }> | null;
-  individualIncomeTaxByDepartment?: Array<{ department: string; amount: number; note?: string }> | null;
+  salaryByDepartment?: DepartmentSplitValue[] | null;
+  socialInsuranceByDepartment?: DepartmentSplitValue[] | null;
+  officeSpaceByDepartment?: DepartmentSplitValue[] | null;
+  individualIncomeTaxByDepartment?: DepartmentSplitValue[] | null;
   rawData?: Record<string, unknown>;
 }
 
@@ -181,11 +181,18 @@ export interface AttachmentData {
   rawData?: Record<string, unknown> | unknown;
 }
 
-export interface DeptSplitRow {
-  splitType: 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax';
+export interface DepartmentSplitValue {
   department: string;
+  departmentId?: string | null;
+  departmentSource?: 'id' | 'name_only';
+  departmentPathIds?: string[] | null;
+  departmentPathNames?: string[] | null;
   amount: number;
   note?: string;
+}
+
+export interface DeptSplitRow extends DepartmentSplitValue {
+  splitType: 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax';
 }
 
 export interface FxRateRow {

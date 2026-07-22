@@ -34,9 +34,9 @@ test('collectOperationDeptSplits converts configured split arrays and ignores em
       officeSpaceByDepartment: [{ department: '行政部', amount: 300 }],
     }),
     [
-      { splitType: 'salary', department: '设计部', amount: 100, note: '工资' },
-      { splitType: 'social_insurance', department: '人事部', amount: 200, note: undefined },
-      { splitType: 'office_space', department: '行政部', amount: 300, note: undefined },
+      { splitType: 'salary', department: '设计部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 100, note: '工资' },
+      { splitType: 'social_insurance', department: '人事部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 200, note: undefined },
+      { splitType: 'office_space', department: '行政部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 300, note: undefined },
     ]
   );
 
@@ -177,7 +177,7 @@ test('个税分部门明细会写入运营主表和部门拆分表', async () =>
       [businessId]
     );
     assert.deepEqual(operation.rows[0].individual_income_tax_by_department, [
-      { department: '测试部门', amount: 1234.56, note: '六月个税' },
+      { department: '测试部门', departmentId: null, departmentSource: 'name_only', amount: 1234.56, note: '六月个税' },
     ]);
 
     const splits = await pool.query(
