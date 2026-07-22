@@ -474,6 +474,7 @@ async function main(): Promise<void> {
           if ((parsed.payments as unknown[]).length > 0) await database.replacePurchasePayments(expenseId, parsed.payments as any);
         }
       } else {
+        await processor.enrichOperationDepartmentPaths(parsed);
         const deptSplits = collectOperationDeptSplits(parsed);
         expenseId = await database.upsertOperationExpenseWithSplits({ ...parsed, baseCurrencyAmount } as any, deptSplits);
       }

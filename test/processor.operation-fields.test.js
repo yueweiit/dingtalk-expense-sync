@@ -96,13 +96,13 @@ test('parseOperationExpenseData keeps existing operation parsing and split table
   assert.equal(result.paymentDate, '2026-07-05');
   assert.equal(result.keyVoucher, 'voucher.pdf');
   assert.deepEqual(result.salaryByDepartment, [
-    { department: '\u8bbe\u8ba1\u90e8', amount: 1000, note: '\u5de5\u8d44' }
+    { department: '\u8bbe\u8ba1\u90e8', departmentId: null, departmentSource: 'name_only', amount: 1000, note: '\u5de5\u8d44' }
   ]);
   assert.deepEqual(result.socialInsuranceByDepartment, [
-    { department: '\u4eba\u4e8b\u90e8', amount: 2000, note: '' }
+    { department: '\u4eba\u4e8b\u90e8', departmentId: null, departmentSource: 'name_only', amount: 2000, note: '' }
   ]);
   assert.deepEqual(result.officeSpaceByDepartment, [
-    { department: '\u884c\u653f\u90e8', amount: 3000, note: '' }
+    { department: '\u884c\u653f\u90e8', departmentId: null, departmentSource: 'name_only', amount: 3000, note: '' }
   ]);
 });
 

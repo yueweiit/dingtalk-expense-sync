@@ -23,6 +23,17 @@ test('main sync entrypoints read approval data through oa-source', () => {
   }
 });
 
+test('direct operation write entrypoints enrich department paths before writing splits', () => {
+  const checks = [
+    ['scripts/sync-approval-expenses-from-dingtalk.ts', 'await processor.enrichOperationDepartmentPaths(opData);'],
+    ['scripts/backfill-approval-expense-schema.ts', 'await processor.enrichOperationDepartmentPaths(parsed);'],
+  ];
+
+  for (const [relativePath, expectedCall] of checks) {
+    assert.match(readProjectFile(relativePath), new RegExp(expectedCall.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
 test('refresh-from-dingtalk-window rejects an inverted time range before touching the database', () => {
   const child = spawnSync(
     process.execPath,

@@ -547,6 +547,10 @@ CREATE TABLE IF NOT EXISTS approval_expense_dept_split (
     business_id VARCHAR(64) NOT NULL,
     split_type VARCHAR(32) NOT NULL CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax')),
     department VARCHAR(500) NOT NULL,
+    department_id VARCHAR(64),
+    department_source VARCHAR(32),
+    department_path_ids JSONB,
+    department_path_names JSONB,
     amount NUMERIC(18, 2) NOT NULL,
     note TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -560,8 +564,36 @@ ALTER TABLE approval_expense_dept_split
 ADD CONSTRAINT approval_expense_dept_split_split_type_check
 CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax'));
 
+ALTER TABLE approval_expense_dept_split
+ADD COLUMN IF NOT EXISTS department_id VARCHAR(64);
+
+ALTER TABLE approval_expense_dept_split
+ADD COLUMN IF NOT EXISTS department_source VARCHAR(32);
+
+ALTER TABLE approval_expense_dept_split
+ADD COLUMN IF NOT EXISTS department_path_ids JSONB;
+
+ALTER TABLE approval_expense_dept_split
+ADD COLUMN IF NOT EXISTS department_path_names JSONB;
+
+DO $$
+DECLARE
+    index_definition TEXT;
+BEGIN
+    SELECT indexdef
+    INTO index_definition
+    FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND indexname = 'uk_dept_split_biz_type_dept';
+
+    IF index_definition IS NOT NULL
+       AND index_definition NOT LIKE '%(business_id, split_type, department_id, department)%' THEN
+        DROP INDEX uk_dept_split_biz_type_dept;
+    END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uk_dept_split_biz_type_dept
-    ON approval_expense_dept_split(business_id, split_type, department);
+    ON approval_expense_dept_split(business_id, split_type, department_id, department);
 
 CREATE INDEX IF NOT EXISTS idx_dept_split_biz
     ON approval_expense_dept_split(business_id);
@@ -583,5 +615,9 @@ COMMENT ON TABLE approval_expense_dept_split IS '运营支出分部门拆分表�
 COMMENT ON COLUMN approval_expense_dept_split.business_id IS '关联审批 business_id';
 COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space/individual_income_tax';
 COMMENT ON COLUMN approval_expense_dept_split.department IS '部门名称';
+COMMENT ON COLUMN approval_expense_dept_split.department_id IS '钉钉部门ID；历史载荷缺失时为空';
+COMMENT ON COLUMN approval_expense_dept_split.department_source IS '部门归属来源：id/name_only';
+COMMENT ON COLUMN approval_expense_dept_split.department_path_ids IS '钉钉部门ID完整路径快照';
+COMMENT ON COLUMN approval_expense_dept_split.department_path_names IS '钉钉部门名称完整路径快照';
 COMMENT ON COLUMN approval_expense_dept_split.amount IS '拆分金额';
 COMMENT ON COLUMN approval_expense_dept_split.note IS '备注';

@@ -2,6 +2,10 @@ import type { DeptSplitRow } from './database/types.ts';
 
 type ParsedDeptSplit = {
   department?: unknown;
+  departmentId?: unknown;
+  departmentSource?: unknown;
+  departmentPathIds?: unknown;
+  departmentPathNames?: unknown;
   amount?: unknown;
   note?: unknown;
 };
@@ -33,7 +37,23 @@ export function collectOperationDeptSplits(data: OperationDeptSplitSource): Dept
       if (!department || !Number.isFinite(amount)) continue;
 
       const note = String(row?.note || '').trim() || undefined;
-      splits.push({ splitType: source.splitType, department, amount, note });
+      const departmentId = String(row?.departmentId || '').trim() || null;
+      const departmentPathIds = Array.isArray(row?.departmentPathIds)
+        ? row.departmentPathIds.map((value) => String(value))
+        : null;
+      const departmentPathNames = Array.isArray(row?.departmentPathNames)
+        ? row.departmentPathNames.map((value) => String(value))
+        : null;
+      splits.push({
+        splitType: source.splitType,
+        department,
+        departmentId,
+        departmentSource: departmentId ? 'id' : 'name_only',
+        departmentPathIds,
+        departmentPathNames,
+        amount,
+        note,
+      });
     }
   }
 

@@ -63,6 +63,38 @@ test('queryProcessInstanceIds returns paged ids and numeric nextToken', async ()
   });
 });
 
+test('getDepartmentSnapshots returns a department path only when the id is unambiguous', async () => {
+  const sourceModule = loadModule('oa-source');
+  const createOaApprovalSource =
+    sourceModule.createOaApprovalSource || sourceModule.default?.createOaApprovalSource;
+
+  const source = createOaApprovalSource(
+    createFakeClient(({ sql, params }) => {
+      assert.match(sql, /ding_department_tree/);
+      assert.deepEqual(params, [['1059483024', 'ambiguous-id']]);
+      return {
+        rows: [{
+          dept_id: '1059483024',
+          name: 'OBG 线上业务组',
+          path_ids: ['1', '1004758048', '1059358452', '1059483024'],
+          path_names: ['ROOT', 'YUEWEI', '业务及生产执行单元', 'OBG 线上业务组'],
+        }],
+      };
+    })
+  );
+
+  const snapshots = await source.getDepartmentSnapshots(['1059483024', 'ambiguous-id']);
+
+  assert.deepEqual([...snapshots.entries()], [[
+    '1059483024',
+    {
+      department: 'OBG 线上业务组',
+      departmentPathIds: ['1', '1004758048', '1059358452', '1059483024'],
+      departmentPathNames: ['ROOT', 'YUEWEI', '业务及生产执行单元', 'OBG 线上业务组'],
+    },
+  ]]);
+});
+
 test('getProcessInstance adapts raw payload and falls back to structured columns', async () => {
   const sourceModule = loadModule('oa-source');
   const createOaApprovalSource =

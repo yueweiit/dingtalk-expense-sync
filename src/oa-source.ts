@@ -36,6 +36,12 @@ interface ApprovalSourceInstanceResult {
   error: string | null;
 }
 
+export interface DepartmentSnapshot {
+  department: string;
+  departmentPathIds: string[];
+  departmentPathNames: string[];
+}
+
 const oaPool = new Pool({
   host: config.oaDatabase.host,
   port: config.oaDatabase.port,
@@ -225,6 +231,55 @@ function adaptInstanceRow(row: QueryResultRow): Record<string, unknown> {
 export function createOaApprovalSource(client: Queryable = oaPool) {
   return {
     sleep,
+
+    async getDepartmentSnapshots(departmentIds: string[]): Promise<Map<string, DepartmentSnapshot>> {
+      const ids = [...new Set(departmentIds.map((value) => String(value || '').trim()).filter(Boolean))];
+      if (!ids.length) {
+        return new Map();
+      }
+
+      const result = await client.query<{
+        dept_id: string | null;
+        name: string | null;
+        path_ids: unknown;
+        path_names: unknown;
+      }>(
+        `
+          WITH candidates AS (
+            SELECT
+              dept_id,
+              name,
+              path_ids,
+              path_names,
+              count(*) OVER (PARTITION BY dept_id) AS matching_corp_count
+            FROM ding_department_tree
+            WHERE is_current = true
+              AND dept_id = ANY($1::varchar[])
+          )
+          SELECT dept_id, name, path_ids, path_names
+          FROM candidates
+          WHERE matching_corp_count = 1
+        `,
+        [ids]
+      );
+
+      const snapshots = new Map<string, DepartmentSnapshot>();
+      for (const row of result.rows) {
+        const deptId = toText(row.dept_id);
+        const department = toText(row.name);
+        const pathIds = toArray(row.path_ids).map((value) => String(value));
+        const pathNames = toArray(row.path_names).map((value) => String(value));
+        if (!deptId || !department || pathIds.length === 0 || pathNames.length === 0) {
+          continue;
+        }
+        snapshots.set(deptId, {
+          department,
+          departmentPathIds: pathIds,
+          departmentPathNames: pathNames,
+        });
+      }
+      return snapshots;
+    },
 
     async queryProcessInstanceIds(
       startTime: number,

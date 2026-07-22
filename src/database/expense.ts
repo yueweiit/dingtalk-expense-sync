@@ -464,7 +464,9 @@ function shouldKeepDeptSplits(source: DeptSplitStatusSource): boolean {
 function aggregateDeptSplits(splits: DeptSplitRow[]): DeptSplitRow[] {
   const grouped = new Map<string, DeptSplitRow>();
   for (const split of splits) {
-    const key = `${split.splitType}\u0000${split.department}`;
+    const departmentId = String(split.departmentId || '').trim();
+    const identity = departmentId ? `id:${departmentId}` : `name:${split.department}`;
+    const key = `${split.splitType}\u0000${identity}`;
     const existing = grouped.get(key);
     if (existing) {
       existing.amount += Number(split.amount) || 0;
@@ -496,6 +498,10 @@ export async function replaceDeptSplitsForBusiness(
         businessId,
         splitType: s.splitType,
         department: s.department,
+        departmentId: s.departmentId || null,
+        departmentSource: s.departmentSource || (s.departmentId ? 'id' : 'name_only'),
+        departmentPathIds: s.departmentPathIds ?? null,
+        departmentPathNames: s.departmentPathNames ?? null,
         amount: decimalValue(s.amount) ?? '0',
         note: s.note || null,
       }))
@@ -526,6 +532,14 @@ function parseSplitsFromJsonb(row: {
           splits.push({
             splitType: m.type,
             department: String(item.department),
+            departmentId: String(item.departmentId || '').trim() || null,
+            departmentSource: String(item.departmentId || '').trim() ? 'id' : 'name_only',
+            departmentPathIds: Array.isArray(item.departmentPathIds)
+              ? item.departmentPathIds.map((value: unknown) => String(value))
+              : null,
+            departmentPathNames: Array.isArray(item.departmentPathNames)
+              ? item.departmentPathNames.map((value: unknown) => String(value))
+              : null,
             amount,
             note: item.note ? String(item.note) : undefined,
           });
