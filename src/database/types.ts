@@ -35,6 +35,10 @@ export interface OperationExpenseData {
   businessId: string;
   requestDate?: string | null;
   applicantDepartment?: string | null;
+  applicantDepartmentId?: string | null;
+  applicantDepartmentSource?: string | null;
+  applicantDepartmentPathIds?: string[] | null;
+  applicantDepartmentPathNames?: string[] | null;
   productionType?: string | null;
   monthlyBudgetAmount?: number | null;
   monthlyBudgetUsedAmount?: number | null;
@@ -90,6 +94,10 @@ export interface PurchaseExpenseData {
   businessId: string;
   requestDate?: string | null;
   applicantDepartment?: string | null;
+  applicantDepartmentId?: string | null;
+  applicantDepartmentSource?: string | null;
+  applicantDepartmentPathIds?: string[] | null;
+  applicantDepartmentPathNames?: string[] | null;
   productionType?: string | null;
   monthlyBudgetAmount?: number | null;
   monthlyBudgetUsedAmount?: number | null;
