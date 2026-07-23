@@ -181,6 +181,156 @@ test('department splits keep same-name departments separate when their ids diffe
   }
 });
 
+test('运营支出主表保存申请部门的 ID、来源与路径快照', async () => {
+  const businessId = `test-applicant-department-operation-${Date.now()}`;
+  const processorWithPaths = new ApprovalProcessor({
+    getDepartmentSnapshots: async () => new Map([['1079492125', {
+      department: 'PG1 国内注塑',
+      departmentPathIds: ['1', '100', '1079492125'],
+      departmentPathNames: ['ROOT', 'PG 生产组', 'PG1 国内注塑'],
+    }]]),
+  });
+
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processorWithPaths.processInstance({
+      businessId,
+      processInstanceId: `pid-${businessId}`,
+      processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
+      processType: '运营支出',
+      status: 'RUNNING',
+      createTime: '2026-07-22T10:00:00+08:00',
+      originatorDeptId: 'originator-department-id',
+      formComponentValues: [
+        {
+          componentType: 'DepartmentField',
+          value: 'PG1 国内注塑',
+          extendValue: [{ id: '1079492125' }],
+        },
+        { name: '金额importe', value: '100' },
+        { name: '币种Moneda', value: '人民币RMB' },
+      ],
+    });
+
+    const result = await pool.query(
+      `SELECT applicant_department, applicant_department_id, applicant_department_source,
+              applicant_department_path_ids, applicant_department_path_names
+       FROM approval_expense_operation
+       WHERE business_id = $1`,
+      [businessId]
+    );
+
+    assert.deepEqual(result.rows, [{
+      applicant_department: 'PG1 国内注塑',
+      applicant_department_id: '1079492125',
+      applicant_department_source: 'form_id',
+      applicant_department_path_ids: ['1', '100', '1079492125'],
+      applicant_department_path_names: ['ROOT', 'PG 生产组', 'PG1 国内注塑'],
+    }]);
+  } finally {
+    await pool.query('DELETE FROM approval_expense_operation WHERE business_id = $1', [businessId]);
+  }
+});
+
+test('采购支出主表在表单无 ID 时保存发起部门 ID', async () => {
+  const businessId = `test-applicant-department-purchase-${Date.now()}`;
+  const processorWithPaths = new ApprovalProcessor({
+    getDepartmentSnapshots: async () => new Map([['1079492125', {
+      department: 'PG1 国内注塑',
+      departmentPathIds: ['1', '100', '1079492125'],
+      departmentPathNames: ['ROOT', 'PG 生产组', 'PG1 国内注塑'],
+    }]]),
+  });
+
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processorWithPaths.processInstance({
+      businessId,
+      processInstanceId: `pid-${businessId}`,
+      processCode: 'PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B',
+      processType: '采购支出',
+      status: 'RUNNING',
+      createTime: '2026-07-22T10:00:00+08:00',
+      originatorDeptId: '1079492125',
+      formComponentValues: [
+        { componentType: 'DepartmentField', value: 'PG1 国内注塑' },
+        { name: '明细汇总金额Monto total detallado', value: '100' },
+        { name: '币种Moneda', value: '人民币RMB' },
+      ],
+    });
+
+    const result = await pool.query(
+      `SELECT applicant_department, applicant_department_id, applicant_department_source,
+              applicant_department_path_ids, applicant_department_path_names
+       FROM approval_expense_purchase
+       WHERE business_id = $1`,
+      [businessId]
+    );
+
+    assert.deepEqual(result.rows, [{
+      applicant_department: 'PG1 国内注塑',
+      applicant_department_id: '1079492125',
+      applicant_department_source: 'originator_id',
+      applicant_department_path_ids: ['1', '100', '1079492125'],
+      applicant_department_path_names: ['ROOT', 'PG 生产组', 'PG1 国内注塑'],
+    }]);
+  } finally {
+    await pool.query('DELETE FROM approval_expense_purchase WHERE business_id = $1', [businessId]);
+  }
+});
+
+test('专用流程也以表单 extValue 中的部门 ID 为准，不覆盖实际归属', async () => {
+  const businessId = `test-applicant-department-shared-form-${Date.now()}`;
+  const processorWithPaths = new ApprovalProcessor({
+    getDepartmentSnapshots: async () => new Map([['obg-cn-id', {
+      department: 'OBG 线上业务组（中国）',
+      departmentPathIds: ['1', 'cn', 'obg-cn-id'],
+      departmentPathNames: ['ROOT', '中国', 'OBG 线上业务组（中国）'],
+    }]]),
+  });
+
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processorWithPaths.processInstance({
+      businessId,
+      processInstanceId: `pid-${businessId}`,
+      processCode: 'PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8',
+      processType: '运营支出',
+      status: 'RUNNING',
+      createTime: '2026-07-22T10:00:00+08:00',
+      originatorDeptId: 'originator-department-id',
+      originatorDeptName: '财务中心',
+      formComponentValues: [
+        {
+          componentType: 'DepartmentField',
+          value: 'OBG 线上业务组（中国）',
+          extValue: '[{"itemId":"obg-cn-id","name":"OBG 线上业务组（中国）"}]',
+        },
+        { name: '金额importe', value: '100' },
+        { name: '币种Moneda', value: '人民币RMB' },
+      ],
+    });
+
+    const result = await pool.query(
+      `SELECT applicant_department, applicant_department_id, applicant_department_source,
+              applicant_department_path_ids, applicant_department_path_names
+       FROM approval_expense_operation
+       WHERE business_id = $1`,
+      [businessId]
+    );
+
+    assert.deepEqual(result.rows, [{
+      applicant_department: 'OBG 线上业务组（中国）',
+      applicant_department_id: 'obg-cn-id',
+      applicant_department_source: 'form_id',
+      applicant_department_path_ids: ['1', 'cn', 'obg-cn-id'],
+      applicant_department_path_names: ['ROOT', '中国', 'OBG 线上业务组（中国）'],
+    }]);
+  } finally {
+    await pool.query('DELETE FROM approval_expense_operation WHERE business_id = $1', [businessId]);
+  }
+});
+
 test.after(async () => {
   await pool.end();
 });

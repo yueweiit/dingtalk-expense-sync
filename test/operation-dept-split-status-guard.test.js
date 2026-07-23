@@ -83,9 +83,7 @@ function ywIntelligentOperationInstance(businessId) {
   return {
     ...operationInstance(businessId, 'RUNNING'),
     processCode: 'PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8',
-    originatorDeptName: '错误来源部门',
     formComponentValues: [
-      { componentType: 'DepartmentField', value: '错误表单部门' },
       { name: '申请日期', value: '2026-07-20' },
       { name: '金额importe', value: '100' },
       { name: '币种Moneda', value: '人民币RMB' },
@@ -145,7 +143,7 @@ test('审批中运营单据保留部门拆分', async () => {
   }
 });
 
-test('悦为智能运营支出强制写入悦为智能部门', async () => {
+test('悦为智能运营支出只在没有真实部门时使用固定部门兜底', async () => {
   const businessId = `test-yw-intelligent-operation-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();
   try {
@@ -159,7 +157,7 @@ test('悦为智能运营支出强制写入悦为智能部门', async () => {
     assert.deepEqual(result.rows[0], {
       form_name: '悦为智能运营支出',
       applicant_department: '悦为智能 YW Tech_Ai',
-      creator_department: '悦为智能 YW Tech_Ai',
+      creator_department: null,
     });
   } finally {
     await clean(businessId);

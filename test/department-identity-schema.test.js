@@ -14,3 +14,12 @@ test('department split identity index is only replaced when the existing definit
   assert.match(schema, /index_definition NOT LIKE '%\(business_id, split_type, department_id, department\)%'/);
   assert.match(schema, /CREATE UNIQUE INDEX IF NOT EXISTS uk_dept_split_biz_type_dept[\s\S]*department_id, department/);
 });
+
+test('expense lookup tables index the applicant department ID used by connector queries', () => {
+  for (const tableName of ['approval_expense_operation', 'approval_expense_purchase']) {
+    assert.match(
+      schema,
+      new RegExp(`CREATE INDEX IF NOT EXISTS idx_${tableName}_applicant_department_id\\s+ON ${tableName}\\(applicant_department_id\\);`)
+    );
+  }
+});

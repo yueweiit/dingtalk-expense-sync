@@ -14,6 +14,7 @@ export interface FormComponentValue {
   componentType?: string;
   id?: string;
   extendValue?: unknown;
+  extValue?: unknown;
   details?: FormComponentValue[][];
 }
 
@@ -53,6 +54,68 @@ export interface ApprovalInstance {
   modifyTime?: string;
   tasks?: Task[];
   formComponentValues?: FormComponentValue[];
+}
+
+export interface ApplicantDepartmentIdentity {
+  department: string | null;
+  departmentId: string | null;
+  departmentSource: 'form_id' | 'originator_id' | 'name_only';
+}
+
+function extractDepartmentId(extendedValue: unknown): string | null {
+  let normalizedValue = extendedValue;
+  if (typeof extendedValue === 'string') {
+    try {
+      normalizedValue = JSON.parse(extendedValue);
+    } catch {
+      normalizedValue = extendedValue;
+    }
+  }
+
+  const candidates = Array.isArray(normalizedValue) ? normalizedValue : [normalizedValue];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const record = candidate as Record<string, unknown>;
+    const id = record.id ?? record.itemId ?? record.deptId ?? record.dept_id;
+    const normalized = String(id || '').trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+export function parseApplicantDepartmentIdentity(
+  formComponentValues?: FormComponentValue[],
+  instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName'>
+): ApplicantDepartmentIdentity {
+  const departmentField = Array.isArray(formComponentValues)
+    ? formComponentValues.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
+    : null;
+  const formDepartment = String(departmentField?.value || '').trim() || null;
+  const originatorDepartment = String(instance?.originatorDeptName || '').trim() || null;
+  const formDepartmentId = extractDepartmentId(departmentField?.extendValue ?? departmentField?.extValue);
+  const originatorDepartmentId = String(instance?.originatorDeptId || '').trim() || null;
+
+  if (formDepartmentId) {
+    return {
+      department: formDepartment || originatorDepartment,
+      departmentId: formDepartmentId,
+      departmentSource: 'form_id',
+    };
+  }
+
+  if (originatorDepartmentId) {
+    return {
+      department: formDepartment || originatorDepartment,
+      departmentId: originatorDepartmentId,
+      departmentSource: 'originator_id',
+    };
+  }
+
+  return {
+    department: formDepartment || originatorDepartment,
+    departmentId: null,
+    departmentSource: 'name_only',
+  };
 }
 
 interface ParsedFormData {
@@ -248,7 +311,7 @@ export class ApprovalProcessor {
           const cellId = String(cell.id || '');
           if (cellId.startsWith('DepartmentField_')) {
             department = String(cell.value || '').trim();
-            departmentId = this.extractDepartmentId(cell.extendValue);
+            departmentId = extractDepartmentId(cell.extendValue ?? cell.extValue);
           } else if (cellId === moneyFieldId || (!moneyFieldId && cellId.startsWith('MoneyField_'))) {
             amount = this.normalizeNumber(cell.value) || 0;
           } else if ((textFieldId && cellId === textFieldId) || (!textFieldId && cellId.startsWith('TextField_'))) {
@@ -285,7 +348,7 @@ export class ApprovalProcessor {
               const cellKey = String(cell.key || '');
               if (cellKey.startsWith('DepartmentField_')) {
                 department = String(cell.value || '').trim();
-                departmentId = this.extractDepartmentId(cell.extendValue);
+                departmentId = extractDepartmentId(cell.extendValue ?? cell.extValue);
               } else if (cellKey === moneyFieldId || (!moneyFieldId && cellKey.startsWith('MoneyField_'))) {
                 amount = this.normalizeNumber(cell.value) || 0;
               } else if ((textFieldId && cellKey === textFieldId) || (!textFieldId && cellKey.startsWith('TextField_'))) {
@@ -315,18 +378,6 @@ export class ApprovalProcessor {
     return rows.length > 0 ? rows : null;
   }
 
-  private extractDepartmentId(extendValue: unknown): string | null {
-    const candidates = Array.isArray(extendValue) ? extendValue : [extendValue];
-    for (const candidate of candidates) {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
-      const record = candidate as Record<string, unknown>;
-      const id = record.id ?? record.itemId ?? record.deptId ?? record.dept_id;
-      const normalized = String(id || '').trim();
-      if (normalized) return normalized;
-    }
-    return null;
-  }
-
   async enrichOperationDepartmentPaths(data: Record<string, unknown>): Promise<void> {
     const splitFields = [
       'salaryByDepartment',
@@ -338,8 +389,11 @@ export class ApprovalProcessor {
       const value = data[field];
       return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => !!row && typeof row === 'object') : [];
     });
-    const departmentIds = [...new Set(rows
-      .map((row) => String(row.departmentId || '').trim())
+    const applicantDepartmentId = String(data.applicantDepartmentId || '').trim();
+    const departmentIds = [...new Set([
+      ...rows.map((row) => String(row.departmentId || '').trim()),
+      applicantDepartmentId,
+    ]
       .filter(Boolean))];
     if (!departmentIds.length) return;
 
@@ -351,6 +405,13 @@ export class ApprovalProcessor {
         if (!snapshot) continue;
         row.departmentPathIds = snapshot.departmentPathIds;
         row.departmentPathNames = snapshot.departmentPathNames;
+      }
+      if (applicantDepartmentId) {
+        const snapshot = snapshots.get(applicantDepartmentId);
+        if (snapshot) {
+          data.applicantDepartmentPathIds = snapshot.departmentPathIds;
+          data.applicantDepartmentPathNames = snapshot.departmentPathNames;
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -500,14 +561,14 @@ export class ApprovalProcessor {
   }
 
   // 解析运营支出全部字段（写入 approval_expense_operation）
-  parseOperationExpenseData(formComponentValues?: FormComponentValue[]): Record<string, unknown> {
+  parseOperationExpenseData(
+    formComponentValues?: FormComponentValue[],
+    instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName'>
+  ): Record<string, unknown> {
     const fc = formComponentValues;
-    const deptField = Array.isArray(fc)
-      ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
-      : null;
-    const department = deptField?.value != null && String(deptField.value).trim() !== ''
-      ? deptField.value
-      : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+    const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(fc, instance);
+    const department = applicantDepartmentIdentity.department ||
+      this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
 
     const operationExpense = this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出');
     const opExpenseStr = String(operationExpense || '');
@@ -542,6 +603,8 @@ export class ApprovalProcessor {
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
       applicantDepartment: department,
+      applicantDepartmentId: applicantDepartmentIdentity.departmentId,
+      applicantDepartmentSource: applicantDepartmentIdentity.departmentSource,
       productionType: this.extractFormValue(fc, '生产/非生产Producción') || this.extractFormValue(fc, '生产/非生产'),
       monthlyBudgetAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算金额Importe presupuestado')),
       monthlyBudgetUsedAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算已用金额Importe utilizado')),
@@ -581,15 +644,15 @@ export class ApprovalProcessor {
   }
 
   // 解析采购支出全部字段（写入 approval_expense_purchase）
-  parsePurchaseExpenseData(formComponentValues?: FormComponentValue[]): Record<string, unknown> {
+  parsePurchaseExpenseData(
+    formComponentValues?: FormComponentValue[],
+    instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName'>
+  ): Record<string, unknown> {
     const fc = formComponentValues;
     const purchaseDetails = parsePurchaseDetails(fc);
-    const deptField = Array.isArray(fc)
-      ? fc.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
-      : null;
-    const department = deptField?.value != null && String(deptField.value).trim() !== ''
-      ? deptField.value
-      : this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+    const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(fc, instance);
+    const department = applicantDepartmentIdentity.department ||
+      this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
     const monthlyBudgetRemainingAmount = this.normalizeNumber(
       this.extractFormValueExact(fc, '本月预算剩余金额')
       || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
@@ -599,6 +662,8 @@ export class ApprovalProcessor {
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
       applicantDepartment: department,
+      applicantDepartmentId: applicantDepartmentIdentity.departmentId,
+      applicantDepartmentSource: applicantDepartmentIdentity.departmentSource,
       productionType: this.extractFormValue(fc, '生产/非生产Producción') || this.extractFormValue(fc, '生产/非生产'),
       monthlyBudgetAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算金额Importe presupuestado')),
       monthlyBudgetUsedAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算已用金额Importe utilizado')),
@@ -700,9 +765,10 @@ export class ApprovalProcessor {
       const fixedApplicantDepartment = resolveFixedApplicantDepartment(instance.processCode);
 
       if (String(processType).includes('运营') || String(processType).includes('杩愯惀')) {
-        const opData = this.parseOperationExpenseData(instance.formComponentValues);
-        const opApplicantDepartment = fixedApplicantDepartment ||
-          (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null);
+        const opData = this.parseOperationExpenseData(instance.formComponentValues, instance);
+        const opApplicantDepartment =
+          (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null) ||
+          fixedApplicantDepartment;
         const opAmount = opData.amount ?? data.amount;
         const opCurrency = opData.currency ?? data.currency;
         const opBaseCurrencyAmount = await convertAmountToCny({
@@ -724,7 +790,7 @@ export class ApprovalProcessor {
           baseCurrencyAmount: opBaseCurrencyAmount as number,
           currency: opCurrency as string,
           ...meta,
-          creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
+          creatorDepartment: meta.creatorDepartment,
           rawData: instance as unknown as Record<string, unknown>
         };
 
@@ -733,9 +799,11 @@ export class ApprovalProcessor {
           await database.replaceAttachments('operation', opId, attachments);
         }
       } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
-        const pData = this.parsePurchaseExpenseData(instance.formComponentValues);
-        const purchaseApplicantDepartment = fixedApplicantDepartment ||
-          (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null);
+        const pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
+        await this.enrichOperationDepartmentPaths(pData);
+        const purchaseApplicantDepartment =
+          (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null) ||
+          fixedApplicantDepartment;
         const purchaseAmount = pData.detailSummaryAmount ?? data.amount;
         const purchaseCurrency = pData.currency ?? data.currency;
         const purchaseBaseCurrencyAmount = await convertAmountToCny({
@@ -751,7 +819,7 @@ export class ApprovalProcessor {
           formName: resolvePurchaseFormName(instance.processCode),
           baseCurrencyAmount: purchaseBaseCurrencyAmount as number,
           ...meta,
-          creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
+          creatorDepartment: meta.creatorDepartment,
           rawData: instance as unknown as Record<string, unknown>
         });
         if (purchaseId) {

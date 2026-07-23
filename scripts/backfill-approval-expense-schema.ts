@@ -17,7 +17,7 @@ import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
 import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurchaseFormName } from '../src/form-source.ts';
 import { collectOperationDeptSplits } from '../src/operation-dept-splits.ts';
-import processor from '../src/processor.ts';
+import processor, { parseApplicantDepartmentIdentity } from '../src/processor.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 import { normalizePurchaseMultiSelect, parsePurchaseDetails } from '../src/purchase-details.ts';
 import { normalizeNumber } from '../src/utils.ts';
@@ -243,6 +243,10 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   const components = formComponents(raw);
   const meta = approvalMeta(raw);
   const fixedApplicantDepartment = resolveFixedApplicantDepartment(compact(row.process_code, 64));
+  const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(components as any, {
+    originatorDeptId: compact(raw.originatorDeptId || row.originator_dept_id, 64) || undefined,
+    originatorDeptName: compact(raw.originatorDeptName || row.originator_dept_name || row.department, 500) || undefined,
+  });
 
   const typeText = norm(row.process_type);
   const isPurchase = typeText.includes(norm('采购')) || typeText.includes('purchase');
@@ -250,9 +254,11 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   // 通用字段
   const common: Record<string, unknown> = {
     ...meta,
-    creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
+    creatorDepartment: meta.creatorDepartment,
     requestDate: normalizeDate(findValue(components, ['Fecha de solicitud', '申请日期'])) || normalizeDate(row.create_time),
-    applicantDepartment: fixedApplicantDepartment || findDepartment(components, row.originator_dept_name || row.department),
+    applicantDepartment: applicantDepartmentIdentity.department || findDepartment(components, row.originator_dept_name || row.department) || fixedApplicantDepartment,
+    applicantDepartmentId: applicantDepartmentIdentity.departmentId,
+    applicantDepartmentSource: applicantDepartmentIdentity.departmentSource,
     productionType: findValue(components, ['Produccion', 'Producción', '生产/非生产']),
     monthlyBudgetAmount: normalizeNumber(findValue(components, ['Importe presupuestado', '本月预算金额'])) || normalizeNumber(row.monthly_budget),
     monthlyBudgetUsedAmount: normalizeNumber(findValue(components, ['Importe utilizado', '本月预算已用金额'])) || normalizeNumber(row.monthly_budget_used),
@@ -301,7 +307,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   }
 
   // 运营支出
-  const operationFields = processor.parseOperationExpenseData(components as any);
+  const operationFields = processor.parseOperationExpenseData(components as any, raw as any);
   return {
     type: 'operation',
     ...common,
@@ -330,8 +336,9 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     paymentDate: normalizeDate(findLastValue(components, ['Fecha de pago', '付款日期'])),
     keyVoucher: compact(findValue(components, ['Comprobante clave', '关键凭证']), 2000),
     ...operationFields,
-    applicantDepartment: fixedApplicantDepartment ||
-      (typeof operationFields.applicantDepartment === 'string' ? operationFields.applicantDepartment : common.applicantDepartment),
+    applicantDepartment: typeof operationFields.applicantDepartment === 'string'
+      ? operationFields.applicantDepartment
+      : common.applicantDepartment,
     attachments: extractAttachments(components)
   };
 }
@@ -465,6 +472,7 @@ async function main(): Promise<void> {
 
       let expenseId: number | undefined;
       if (parsed.type === 'purchase') {
+        await processor.enrichOperationDepartmentPaths(parsed);
         expenseId = await database.upsertPurchaseExpense({ ...parsed, baseCurrencyAmount } as any);
         if (expenseId) {
           await database.replacePurchaseDetails(expenseId, {

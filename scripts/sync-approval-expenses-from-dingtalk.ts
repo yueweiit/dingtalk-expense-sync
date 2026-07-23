@@ -145,10 +145,14 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
   const fixedApplicantDepartment = resolveFixedApplicantDepartment(String(instance.processCode || ''));
 
   if (kind === 'operation') {
-    const opData = processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
+    const opData = processor.parseOperationExpenseData(
+      (instance as unknown as ApprovalInstance).formComponentValues,
+      instance as unknown as ApprovalInstance
+    );
     await processor.enrichOperationDepartmentPaths(opData);
-    const opApplicantDepartment = fixedApplicantDepartment ||
-      (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null);
+    const opApplicantDepartment =
+      (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null) ||
+      fixedApplicantDepartment;
     const amount = opData.amount ?? normalizeNumber(processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).amount);
     const currency = opData.currency ?? processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).currency;
     const baseCurrencyAmount = await convertAmountToCny({
@@ -167,7 +171,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       currency: currency as string,
       baseCurrencyAmount: baseCurrencyAmount as number,
       ...meta,
-      creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
+      creatorDepartment: meta.creatorDepartment,
       rawData: instance as unknown as Record<string, unknown>
     }, deptSplits);
     if (id) {
@@ -177,9 +181,14 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
   }
 
   if (kind === 'purchase') {
-    const pData = processor.parsePurchaseExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
-    const purchaseApplicantDepartment = fixedApplicantDepartment ||
-      (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null);
+    const pData = processor.parsePurchaseExpenseData(
+      (instance as unknown as ApprovalInstance).formComponentValues,
+      instance as unknown as ApprovalInstance
+    );
+    await processor.enrichOperationDepartmentPaths(pData);
+    const purchaseApplicantDepartment =
+      (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null) ||
+      fixedApplicantDepartment;
     const formData = processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues);
     const amount = pData.detailSummaryAmount ?? normalizeNumber(formData.amount);
     const currency = pData.currency ?? formData.currency;
@@ -196,7 +205,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       formName: resolvePurchaseFormName(String(instance.processCode || '')),
       baseCurrencyAmount: baseCurrencyAmount as number,
       ...meta,
-      creatorDepartment: fixedApplicantDepartment || meta.creatorDepartment,
+      creatorDepartment: meta.creatorDepartment,
       rawData: instance as unknown as Record<string, unknown>
     });
     if (id) {

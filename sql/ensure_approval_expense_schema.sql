@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
 
     request_date DATE,
     applicant_department VARCHAR(500),
+    applicant_department_id VARCHAR(64),
+    applicant_department_source VARCHAR(32),
+    applicant_department_path_ids JSONB,
+    applicant_department_path_names JSONB,
     production_type VARCHAR(64),
     monthly_budget_amount NUMERIC(18, 2),
     monthly_budget_used_amount NUMERIC(18, 2),
@@ -68,6 +72,18 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
 
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS monthly_budget_remaining_amount NUMERIC(18, 2);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS applicant_department_id VARCHAR(64);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS applicant_department_source VARCHAR(32);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS applicant_department_path_ids JSONB;
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS applicant_department_path_names JSONB;
 
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
@@ -142,6 +158,10 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase (
 
     request_date DATE,
     applicant_department VARCHAR(500),
+    applicant_department_id VARCHAR(64),
+    applicant_department_source VARCHAR(32),
+    applicant_department_path_ids JSONB,
+    applicant_department_path_names JSONB,
     production_type VARCHAR(64),
     monthly_budget_amount NUMERIC(18, 2),
     monthly_budget_used_amount NUMERIC(18, 2),
@@ -196,6 +216,18 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase (
 
 ALTER TABLE approval_expense_purchase
 ADD COLUMN IF NOT EXISTS monthly_budget_remaining_amount NUMERIC(18, 2);
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS applicant_department_id VARCHAR(64);
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS applicant_department_source VARCHAR(32);
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS applicant_department_path_ids JSONB;
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS applicant_department_path_names JSONB;
 
 ALTER TABLE approval_expense_purchase
 ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
@@ -323,6 +355,9 @@ CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_request_date
 CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_department
     ON approval_expense_operation(applicant_department);
 
+CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_applicant_department_id
+    ON approval_expense_operation(applicant_department_id);
+
 CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_status
     ON approval_expense_operation(approval_status);
 
@@ -339,6 +374,9 @@ CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_request_date
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_department
     ON approval_expense_purchase(applicant_department);
+
+CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_applicant_department_id
+    ON approval_expense_purchase(applicant_department_id);
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_status
     ON approval_expense_purchase(approval_status);
@@ -388,6 +426,10 @@ COMMENT ON COLUMN approval_expense_operation.process_instance_id IS '钉钉审�
 COMMENT ON COLUMN approval_expense_operation.business_id IS '钉钉审批业务编号businessId';
 COMMENT ON COLUMN approval_expense_operation.request_date IS '申请日期 Fecha de solicitud';
 COMMENT ON COLUMN approval_expense_operation.applicant_department IS '申请部门/组织 Departamento Solicitante';
+COMMENT ON COLUMN approval_expense_operation.applicant_department_id IS '钉钉申请部门 ID；历史数据缺失时为空';
+COMMENT ON COLUMN approval_expense_operation.applicant_department_source IS '申请部门归属来源：form_id/originator_id/name_only';
+COMMENT ON COLUMN approval_expense_operation.applicant_department_path_ids IS '申请部门 ID 完整路径快照';
+COMMENT ON COLUMN approval_expense_operation.applicant_department_path_names IS '申请部门名称完整路径快照';
 COMMENT ON COLUMN approval_expense_operation.production_type IS '生产/非生产 Producción / No producción';
 COMMENT ON COLUMN approval_expense_operation.monthly_budget_amount IS '本月预算金额 Importe presupuestado del mes';
 COMMENT ON COLUMN approval_expense_operation.monthly_budget_used_amount IS '本月预算已用金额 Importe utilizado del presupuesto mensual';
@@ -440,6 +482,10 @@ COMMENT ON COLUMN approval_expense_purchase.process_instance_id IS '钉钉审批
 COMMENT ON COLUMN approval_expense_purchase.business_id IS '钉钉审批业务编号businessId';
 COMMENT ON COLUMN approval_expense_purchase.request_date IS '申请日期 Fecha de solicitud';
 COMMENT ON COLUMN approval_expense_purchase.applicant_department IS '申请部门/组织 Departamento Solicitante';
+COMMENT ON COLUMN approval_expense_purchase.applicant_department_id IS '钉钉申请部门 ID；历史数据缺失时为空';
+COMMENT ON COLUMN approval_expense_purchase.applicant_department_source IS '申请部门归属来源：form_id/originator_id/name_only';
+COMMENT ON COLUMN approval_expense_purchase.applicant_department_path_ids IS '申请部门 ID 完整路径快照';
+COMMENT ON COLUMN approval_expense_purchase.applicant_department_path_names IS '申请部门名称完整路径快照';
 COMMENT ON COLUMN approval_expense_purchase.production_type IS '生产/非生产 Producción / No producción';
 COMMENT ON COLUMN approval_expense_purchase.monthly_budget_amount IS '本月预算金额 Importe presupuestado del mes';
 COMMENT ON COLUMN approval_expense_purchase.monthly_budget_used_amount IS '本月预算已用金额 Importe utilizado del presupuesto mensual';

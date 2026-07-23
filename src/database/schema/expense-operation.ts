@@ -7,6 +7,10 @@ export const approvalExpenseOperation = pgTable('approval_expense_operation', {
   businessId: varchar('business_id', { length: 64 }),
   requestDate: date('request_date', { mode: 'string' }),
   applicantDepartment: varchar('applicant_department', { length: 500 }),
+  applicantDepartmentId: varchar('applicant_department_id', { length: 64 }),
+  applicantDepartmentSource: varchar('applicant_department_source', { length: 32 }),
+  applicantDepartmentPathIds: jsonb('applicant_department_path_ids'),
+  applicantDepartmentPathNames: jsonb('applicant_department_path_names'),
   productionType: varchar('production_type', { length: 64 }),
   monthlyBudgetAmount: decimal('monthly_budget_amount', { precision: 18, scale: 2 }),
   monthlyBudgetUsedAmount: decimal('monthly_budget_used_amount', { precision: 18, scale: 2 }),
@@ -62,5 +66,6 @@ export const approvalExpenseOperation = pgTable('approval_expense_operation', {
   uniqueIndex('uk_approval_expense_operation_process_instance_id').on(table.processInstanceId).where(sql`${table.processInstanceId} IS NOT NULL`),
   index('idx_approval_expense_operation_request_date').on(table.requestDate),
   index('idx_approval_expense_operation_department').on(table.applicantDepartment),
+  index('idx_approval_expense_operation_applicant_department_id').on(table.applicantDepartmentId),
   index('idx_approval_expense_operation_status').on(table.approvalStatus),
 ]);

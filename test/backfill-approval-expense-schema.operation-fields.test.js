@@ -130,7 +130,7 @@ test('backfill-approval-expense-schema writes new ecommerce operation fields', a
   }
 });
 
-test('backfill-approval-expense-schema assigns Yuewei Intelligent operation records to the fixed department', async () => {
+test('backfill-approval-expense-schema uses the fixed department only when no real department exists', async () => {
   const databaseModule = loadModule('database');
   const database = databaseModule.default || databaseModule;
   const pool = databaseModule.pool || databaseModule.default?.pool;
@@ -148,9 +148,7 @@ test('backfill-approval-expense-schema assigns Yuewei Intelligent operation reco
     status: 'COMPLETED',
     createTime: '2026-07-20T09:30:00+08:00',
     updateTime: '2026-07-20T09:30:00+08:00',
-    originatorDeptName: '错误来源部门',
     formComponentValues: [
-      { componentType: 'DepartmentField', value: '错误表单部门' },
       { name: '金额importe', value: '100' },
       { name: '币种Moneda', value: '人民币CNY' },
     ],
@@ -167,7 +165,7 @@ test('backfill-approval-expense-schema assigns Yuewei Intelligent operation reco
         processCode,
         '运营支出',
         'COMPLETED',
-        '错误来源部门',
+        null,
         '2026-07-20T09:30:00+08:00',
         '2026-07-20T09:30:00+08:00',
         processInstanceId,
@@ -192,7 +190,7 @@ test('backfill-approval-expense-schema assigns Yuewei Intelligent operation reco
     assert.deepEqual(result.rows[0], {
       form_name: '悦为智能运营支出',
       applicant_department: '悦为智能 YW Tech_Ai',
-      creator_department: '悦为智能 YW Tech_Ai',
+      creator_department: null,
     });
   } finally {
     await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
