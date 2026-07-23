@@ -5,6 +5,7 @@ import logger from './logger.ts';
 import config from './config.ts';
 import { normalizeCurrencyToIso } from './fxToCny.ts';
 import scheduler from './scheduler.ts';
+import { resolveDepartmentQuery } from './department-query.ts';
 import { approvalExpenseTimeExpr, utcDateRange } from './utc-time.ts';
 
 const app = express();
@@ -46,29 +47,6 @@ function parseRateDate(value: unknown): string | false | null {
   }
   const d = new Date(`${text}T00:00:00+08:00`);
   return Number.isFinite(d.getTime()) ? text : false;
-}
-
-/**
- * 部门解析：优先 code/dept_code（精确匹配），否则使用 department 文本匹配。
- * 允许任意部门，不再限制固定白名单。
- */
-function resolveDeptMatch(req: Request): string | null {
-  const { department, dept_code, code } = req.query;
-  const codeRaw = (dept_code || code || '').toString().trim();
-  if (codeRaw) {
-    return codeRaw;
-  }
-  if (!department || typeof department !== 'string') {
-    return null;
-  }
-  let deptRaw = department.trim();
-  // 常见情况：前面会带公司/组织前缀，数据库里可能只存后半段（如 "YW Tech_Ai"）。
-  // 例如 "悦为智能 YW Tech_Ai" => 优先匹配 "YW Tech_Ai"。
-  const parts = deptRaw.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    deptRaw = parts.slice(1).join(' ');
-  }
-  return deptRaw || null;
 }
 
 function isDeptCodeLike(value: string | null): boolean {
@@ -172,10 +150,12 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     /** 默认统计所有流程状态；如需只看归档完结，可传 flow_status=completed */
     const flowStatusCompletedOnly = String(flow_status || '').toLowerCase() === 'completed';
 
-    const deptMatch = resolveDeptMatch(req);
+    const departmentQuery = resolveDepartmentQuery(req.query as Record<string, unknown>);
+    const deptMatch = departmentQuery?.value || null;
+    const departmentIdMode = departmentQuery?.mode === 'id';
 
     logger.info(
-      `查询参数: department=${department}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, flow_status=${flowStatusCompletedOnly ? 'COMPLETED-only' : 'all'}, exclude_revoked_biz=${!allowRevokedBiz}`
+      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, flow_status=${flowStatusCompletedOnly ? 'COMPLETED-only' : 'all'}, exclude_revoked_biz=${!allowRevokedBiz}`
     );
 
     const wantEcho = String(echo || '') === '1';
@@ -210,7 +190,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     let paramIndex = 1;
 
     const isOperation = queryConfig.processKind === 'operation';
-    const deptCodeMode = isDeptCodeLike(deptMatch);
+    const deptCodeMode = departmentQuery?.mode === 'code' && isDeptCodeLike(deptMatch);
 
     // 状态过滤（通用）
     const statusFilters: string[] = [];
@@ -262,10 +242,15 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     let query: string;
 
     if (isOperation) {
-      // 运营支出：通过 split 表处理部门拆分
-      // LEFT JOIN split 表，按 department ILIKE 匹配
+      // 运营支出：通过 split 表处理部门拆分。部门 ID 存在时必须精确匹配，避免同名部门串账。
       const splitDeptParam = `$${paramIndex++}`;
-      params.push(`%${deptMatch}%`);
+      params.push(deptMatch);
+      const splitDepartmentWhere = departmentIdMode
+        ? `ds.department_id = ${splitDeptParam}`
+        : `LOWER(BTRIM(ds.department)) = LOWER(BTRIM(${splitDeptParam}))`;
+      const directDepartmentWhere = departmentIdMode
+        ? `o.applicant_department_id = $${paramIndex++}`
+        : `LOWER(BTRIM(COALESCE(${departmentExpr}, ''))) = LOWER(BTRIM($${paramIndex++}))`;
 
       if (isDebug) {
         query = `
@@ -286,20 +271,20 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
             SELECT ds.business_id, SUM(ds.amount) AS split_total
             FROM approval_expense_dept_split ds
             JOIN ${queryConfig.tableName} o2 ON o2.business_id = ds.business_id
-            WHERE ds.department ILIKE ${splitDeptParam}
+            WHERE ${splitDepartmentWhere}
             ${statusWhere.replace(/\bo\./g, 'o2.')}
             ${timeFilter.replace(/\bo\./g, 'o2.')}
             GROUP BY ds.business_id
           ) ds ON ds.business_id = o.business_id
           WHERE (
-            (ds.business_id IS NULL AND ${departmentExpr} ILIKE $${paramIndex++})
+            (ds.business_id IS NULL AND ${directDepartmentWhere})
             OR ds.business_id IS NOT NULL
           )
           ${statusWhere}
           ${timeFilter}
           ORDER BY ${timeColumn} DESC
         `;
-        params.push(`%${deptMatch}%`);
+        params.push(deptMatch);
       } else {
         query = `
           SELECT COALESCE(SUM(COALESCE(ds.split_total, o.base_currency_amount)), 0)::text AS total, COUNT(*)::int AS count
@@ -308,27 +293,29 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
             SELECT ds.business_id, SUM(ds.amount) AS split_total
             FROM approval_expense_dept_split ds
             JOIN ${queryConfig.tableName} o2 ON o2.business_id = ds.business_id
-            WHERE ds.department ILIKE ${splitDeptParam}
+            WHERE ${splitDepartmentWhere}
             ${statusWhere.replace(/\bo\./g, 'o2.')}
             ${timeFilter.replace(/\bo\./g, 'o2.')}
             GROUP BY ds.business_id
           ) ds ON ds.business_id = o.business_id
           WHERE (
-            (ds.business_id IS NULL AND ${departmentExpr} ILIKE $${paramIndex++})
+            (ds.business_id IS NULL AND ${directDepartmentWhere})
             OR ds.business_id IS NOT NULL
           )
           ${statusWhere}
           ${timeFilter}
         `;
-        params.push(`%${deptMatch}%`);
+        params.push(deptMatch);
       }
     } else {
       // 采购支出：不涉及拆分，直接查询
       const nonSplitDeptParam = `$${paramIndex++}`;
-      if (deptCodeMode) {
+      if (departmentIdMode) {
+        params.push(deptMatch);
+      } else if (deptCodeMode) {
         params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
       } else {
-        params.push(`%${deptMatch}%`);
+        params.push(deptMatch);
       }
 
       if (isDebug) {
@@ -360,10 +347,12 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
         `;
       }
 
-      if (deptCodeMode) {
+      if (departmentIdMode) {
+        query += ` AND o.applicant_department_id = ${nonSplitDeptParam}`;
+      } else if (deptCodeMode) {
         query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`;
       } else {
-        query += ` AND ${departmentExpr} ILIKE ${nonSplitDeptParam}`;
+        query += ` AND LOWER(BTRIM(COALESCE(${departmentExpr}, ''))) = LOWER(BTRIM(${nonSplitDeptParam}))`;
       }
     }
 
@@ -379,7 +368,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
         if (wantEcho) {
           payload.resolved = {
             deptMatch,
-            deptMatchMode: deptCodeMode ? 'code-token' : 'fuzzy',
+            deptMatchMode: departmentIdMode ? 'id-exact' : (deptCodeMode ? 'code-token' : 'name-exact'),
             sourceTable: queryConfig.tableName,
             timeColumn,
             monthParsed: month ? parseMonthBucket(month) : null,
@@ -405,7 +394,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       if (wantEcho) {
         payload.resolved = {
           deptMatch,
-          deptMatchMode: deptCodeMode ? 'code-token' : 'fuzzy',
+          deptMatchMode: departmentIdMode ? 'id-exact' : (deptCodeMode ? 'code-token' : 'name-exact'),
           sourceTable: queryConfig.tableName,
           timeColumn,
           monthParsed: month ? parseMonthBucket(month) : null,
