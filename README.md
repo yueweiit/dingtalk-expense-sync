@@ -89,12 +89,16 @@ config.json
       "operation": [
         "PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA",
         "PROC-618F58F6-A68C-4BFE-A92B-49B3CD9B79DD",
-        "PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8"
+        "PROC-39D6CE87-6F84-40B1-A3EB-B96F363CE8F8",
+        "PROC-A4AA23BD-8980-4098-87E8-6898667371CC",
+        "PROC-14972EC1-2E3B-47DA-8346-9B1DBFE578C5"
       ],
       "purchase": [
         "PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B",
         "PROC-6E11B527-2F82-439C-817D-C868DE086C97",
-        "PROC-481342D0-27B4-461C-A543-4AB0A96D2EDF"
+        "PROC-481342D0-27B4-461C-A543-4AB0A96D2EDF",
+        "PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F",
+        "PROC-866867B6-1F7B-4F70-AB8F-3500D6560785"
       ]
     }
   },
@@ -110,7 +114,7 @@ config.json
 }
 ```
 
-`processTypeMap` 是唯一流程配置来源。六个现有流程码必须全部在正确分组中；缺失、错分、重复或继续配置旧 `processCodes` 都会导致项目拒绝启动。
+`processTypeMap` 是唯一流程配置来源。十个现有流程码必须全部在正确分组中；缺失、错分、重复或继续配置旧 `processCodes` 都会导致项目拒绝启动。
 
 ### 定时任务配置
 

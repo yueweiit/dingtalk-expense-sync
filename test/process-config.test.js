@@ -26,11 +26,15 @@ function expectedProcessTypeMap() {
       forms.OLD_OPERATION_FORM_CODE,
       forms.NEW_ECOMMERCE_OPERATION_FORM_CODE,
       forms.YW_INTELLIGENT_OPERATION_FORM_CODE,
+      forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE,
+      forms.LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE,
     ],
     purchase: [
       forms.OLD_PURCHASE_FORM_CODE,
       forms.NEW_ECOMMERCE_PURCHASE_FORM_CODE,
       forms.YW_INTELLIGENT_PURCHASE_FORM_CODE,
+      forms.XINGMING_DONGGUAN_PURCHASE_FORM_CODE,
+      forms.LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE,
     ],
   };
 }
@@ -130,4 +134,19 @@ test('strict process mapping keeps Yuewei Intelligent codes in their required gr
     processConfig.getProcessKind(forms.YW_INTELLIGENT_PURCHASE_FORM_CODE, { processTypeMap }),
     'purchase'
   );
+});
+
+test('strict process mapping keeps Xingming and Lingxiang codes in their required groups', () => {
+  const processConfig = getProcessConfigModule();
+  const forms = loadModule('form-source');
+  const processTypeMap = expectedProcessTypeMap();
+
+  assert.equal(forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE, 'PROC-A4AA23BD-8980-4098-87E8-6898667371CC');
+  assert.equal(forms.XINGMING_DONGGUAN_PURCHASE_FORM_CODE, 'PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F');
+  assert.equal(forms.LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE, 'PROC-14972EC1-2E3B-47DA-8346-9B1DBFE578C5');
+  assert.equal(forms.LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE, 'PROC-866867B6-1F7B-4F70-AB8F-3500D6560785');
+  assert.equal(processConfig.getProcessKind(forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE, { processTypeMap }), 'operation');
+  assert.equal(processConfig.getProcessKind(forms.XINGMING_DONGGUAN_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');
+  assert.equal(processConfig.getProcessKind(forms.LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE, { processTypeMap }), 'operation');
+  assert.equal(processConfig.getProcessKind(forms.LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');
 });

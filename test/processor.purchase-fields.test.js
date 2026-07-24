@@ -153,3 +153,18 @@ test('Yuewei Intelligent purchase form uses its fixed department', () => {
   );
   assert.equal(resolveFixedDepartment('PROC-BFDF6F09-4551-43B3-8C55-537AA74A241B'), null);
 });
+
+test('resolvePurchaseFormName maps Xingming and Lingxiang purchase forms', () => {
+  const formSourceModule = getFormSourceModule();
+  const resolvePurchaseFormName =
+    formSourceModule.resolvePurchaseFormName || formSourceModule.default?.resolvePurchaseFormName;
+
+  assert.equal(
+    resolvePurchaseFormName('PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F'),
+    '\u4e1c\u839e\u661f\u94ed\u91c7\u8d2d\u652f\u51fa'
+  );
+  assert.equal(
+    resolvePurchaseFormName('PROC-866867B6-1F7B-4F70-AB8F-3500D6560785'),
+    '\u5e7f\u5dde\u51cc\u7fd4\u91c7\u8d2d\u652f\u51fa'
+  );
+});

@@ -199,6 +199,21 @@ test('Yuewei Intelligent operation form uses its fixed department', () => {
   assert.equal(resolveFixedDepartment('PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA'), null);
 });
 
+test('resolveOperationFormName maps Xingming and Lingxiang operation forms', () => {
+  const formSourceModule = getFormSourceModule();
+  const resolveOperationFormName =
+    formSourceModule.resolveOperationFormName || formSourceModule.default?.resolveOperationFormName;
+
+  assert.equal(
+    resolveOperationFormName('PROC-A4AA23BD-8980-4098-87E8-6898667371CC'),
+    '\u4e1c\u839e\u661f\u94ed\u8fd0\u8425\u652f\u51fa'
+  );
+  assert.equal(
+    resolveOperationFormName('PROC-14972EC1-2E3B-47DA-8346-9B1DBFE578C5'),
+    '\u5e7f\u5dde\u51cc\u7fd4\u8fd0\u8425\u652f\u51fa'
+  );
+});
+
 test('getStandaloneOperationProcessCodes returns isolated process-code lists for legacy and ecommerce sync', () => {
   const formSourceModule = getFormSourceModule();
   const getStandaloneOperationProcessCodes =
