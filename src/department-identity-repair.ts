@@ -61,13 +61,21 @@ export function repairCandidateQuery(limit: number | null): string {
     FROM approval_instances AS ai
     LEFT JOIN approval_expense_operation AS op ON op.business_id = ai.business_id
     LEFT JOIN approval_expense_purchase AS pu ON pu.business_id = ai.business_id
-    WHERE ai.create_time >= $1::date
-      AND ai.create_time < ($2::date + INTERVAL '1 day')
-      AND (
-        (op.business_id IS NOT NULL AND COALESCE(BTRIM(op.applicant_department_id), '') = '')
-        OR (pu.business_id IS NOT NULL AND COALESCE(BTRIM(pu.applicant_department_id), '') = '')
+    WHERE (
+      (
+        op.business_id IS NOT NULL
+        AND op.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+        AND op.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
+        AND COALESCE(BTRIM(op.applicant_department_id), '') = ''
       )
-    ORDER BY ai.create_time ASC NULLS LAST, ai.id ASC
+      OR (
+        pu.business_id IS NOT NULL
+        AND pu.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+        AND pu.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
+        AND COALESCE(BTRIM(pu.applicant_department_id), '') = ''
+      )
+    )
+    ORDER BY COALESCE(op.source_created_at, pu.source_created_at) ASC NULLS LAST, ai.id ASC
     ${limitSql}
   `;
 }
