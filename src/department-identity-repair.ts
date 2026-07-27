@@ -47,35 +47,40 @@ export function parseDepartmentIdentityRepairArgs(argv: string[]): RepairOptions
 export function repairCandidateQuery(limit: number | null): string {
   const limitSql = limit ? 'LIMIT $3' : '';
   return `
+    WITH expense_candidates AS (
+      SELECT
+        business_id,
+        process_instance_id,
+        source_created_at,
+        'operation'::text AS expense_kind
+      FROM approval_expense_operation AS op
+      WHERE op.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+        AND op.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
+        AND COALESCE(BTRIM(op.applicant_department_id), '') = ''
+
+      UNION ALL
+
+      SELECT
+        business_id,
+        process_instance_id,
+        source_created_at,
+        'purchase'::text AS expense_kind
+      FROM approval_expense_purchase AS pu
+      WHERE pu.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+        AND pu.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
+        AND COALESCE(BTRIM(pu.applicant_department_id), '') = ''
+    )
     SELECT
-      ai.business_id,
-      ai.process_instance_id,
+      expense.business_id,
+      COALESCE(expense.process_instance_id, ai.process_instance_id) AS process_instance_id,
       ai.process_type,
       ai.originator_dept_id,
       ai.originator_dept_name,
       ai.raw_data,
-      CASE
-        WHEN op.business_id IS NOT NULL THEN 'operation'
-        WHEN pu.business_id IS NOT NULL THEN 'purchase'
-      END AS expense_kind
-    FROM approval_instances AS ai
-    LEFT JOIN approval_expense_operation AS op ON op.business_id = ai.business_id
-    LEFT JOIN approval_expense_purchase AS pu ON pu.business_id = ai.business_id
-    WHERE (
-      (
-        op.business_id IS NOT NULL
-        AND op.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
-        AND op.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
-        AND COALESCE(BTRIM(op.applicant_department_id), '') = ''
-      )
-      OR (
-        pu.business_id IS NOT NULL
-        AND pu.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
-        AND pu.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
-        AND COALESCE(BTRIM(pu.applicant_department_id), '') = ''
-      )
-    )
-    ORDER BY COALESCE(op.source_created_at, pu.source_created_at) ASC NULLS LAST, ai.id ASC
+      expense.expense_kind
+    FROM expense_candidates AS expense
+    LEFT JOIN approval_instances AS ai ON ai.business_id = expense.business_id
+    ORDER BY expense.source_created_at ASC NULLS LAST, expense.business_id ASC
     ${limitSql}
   `;
 }

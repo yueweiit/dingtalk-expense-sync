@@ -31,6 +31,8 @@ test('repair candidates are limited to rows with a missing master department id'
   const query = repairCandidateQuery(5);
   assert.match(query, /approval_expense_operation/);
   assert.match(query, /approval_expense_purchase/);
+  assert.match(query, /WITH expense_candidates AS/);
+  assert.match(query, /FROM expense_candidates AS expense/);
   assert.match(query, /op\.source_created_at >= \(\$1::date::timestamp AT TIME ZONE 'Asia\/Shanghai'\)/);
   assert.match(query, /pu\.source_created_at >= \(\$1::date::timestamp AT TIME ZONE 'Asia\/Shanghai'\)/);
   assert.match(query, /COALESCE\(BTRIM\(op\.applicant_department_id\), ''\) = ''/);
