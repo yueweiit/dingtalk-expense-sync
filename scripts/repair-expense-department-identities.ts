@@ -11,6 +11,7 @@
  */
 import { dirname, resolve } from 'node:path';
 import { access, writeFile } from 'node:fs/promises';
+import type { PoolClient } from 'pg';
 import approvalSource from '../src/oa-source.ts';
 import { pool } from '../src/database/pool.ts';
 import processor, { parseApplicantDepartmentIdentity } from '../src/processor.ts';
@@ -144,12 +145,12 @@ async function writeBackup(path: string, plans: RepairPlan[]): Promise<string> {
   return absolutePath;
 }
 
-async function patchMaster(plan: RepairPlan): Promise<number> {
+async function patchMaster(client: PoolClient, plan: RepairPlan): Promise<number> {
   if (!plan.identity) return 0;
   const table = plan.candidate.expense_kind === 'operation'
     ? 'approval_expense_operation'
     : 'approval_expense_purchase';
-  const result = await pool.query(
+  const result = await client.query(
     `
       UPDATE ${table}
       SET
@@ -172,8 +173,8 @@ async function patchMaster(plan: RepairPlan): Promise<number> {
   return result.rowCount || 0;
 }
 
-async function patchSplit(businessId: string, patch: SplitIdentityPatch): Promise<'updated' | 'missing' | 'ambiguous'> {
-  const count = await pool.query<{ count: number }>(
+async function patchSplit(client: PoolClient, businessId: string, patch: SplitIdentityPatch): Promise<'updated' | 'missing' | 'ambiguous'> {
+  const count = await client.query<{ count: number }>(
     `
       SELECT COUNT(*)::int AS count
       FROM approval_expense_dept_split
@@ -188,7 +189,7 @@ async function patchSplit(businessId: string, patch: SplitIdentityPatch): Promis
   if (matches === 0) return 'missing';
   if (matches !== 1) return 'ambiguous';
 
-  await pool.query(
+  await client.query(
     `
       UPDATE approval_expense_dept_split
       SET
@@ -215,17 +216,27 @@ async function patchSplit(businessId: string, patch: SplitIdentityPatch): Promis
 }
 
 async function applyPlan(plan: RepairPlan): Promise<{ masterUpdated: number; splitsUpdated: number; splitMissing: number; splitAmbiguous: number }> {
-  const masterUpdated = await patchMaster(plan);
-  let splitsUpdated = 0;
-  let splitMissing = 0;
-  let splitAmbiguous = 0;
-  for (const patch of plan.splitPatches) {
-    const result = await patchSplit(plan.candidate.business_id, patch);
-    if (result === 'updated') splitsUpdated++;
-    if (result === 'missing') splitMissing++;
-    if (result === 'ambiguous') splitAmbiguous++;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const masterUpdated = await patchMaster(client, plan);
+    let splitsUpdated = 0;
+    let splitMissing = 0;
+    let splitAmbiguous = 0;
+    for (const patch of plan.splitPatches) {
+      const result = await patchSplit(client, plan.candidate.business_id, patch);
+      if (result === 'updated') splitsUpdated++;
+      if (result === 'missing') splitMissing++;
+      if (result === 'ambiguous') splitAmbiguous++;
+    }
+    await client.query('COMMIT');
+    return { masterUpdated, splitsUpdated, splitMissing, splitAmbiguous };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-  return { masterUpdated, splitsUpdated, splitMissing, splitAmbiguous };
 }
 
 async function main(): Promise<void> {
