@@ -141,11 +141,12 @@ test('strict process mapping keeps Xingming and Lingxiang codes in their require
   const forms = loadModule('form-source');
   const processTypeMap = expectedProcessTypeMap();
 
-  assert.equal(forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE, 'PROC-A4AA23BD-8980-4098-87E8-6898667371CC');
+  assert.equal(forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE, 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B');
   assert.equal(forms.XINGMING_DONGGUAN_PURCHASE_FORM_CODE, 'PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F');
   assert.equal(forms.LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE, 'PROC-14972EC1-2E3B-47DA-8346-9B1DBFE578C5');
   assert.equal(forms.LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE, 'PROC-866867B6-1F7B-4F70-AB8F-3500D6560785');
   assert.equal(processConfig.getProcessKind(forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE, { processTypeMap }), 'operation');
+  assert.equal(processConfig.getProcessKind('PROC-A4AA23BD-8980-4098-87E8-6898667371CC', { processTypeMap }), 'other');
   assert.equal(processConfig.getProcessKind(forms.XINGMING_DONGGUAN_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');
   assert.equal(processConfig.getProcessKind(forms.LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE, { processTypeMap }), 'operation');
   assert.equal(processConfig.getProcessKind(forms.LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');

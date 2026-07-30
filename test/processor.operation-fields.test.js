@@ -205,9 +205,10 @@ test('resolveOperationFormName maps Xingming and Lingxiang operation forms', () 
     formSourceModule.resolveOperationFormName || formSourceModule.default?.resolveOperationFormName;
 
   assert.equal(
-    resolveOperationFormName('PROC-A4AA23BD-8980-4098-87E8-6898667371CC'),
+    resolveOperationFormName('PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B'),
     '\u4e1c\u839e\u661f\u94ed\u8fd0\u8425\u652f\u51fa'
   );
+  assert.equal(resolveOperationFormName('PROC-A4AA23BD-8980-4098-87E8-6898667371CC'), null);
   assert.equal(
     resolveOperationFormName('PROC-14972EC1-2E3B-47DA-8346-9B1DBFE578C5'),
     '\u5e7f\u5dde\u51cc\u7fd4\u8fd0\u8425\u652f\u51fa'
