@@ -122,6 +122,8 @@ config.json
 |--------|------|--------|
 | `scheduler.cron` | 增量同步频率 | `7 * * * *`（每小时第7分钟） |
 | `scheduler.startTime` | 首次同步起始时间 | `2026-04-01T00:00:00+08:00` |
+| `scheduler.oaUpdatedAtInitialLookbackDays` | 首次按 OA 更新时间发现表单时的回看天数 | `45` |
+| `scheduler.oaUpdatedAtOverlapMinutes` | OA 更新时间窗口重叠分钟数，避免边界漏单 | `10` |
 | `scheduler.compensationCron` | 补偿任务频率 | `17 3 * * *`（每天凌晨3:17） |
 | `scheduler.fxRatesCron` | 汇率同步频率 | `5 0 * * *`（每天凌晨0:05） |
 

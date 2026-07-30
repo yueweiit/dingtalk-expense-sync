@@ -107,6 +107,16 @@ class Scheduler {
     return this.toTimestamp(config.scheduler.startTime);
   }
 
+  getOaUpdatedAtInitialStartTime(end: number): number {
+    const lookbackDays = Math.max(1, Number(config.scheduler.oaUpdatedAtInitialLookbackDays) || 45);
+    return Math.max(this.getFallbackStartTime(), end - lookbackDays * 24 * 60 * 60 * 1000);
+  }
+
+  getOaUpdatedAtOverlapMs(): number {
+    const overlapMinutes = Math.max(0, Number(config.scheduler.oaUpdatedAtOverlapMinutes) || 0);
+    return overlapMinutes * 60 * 1000;
+  }
+
   getProcessType(processCode: string): string {
     return getProcessTypeLabel(processCode, config.dingtalk);
   }
@@ -185,6 +195,36 @@ class Scheduler {
     } while (nextToken && nextToken !== 0);
 
     logger.info(`流程 ${processCode} 获取完成, 共 ${pageCount} 页`);
+    return totalInstanceIds;
+  }
+
+  async syncSingleProcessByOaUpdatedAt(processCode: string, start: number, end: number): Promise<InstanceIdWithMeta[]> {
+    logger.info(`开始按 OA 更新时间获取流程 ${processCode} 的实例`);
+
+    const totalInstanceIds: InstanceIdWithMeta[] = [];
+    let nextToken = 0;
+    let pageCount = 0;
+
+    do {
+      const queryResult = await approvalSource.queryProcessInstanceIdsByUpdatedAt(start, end, processCode, nextToken);
+
+      if (!queryResult || !queryResult.list || queryResult.list.length === 0) {
+        break;
+      }
+
+      queryResult.list.forEach((id: string) => {
+        totalInstanceIds.push({ processInstanceId: id, processCode });
+      });
+
+      pageCount++;
+      nextToken = queryResult.nextToken;
+
+      logger.info(`流程 ${processCode} 第 ${pageCount} 页按 OA 更新时间获取到 ${queryResult.list.length} 个实例, nextToken: ${nextToken}`);
+
+      await approvalSource.sleep(150);
+    } while (nextToken && nextToken !== 0);
+
+    logger.info(`流程 ${processCode} 按 OA 更新时间获取完成, 共 ${pageCount} 页`);
     return totalInstanceIds;
   }
 
@@ -275,7 +315,7 @@ class Scheduler {
     return fetchFailures.length === 0 && results.failed === 0;
   }
 
-  // 执行一次增量同步（按流程游标持久化）
+  // 定时与页面手动同步按 OA 更新时间发现数据；业务日期仍由原始钉钉载荷决定。
   async syncApprovals(): Promise<void> {
     if (this.isRunning) {
       logger.warn('上次任务尚未完成，跳过本次执行');
@@ -295,17 +335,17 @@ class Scheduler {
       logger.info(`开始增量同步审批数据，结束时间(北京时间): ${this.formatBeijingTime(end)}, 流程数量: ${allProcessCodes.length}`);
 
       let failedProcessCount = 0;
-      const fallbackStart = this.getFallbackStartTime();
-
       for (const processCode of allProcessCodes) {
-        const cursorKey = `process:${processCode}`;
+        const cursorKey = `oa-updated:process:${processCode}`;
         try {
           const cursor = await database.getSyncCursor(cursorKey);
-          const start = cursor || fallbackStart;
+          const start = cursor
+            ? Math.max(this.getFallbackStartTime(), cursor - this.getOaUpdatedAtOverlapMs())
+            : this.getOaUpdatedAtInitialStartTime(end);
 
-          logger.info(`流程 ${processCode} 增量窗口(北京时间): ${this.formatBeijingTime(start)} ~ ${this.formatBeijingTime(end)}`);
+          logger.info(`流程 ${processCode} OA 更新时间窗口(北京时间): ${this.formatBeijingTime(start)} ~ ${this.formatBeijingTime(end)}`);
 
-          const ids = await this.syncSingleProcess(processCode, start, end);
+          const ids = await this.syncSingleProcessByOaUpdatedAt(processCode, start, end);
           const processed = await this.processInstanceIdBatch(ids);
           if (!processed) {
             failedProcessCount++;
@@ -313,7 +353,7 @@ class Scheduler {
             continue;
           }
 
-          // 仅流程同步成功时推进该流程游标，避免失败导致数据缺口
+          // 仅流程同步成功时推进 OA 更新时间游标，避免失败导致数据缺口。
           await database.setSyncCursor(cursorKey, end);
         } catch (error: unknown) {
           failedProcessCount++;

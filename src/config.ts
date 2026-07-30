@@ -41,6 +41,8 @@ interface DingtalkConfig {
 interface SchedulerConfig {
   cron: string;
   startTime: string;
+  oaUpdatedAtInitialLookbackDays: number;
+  oaUpdatedAtOverlapMinutes: number;
   compensationCron: string;
   fxRatesCron: string;
   fxRatesTimezone: string;
@@ -236,6 +238,8 @@ const config: Config = Object.freeze({
   scheduler: Object.freeze({
     cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7 * * * *',
     startTime: process.env.SCHEDULER_START_TIME || fileConfig.scheduler?.startTime || '2026-04-01T00:00:00+08:00',
+    oaUpdatedAtInitialLookbackDays: Number(process.env.SCHEDULER_OA_UPDATED_AT_INITIAL_LOOKBACK_DAYS) || fileConfig.scheduler?.oaUpdatedAtInitialLookbackDays || 45,
+    oaUpdatedAtOverlapMinutes: Number(process.env.SCHEDULER_OA_UPDATED_AT_OVERLAP_MINUTES) || fileConfig.scheduler?.oaUpdatedAtOverlapMinutes || 10,
     compensationCron: process.env.SCHEDULER_COMPENSATION_CRON || fileConfig.scheduler?.compensationCron || '17 3 * * *',
     fxRatesCron: process.env.SCHEDULER_FX_RATES_CRON || fileConfig.scheduler?.fxRatesCron || '5 0 * * *',
     fxRatesTimezone: process.env.SCHEDULER_FX_RATES_TIMEZONE || fileConfig.scheduler?.fxRatesTimezone || 'Asia/Shanghai',
