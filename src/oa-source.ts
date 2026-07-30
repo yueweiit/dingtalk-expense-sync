@@ -319,6 +319,45 @@ export function createOaApprovalSource(client: Queryable = oaPool) {
       };
     },
 
+    // Discover late-written OA records without using the OA timestamp as a business date.
+    async queryProcessInstanceIdsByUpdatedAt(
+      startTime: number,
+      endTime: number,
+      processCode: string,
+      nextToken = 0,
+      maxResults = 20
+    ): Promise<QueryProcessInstanceIdsResult> {
+      const safePageSize = Math.max(1, Number(maxResults) || 20);
+      const safeOffset = Math.max(0, Number(nextToken) || 0);
+      const limit = safePageSize + 1;
+      const startIso = new Date(startTime).toISOString();
+      const endIso = new Date(endTime).toISOString();
+
+      const result = await client.query<{ process_instance_id: string | null }>(
+        `
+          select process_instance_id
+          from ding_approval_instance
+          where deleted_at is null
+            and process_code = $1
+            and updated_at >= $2::timestamptz
+            and updated_at <= $3::timestamptz
+          order by updated_at asc, process_instance_id asc
+          limit $4 offset $5
+        `,
+        [processCode, startIso, endIso, limit, safeOffset]
+      );
+
+      const rows = result.rows
+        .map((row) => toText(row.process_instance_id))
+        .filter(Boolean) as string[];
+      const hasMore = rows.length > safePageSize;
+
+      return {
+        list: hasMore ? rows.slice(0, safePageSize) : rows,
+        nextToken: hasMore ? safeOffset + safePageSize : 0,
+      };
+    },
+
     async getProcessInstance(processInstanceId: string): Promise<Record<string, unknown>> {
       const result = await client.query<QueryResultRow>(
         `

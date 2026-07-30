@@ -5,6 +5,8 @@
   "scheduler": {
     "cron": "7 * * * *",
     "startTime": "2026-04-01T00:00:00+08:00",
+    "oaUpdatedAtInitialLookbackDays": 45,
+    "oaUpdatedAtOverlapMinutes": 10,
     "compensationCron": "17 3 * * *",
     "fxRatesCron": "5 0 * * *",
     "fxRatesTimezone": "Asia/Shanghai",

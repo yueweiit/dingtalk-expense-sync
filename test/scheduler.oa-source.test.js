@@ -24,7 +24,10 @@ function createSchedulerFixture({ failingProcessCode = null } = {}) {
     `
       export const state = {
         queryCalls: [],
+        updatedAtQueryCalls: [],
         batchCalls: [],
+        cursorQueries: [],
+        cursorSets: [],
       };
 
       export const approvalSource = {
@@ -34,6 +37,10 @@ function createSchedulerFixture({ failingProcessCode = null } = {}) {
             throw new Error('simulated process fetch failure');
           }
           return { list: nextToken === 0 ? ['INS-1'] : [], nextToken: 0 };
+        },
+        async queryProcessInstanceIdsByUpdatedAt(start, end, processCode, nextToken = 0) {
+          state.updatedAtQueryCalls.push({ start, end, processCode, nextToken });
+          return { list: nextToken === 0 ? [\`LATE-\${processCode}\`] : [], nextToken: 0 };
         },
         async getProcessInstances(ids) {
           state.batchCalls.push(ids);
@@ -95,8 +102,13 @@ function createSchedulerFixture({ failingProcessCode = null } = {}) {
         async ensureSyncStateTable() {},
         async ensureApprovalExpenseSchema() {},
         async ensureFxRatesDailyTable() {},
-        async getSyncCursor() { return 0; },
-        async setSyncCursor() {},
+        async getSyncCursor(taskName) {
+          (await import('./oa-source.ts')).state.cursorQueries.push(taskName);
+          return 0;
+        },
+        async setSyncCursor(taskName, timestamp) {
+          (await import('./oa-source.ts')).state.cursorSets.push({ taskName, timestamp });
+        },
         async getPendingExpenseInstances() { return []; },
         async getStaleExpenseAgreed() { return []; },
         async countFxRatesForDate() { return 1; },
@@ -200,6 +212,42 @@ test('scheduler runtime reads ids and details through approvalSource', async (t)
   assert.deepEqual(oaSourceModule.state.batchCalls, [['INS-1']]);
   assert.equal(processorModule.state.processedBatches.length, 1);
   assert.equal(processorModule.state.processedBatches[0][0].businessId, 'BIZ-1');
+});
+
+test('incremental sync discovers forms by OA updated_at with an independent cursor', async (t) => {
+  const fixtureSrc = createSchedulerFixture();
+  t.after(() => {
+    fs.rmSync(path.dirname(fixtureSrc), { recursive: true, force: true });
+  });
+  const schedulerModule = await import(pathToFileURL(path.join(fixtureSrc, 'scheduler.ts')).href);
+  const oaSourceModule = await import(pathToFileURL(path.join(fixtureSrc, 'oa-source.ts')).href);
+  const processorModule = await import(pathToFileURL(path.join(fixtureSrc, 'processor.ts')).href);
+
+  const scheduler = schedulerModule.default?.default ?? schedulerModule.default ?? schedulerModule;
+  const before = Date.now();
+  await scheduler.syncApprovals();
+  const after = Date.now();
+
+  assert.equal(oaSourceModule.state.queryCalls.length, 0);
+  assert.equal(oaSourceModule.state.updatedAtQueryCalls.length, 3);
+  assert.deepEqual(
+    oaSourceModule.state.cursorQueries,
+    ['oa-updated:process:PROC-OP-1', 'oa-updated:process:PROC-OP-2', 'oa-updated:process:PROC-PURCHASE-1']
+  );
+  assert.deepEqual(
+    oaSourceModule.state.cursorSets.map((item) => item.taskName),
+    ['oa-updated:process:PROC-OP-1', 'oa-updated:process:PROC-OP-2', 'oa-updated:process:PROC-PURCHASE-1']
+  );
+  const expectedStart = Math.max(
+    Date.parse('2026-07-01T00:00:00+08:00'),
+    before - 45 * 24 * 60 * 60 * 1000
+  );
+  for (const query of oaSourceModule.state.updatedAtQueryCalls) {
+    assert.ok(query.start >= expectedStart - 1000);
+    assert.ok(query.start <= expectedStart + 1000);
+    assert.ok(query.end >= before && query.end <= after);
+  }
+  assert.equal(processorModule.state.processedBatches.length, 3);
 });
 
 test('manual operation split sync reads every operation process code', async (t) => {

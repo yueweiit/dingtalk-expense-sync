@@ -63,6 +63,46 @@ test('queryProcessInstanceIds returns paged ids and numeric nextToken', async ()
   });
 });
 
+test('queryProcessInstanceIdsByUpdatedAt returns late-written rows in stable pages', async () => {
+  const sourceModule = loadModule('oa-source');
+  const createOaApprovalSource =
+    sourceModule.createOaApprovalSource || sourceModule.default?.createOaApprovalSource;
+
+  const source = createOaApprovalSource(
+    createFakeClient(({ sql, params }) => {
+      assert.match(sql, /updated_at >= \$2::timestamptz/);
+      assert.match(sql, /order by updated_at asc, process_instance_id asc/i);
+      assert.deepEqual(params, [
+        'PROC-OPERATION',
+        '2026-07-29T00:00:00.000Z',
+        '2026-07-30T00:00:00.000Z',
+        3,
+        0,
+      ]);
+      return {
+        rows: [
+          { process_instance_id: 'LATE-001' },
+          { process_instance_id: 'LATE-002' },
+          { process_instance_id: 'LATE-003' },
+        ],
+      };
+    })
+  );
+
+  const result = await source.queryProcessInstanceIdsByUpdatedAt(
+    Date.parse('2026-07-29T00:00:00.000Z'),
+    Date.parse('2026-07-30T00:00:00.000Z'),
+    'PROC-OPERATION',
+    0,
+    2
+  );
+
+  assert.deepEqual(result, {
+    list: ['LATE-001', 'LATE-002'],
+    nextToken: 2,
+  });
+});
+
 test('getDepartmentSnapshots returns a department path only when the id is unambiguous', async () => {
   const sourceModule = loadModule('oa-source');
   const createOaApprovalSource =
