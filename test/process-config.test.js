@@ -28,6 +28,9 @@ function expectedProcessTypeMap() {
       forms.YW_INTELLIGENT_OPERATION_FORM_CODE,
       forms.XINGMING_DONGGUAN_OPERATION_FORM_CODE,
       forms.LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE,
+      forms.LEMOS_OPERATION_FORM_CODE,
+      forms.MOLD_PRINT_OPERATION_FORM_CODE,
+      forms.YUEWEI_MX_OPERATION_FORM_CODE,
     ],
     purchase: [
       forms.OLD_PURCHASE_FORM_CODE,
@@ -35,6 +38,9 @@ function expectedProcessTypeMap() {
       forms.YW_INTELLIGENT_PURCHASE_FORM_CODE,
       forms.XINGMING_DONGGUAN_PURCHASE_FORM_CODE,
       forms.LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE,
+      forms.LEMOS_PURCHASE_FORM_CODE,
+      forms.MOLD_PRINT_PURCHASE_FORM_CODE,
+      forms.YUEWEI_MX_PURCHASE_FORM_CODE,
     ],
   };
 }
