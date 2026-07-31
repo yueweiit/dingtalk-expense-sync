@@ -6,6 +6,8 @@ import config from './config.ts';
 import { normalizeCurrencyToIso } from './fxToCny.ts';
 import scheduler from './scheduler.ts';
 import { resolveDepartmentQuery } from './department-query.ts';
+import { getConnectorOriginator, resolveOriginatorDepartment } from './connector-originator-department.ts';
+import { resolveSharedBudgetDepartmentIds } from './shared-budget-departments.ts';
 import { approvalExpenseTimeExpr, utcDateRange } from './utc-time.ts';
 
 const app = express();
@@ -150,9 +152,41 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     /** 默认统计所有流程状态；如需只看归档完结，可传 flow_status=completed */
     const flowStatusCompletedOnly = String(flow_status || '').toLowerCase() === 'completed';
 
-    const departmentQuery = resolveDepartmentQuery(req.query as Record<string, unknown>);
-    const deptMatch = departmentQuery?.value || null;
-    const departmentIdMode = departmentQuery?.mode === 'id';
+    let departmentQuery = resolveDepartmentQuery(req.query as Record<string, unknown>);
+    let deptMatch = departmentQuery?.value || null;
+    let departmentIdMode = departmentQuery?.mode === 'id';
+    let departmentIds: string[] | null = departmentIdMode && deptMatch ? [deptMatch] : null;
+    const monthBucket = parseMonthBucket(month);
+
+    if (departmentQuery?.mode === 'name') {
+      const originator = getConnectorOriginator(req.query as Record<string, unknown>);
+      if (originator.userId || originator.name) {
+        const resolution = await resolveOriginatorDepartment({
+          originatorUserId: originator.userId,
+          originatorName: originator.name,
+          departmentName: departmentQuery.value,
+        });
+        if (resolution.status !== 'resolved') {
+          res.status(422).json({
+            error: resolution.status === 'ambiguous'
+              ? '部门归属不唯一，请检查提交人和部门配置'
+              : '未找到提交人与部门的对应关系，请检查组织架构同步',
+          });
+          return;
+        }
+        departmentQuery = { mode: 'id', value: resolution.departmentId };
+        deptMatch = resolution.departmentId;
+        departmentIdMode = true;
+        departmentIds = [resolution.departmentId];
+      }
+    }
+
+    if (departmentIdMode && deptMatch) {
+      const queryMonth = monthBucket
+        ? `${monthBucket.year}-${String(monthBucket.monthNum).padStart(2, '0')}`
+        : '';
+      departmentIds = resolveSharedBudgetDepartmentIds(deptMatch, queryMonth);
+    }
 
     logger.info(
       `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, flow_status=${flowStatusCompletedOnly ? 'COMPLETED-only' : 'all'}, exclude_revoked_biz=${!allowRevokedBiz}`
@@ -244,12 +278,12 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     if (isOperation) {
       // 运营支出：通过 split 表处理部门拆分。部门 ID 存在时必须精确匹配，避免同名部门串账。
       const splitDeptParam = `$${paramIndex++}`;
-      params.push(deptMatch);
+      params.push(departmentIdMode ? departmentIds : deptMatch);
       const splitDepartmentWhere = departmentIdMode
-        ? `ds.department_id = ${splitDeptParam}`
+        ? `ds.department_id = ANY(${splitDeptParam}::varchar[])`
         : `LOWER(BTRIM(ds.department)) = LOWER(BTRIM(${splitDeptParam}))`;
       const directDepartmentWhere = departmentIdMode
-        ? `o.applicant_department_id = $${paramIndex++}`
+        ? `o.applicant_department_id = ANY($${paramIndex++}::varchar[])`
         : `LOWER(BTRIM(COALESCE(${departmentExpr}, ''))) = LOWER(BTRIM($${paramIndex++}))`;
 
       if (isDebug) {
@@ -284,7 +318,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           ${timeFilter}
           ORDER BY ${timeColumn} DESC
         `;
-        params.push(deptMatch);
+        params.push(departmentIdMode ? departmentIds : deptMatch);
       } else {
         query = `
           SELECT COALESCE(SUM(COALESCE(ds.split_total, o.base_currency_amount)), 0)::text AS total, COUNT(*)::int AS count
@@ -305,13 +339,13 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           ${statusWhere}
           ${timeFilter}
         `;
-        params.push(deptMatch);
+        params.push(departmentIdMode ? departmentIds : deptMatch);
       }
     } else {
       // 采购支出：不涉及拆分，直接查询
       const nonSplitDeptParam = `$${paramIndex++}`;
       if (departmentIdMode) {
-        params.push(deptMatch);
+        params.push(departmentIds);
       } else if (deptCodeMode) {
         params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
       } else {
@@ -348,7 +382,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       }
 
       if (departmentIdMode) {
-        query += ` AND o.applicant_department_id = ${nonSplitDeptParam}`;
+        query += ` AND o.applicant_department_id = ANY(${nonSplitDeptParam}::varchar[])`;
       } else if (deptCodeMode) {
         query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`;
       } else {
@@ -369,6 +403,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           payload.resolved = {
             deptMatch,
             deptMatchMode: departmentIdMode ? 'id-exact' : (deptCodeMode ? 'code-token' : 'name-exact'),
+            departmentIds: departmentIdMode ? departmentIds : null,
             sourceTable: queryConfig.tableName,
             timeColumn,
             monthParsed: month ? parseMonthBucket(month) : null,
@@ -395,6 +430,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
         payload.resolved = {
           deptMatch,
           deptMatchMode: departmentIdMode ? 'id-exact' : (deptCodeMode ? 'code-token' : 'name-exact'),
+          departmentIds: departmentIdMode ? departmentIds : null,
           sourceTable: queryConfig.tableName,
           timeColumn,
           monthParsed: month ? parseMonthBucket(month) : null,

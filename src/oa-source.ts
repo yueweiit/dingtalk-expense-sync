@@ -57,6 +57,10 @@ oaPool.on('error', (error: Error) => {
   console.error('dingtalk_oa 数据库连接池错误:', error);
 });
 
+export function getOaDatabaseQuery(): Queryable {
+  return oaPool;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
