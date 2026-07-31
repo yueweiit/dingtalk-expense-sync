@@ -75,6 +75,47 @@ test('refuses ambiguous same-name departments', async () => {
   assert.equal(resolution.status, 'ambiguous');
 });
 
+test('allows a YW Tech child member to select the shared parent from July onward', async () => {
+  let callCount = 0;
+  const resolution = await resolveOriginatorDepartment({
+    originatorUserId: 'user-1',
+    departmentName: '\u60a6\u4e3a\u667a\u80fd YW Tech_Ai',
+    sharedBudgetMonth: '2026-07',
+  }, {
+    query: async (_sql, params) => {
+      callCount += 1;
+      if (callCount === 1) return { rows: [] };
+      if (params?.[2] === '1077343081') {
+        return {
+          rows: [{
+            user_id: 'user-1',
+            originator_name: 'Alice',
+            dept_id: '1077343081',
+            department_name: '\u60a6\u4e3a\u667a\u80fd YW Tech_Ai',
+            path_names: [],
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+  });
+
+  assert.equal(resolution.status, 'resolved');
+  assert.equal(resolution.status === 'resolved' && resolution.departmentId, '1077343081');
+});
+
+test('does not allow shared-parent fallback before July', async () => {
+  const resolution = await resolveOriginatorDepartment({
+    originatorUserId: 'user-1',
+    departmentName: '\u60a6\u4e3a\u667a\u80fd YW Tech_Ai',
+    sharedBudgetMonth: '2026-06',
+  }, {
+    query: async () => ({ rows: [] }),
+  });
+
+  assert.equal(resolution.status, 'not_found');
+});
+
 test('shares only YW Tech and Latin Purchase budgets from July onward', () => {
   assert.deepEqual(
     resolveSharedBudgetDepartmentIds('1092411969', '2026-07'),

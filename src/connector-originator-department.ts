@@ -1,4 +1,5 @@
 import { getOaDatabaseQuery } from './oa-source.ts';
+import { SHARED_BUDGET_GROUPS } from './shared-budget-departments.ts';
 
 interface Queryable {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -92,6 +93,55 @@ export function buildOriginatorDepartmentQuery({
   };
 }
 
+function buildSharedParentFallbackQuery({
+  originatorUserId,
+  originatorName,
+  departmentName,
+  parentId,
+  memberIds,
+}: {
+  originatorUserId?: unknown;
+  originatorName?: unknown;
+  departmentName?: unknown;
+  parentId: string;
+  memberIds: string[];
+}) {
+  const userId = text(originatorUserId);
+  const name = text(originatorName);
+  const inferredUserId = !userId && isDingTalkUserId(name) ? name : '';
+  const identityColumn = (userId || inferredUserId) ? 'user_snapshot.user_id' : 'user_snapshot.name';
+
+  return {
+    sql: `
+      SELECT DISTINCT
+        user_snapshot.user_id,
+        user_snapshot.name AS originator_name,
+        department.dept_id,
+        department.name AS department_name,
+        department.path_names
+      FROM ding_user_snapshot AS user_snapshot
+      CROSS JOIN LATERAL jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(user_snapshot.dept_id_list) = 'array' THEN user_snapshot.dept_id_list
+          ELSE '[]'::jsonb
+        END
+      ) AS membership(dept_id)
+      JOIN ding_department_tree AS department
+        ON department.corp_id = user_snapshot.corp_id
+       AND department.dept_id = $3
+      WHERE user_snapshot.is_current = true
+        AND user_snapshot.fetch_status = 'success'
+        AND department.is_current = true
+        AND BTRIM(${identityColumn}) = BTRIM($1)
+        AND BTRIM(department.name) = BTRIM($2)
+        AND membership.dept_id = ANY($4::varchar[])
+      ORDER BY department.dept_id
+    `,
+    params: [userId || inferredUserId || name, text(departmentName), parentId, memberIds],
+    matchedBy: (userId || inferredUserId) ? ('user_id' as const) : ('name' as const),
+  };
+}
+
 export type OriginatorDepartmentResolution =
   | { status: 'not_requested' }
   | { status: 'not_found'; matchedBy: 'user_id' | 'name'; departmentName: string }
@@ -114,10 +164,12 @@ export async function resolveOriginatorDepartment({
   originatorUserId,
   originatorName,
   departmentName,
+  sharedBudgetMonth,
 }: {
   originatorUserId?: unknown;
   originatorName?: unknown;
   departmentName?: unknown;
+  sharedBudgetMonth?: unknown;
 }, client: Queryable = getOaDatabaseQuery()): Promise<OriginatorDepartmentResolution> {
   const normalizedDepartmentName = text(departmentName);
   if (!normalizedDepartmentName || (!text(originatorUserId) && !text(originatorName))) {
@@ -130,7 +182,22 @@ export async function resolveOriginatorDepartment({
     departmentName: normalizedDepartmentName,
   });
   const result = await client.query<DepartmentCandidate>(statement.sql, statement.params);
-  const candidates = result.rows;
+  let candidates = result.rows;
+
+  // Only shared-budget parents may be selected by one of their child members.
+  if (candidates.length === 0 && text(sharedBudgetMonth) >= '2026-07') {
+    for (const group of SHARED_BUDGET_GROUPS) {
+      const fallback = buildSharedParentFallbackQuery({
+        originatorUserId,
+        originatorName,
+        departmentName: normalizedDepartmentName,
+        parentId: group.parentId,
+        memberIds: group.memberIds,
+      });
+      const fallbackResult = await client.query<DepartmentCandidate>(fallback.sql, fallback.params);
+      candidates = candidates.concat(fallbackResult.rows);
+    }
+  }
 
   if (candidates.length === 0) {
     return {

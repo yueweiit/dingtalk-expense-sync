@@ -160,6 +160,9 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     let departmentIdMode = departmentQuery?.mode === 'id';
     let departmentIds: string[] | null = departmentIdMode && deptMatch ? [deptMatch] : null;
     const monthBucket = parseMonthBucket(month);
+    const queryMonth = monthBucket
+      ? `${monthBucket.year}-${String(monthBucket.monthNum).padStart(2, '0')}`
+      : '';
 
     if (departmentQuery?.mode === 'name') {
       const originator = getConnectorOriginator(req.query as Record<string, unknown>);
@@ -168,6 +171,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           originatorUserId: originator.userId,
           originatorName: originator.name,
           departmentName: departmentQuery.value,
+          sharedBudgetMonth: queryMonth,
         });
         if (resolution.status !== 'resolved') {
           logger.warn('Connector department resolution failed', {
@@ -192,9 +196,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     }
 
     if (departmentIdMode && deptMatch) {
-      const queryMonth = monthBucket
-        ? `${monthBucket.year}-${String(monthBucket.monthNum).padStart(2, '0')}`
-        : '';
       departmentIds = resolveSharedBudgetDepartmentIds(deptMatch, queryMonth);
     }
 
