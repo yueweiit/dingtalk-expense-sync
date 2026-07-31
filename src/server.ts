@@ -135,13 +135,16 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       department,
       start_date,
       end_date,
-      month,
+      month: providedMonth,
       debug,
       date_field,
       echo,
       flow_status,
       include_revoked
     } = req.query;
+
+    // DingTalk connector parameter names can be fixed as Chinese labels.
+    const month = providedMonth || req.query['\u65f6\u95f4'];
 
     const queryConfig = getExpenseQueryConfig(processKind);
     const timeColumn = approvalExpenseTimeExpr();

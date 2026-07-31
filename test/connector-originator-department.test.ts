@@ -23,6 +23,12 @@ test('prefers submitter ID over submitter name', () => {
   assert.match(statement.sql, /BTRIM\(user_snapshot\.user_id\) = BTRIM\(\$1\)/);
 });
 
+test('accepts DingTalk fixed Chinese submitter parameter name', () => {
+  assert.deepEqual(getConnectorOriginator({
+    '\u63d0\u4ea4\u4eba': 'Alice',
+  }), { userId: '', name: 'Alice' });
+});
+
 test('resolves exactly one current department membership by submitter name', async () => {
   const resolution = await resolveOriginatorDepartment({
     originatorName: 'Alice',

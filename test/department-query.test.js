@@ -22,6 +22,15 @@ test('accepts all supported department ID parameter names', () => {
   }
 });
 
+test('accepts DingTalk fixed Chinese department parameter name', () => {
+  assert.deepEqual(resolveDepartmentQuery({
+    '\u90e8\u95e8': 'Sales',
+  }), {
+    mode: 'name',
+    value: 'Sales',
+  });
+});
+
 test('keeps legacy department-name queries identifiable during connector migration', () => {
   assert.deepEqual(resolveDepartmentQuery({ department: 'OBG 线上业务组' }), {
     mode: 'name',

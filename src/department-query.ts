@@ -29,7 +29,11 @@ export function resolveDepartmentQuery(input: Record<string, unknown>): Departme
     return { mode: 'code', value: departmentCode };
   }
 
-  const department = firstNonEmptyValue(input, ['department']);
+  const department = firstNonEmptyValue(input, [
+    'department',
+    'deptName',
+    '\u90e8\u95e8',
+  ]);
   if (!department) return null;
 
   return { mode: 'name', value: department };
