@@ -52,11 +52,29 @@ export function repairCandidateQuery(limit: number | null): string {
         business_id,
         process_instance_id,
         source_created_at,
+        applicant_department_id,
+        applicant_department_source,
+        applicant_department_path_ids,
+        applicant_department_path_names,
         'operation'::text AS expense_kind
       FROM approval_expense_operation AS op
       WHERE op.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
         AND op.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
-        AND COALESCE(BTRIM(op.applicant_department_id), '') = ''
+        AND (
+          COALESCE(BTRIM(op.applicant_department_id), '') = ''
+          OR COALESCE(op.applicant_department_path_ids, '[]'::jsonb) = '[]'::jsonb
+          OR COALESCE(op.applicant_department_path_names, '[]'::jsonb) = '[]'::jsonb
+          OR EXISTS (
+            SELECT 1
+            FROM approval_expense_dept_split AS split
+            WHERE split.business_id = op.business_id
+              AND (
+                COALESCE(BTRIM(split.department_id), '') = ''
+                OR COALESCE(split.department_path_ids, '[]'::jsonb) = '[]'::jsonb
+                OR COALESCE(split.department_path_names, '[]'::jsonb) = '[]'::jsonb
+              )
+          )
+        )
 
       UNION ALL
 
@@ -64,11 +82,19 @@ export function repairCandidateQuery(limit: number | null): string {
         business_id,
         process_instance_id,
         source_created_at,
+        applicant_department_id,
+        applicant_department_source,
+        applicant_department_path_ids,
+        applicant_department_path_names,
         'purchase'::text AS expense_kind
       FROM approval_expense_purchase AS pu
       WHERE pu.source_created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai')
         AND pu.source_created_at < (($2::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')
-        AND COALESCE(BTRIM(pu.applicant_department_id), '') = ''
+        AND (
+          COALESCE(BTRIM(pu.applicant_department_id), '') = ''
+          OR COALESCE(pu.applicant_department_path_ids, '[]'::jsonb) = '[]'::jsonb
+          OR COALESCE(pu.applicant_department_path_names, '[]'::jsonb) = '[]'::jsonb
+        )
     )
     SELECT
       expense.business_id,
@@ -77,6 +103,10 @@ export function repairCandidateQuery(limit: number | null): string {
       ai.originator_dept_id,
       ai.originator_dept_name,
       ai.raw_data,
+      expense.applicant_department_id,
+      expense.applicant_department_source,
+      expense.applicant_department_path_ids,
+      expense.applicant_department_path_names,
       expense.expense_kind
     FROM expense_candidates AS expense
     LEFT JOIN approval_instances AS ai ON ai.business_id = expense.business_id

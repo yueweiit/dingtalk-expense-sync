@@ -255,14 +255,56 @@ export function createOaApprovalSource(client: Queryable = oaPool) {
               name,
               path_ids,
               path_names,
-              count(*) OVER (PARTITION BY dept_id) AS matching_corp_count
+              is_current
             FROM ding_department_tree
+            WHERE dept_id = ANY($1::varchar[])
+          ),
+          current_counts AS (
+            SELECT dept_id, COUNT(*) AS match_count
+            FROM candidates
             WHERE is_current = true
-              AND dept_id = ANY($1::varchar[])
+            GROUP BY dept_id
+          ),
+          current_matches AS (
+            SELECT c.dept_id, c.name, c.path_ids, c.path_names
+            FROM candidates c
+            JOIN current_counts counts ON counts.dept_id = c.dept_id
+            WHERE c.is_current = true
+              AND counts.match_count = 1
+              AND NULLIF(BTRIM(c.name), '') IS NOT NULL
+              AND jsonb_typeof(c.path_ids) = 'array'
+              AND jsonb_array_length(c.path_ids) > 0
+              AND jsonb_typeof(c.path_names) = 'array'
+              AND jsonb_array_length(c.path_names) > 0
+          ),
+          historical_counts AS (
+            SELECT c.dept_id, COUNT(*) AS match_count
+            FROM candidates c
+            WHERE c.is_current IS NOT TRUE
+              AND NOT EXISTS (
+                SELECT 1
+                FROM current_counts current
+                WHERE current.dept_id = c.dept_id
+              )
+            GROUP BY c.dept_id
+          ),
+          historical_matches AS (
+            SELECT c.dept_id, c.name, c.path_ids, c.path_names
+            FROM candidates c
+            JOIN historical_counts counts ON counts.dept_id = c.dept_id
+            WHERE c.is_current IS NOT TRUE
+              AND counts.match_count = 1
+              AND NULLIF(BTRIM(c.name), '') IS NOT NULL
+              AND jsonb_typeof(c.path_ids) = 'array'
+              AND jsonb_array_length(c.path_ids) > 0
+              AND jsonb_typeof(c.path_names) = 'array'
+              AND jsonb_array_length(c.path_names) > 0
           )
           SELECT dept_id, name, path_ids, path_names
-          FROM candidates
-          WHERE matching_corp_count = 1
+          FROM current_matches
+          UNION ALL
+          SELECT dept_id, name, path_ids, path_names
+          FROM historical_matches
         `,
         [ids]
       );

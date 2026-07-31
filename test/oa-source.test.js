@@ -103,7 +103,7 @@ test('queryProcessInstanceIdsByUpdatedAt returns late-written rows in stable pag
   });
 });
 
-test('getDepartmentSnapshots returns a department path only when the id is unambiguous', async () => {
+test('getDepartmentSnapshots uses a unique current or historical department path only', async () => {
   const sourceModule = loadModule('oa-source');
   const createOaApprovalSource =
     sourceModule.createOaApprovalSource || sourceModule.default?.createOaApprovalSource;
@@ -111,6 +111,10 @@ test('getDepartmentSnapshots returns a department path only when the id is unamb
   const source = createOaApprovalSource(
     createFakeClient(({ sql, params }) => {
       assert.match(sql, /ding_department_tree/);
+      assert.match(sql, /current_matches/);
+      assert.match(sql, /historical_matches/);
+      assert.match(sql, /c\.is_current IS NOT TRUE/);
+      assert.match(sql, /counts\.match_count = 1/);
       assert.deepEqual(params, [['1059483024', 'ambiguous-id']]);
       return {
         rows: [{

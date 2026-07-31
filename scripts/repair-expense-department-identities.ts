@@ -29,6 +29,10 @@ type Candidate = {
   originator_dept_id: string | null;
   originator_dept_name: string | null;
   raw_data: unknown;
+  applicant_department_id: string | null;
+  applicant_department_source: string | null;
+  applicant_department_path_ids: unknown;
+  applicant_department_path_names: unknown;
   expense_kind: 'operation' | 'purchase';
 };
 
@@ -84,22 +88,26 @@ async function buildPlan(candidate: Candidate): Promise<RepairPlan> {
     originatorDeptId: String(instance.originatorDeptId || candidate.originator_dept_id || '').trim() || undefined,
     originatorDeptName: String(instance.originatorDeptName || candidate.originator_dept_name || '').trim() || undefined,
   });
-  if (!identityData.departmentId) {
+  const storedDepartmentId = String(candidate.applicant_department_id || '').trim();
+  const departmentId = storedDepartmentId || identityData.departmentId;
+  if (!departmentId) {
     return { candidate, identity: null, splitPatches: [], source, reason: 'source data has no department id' };
   }
 
   const parsed: Record<string, unknown> = candidate.expense_kind === 'operation'
     ? processor.parseOperationExpenseData(components, instance as any)
     : {};
-  parsed.applicantDepartmentId = identityData.departmentId;
-  parsed.applicantDepartmentSource = identityData.departmentSource;
+  parsed.applicantDepartmentId = departmentId;
+  parsed.applicantDepartmentSource = storedDepartmentId
+    ? String(candidate.applicant_department_source || '').trim() || 'stored_id'
+    : identityData.departmentSource;
   await processor.enrichOperationDepartmentPaths(parsed);
 
   return {
     candidate,
     identity: {
-      departmentId: identityData.departmentId,
-      departmentSource: identityData.departmentSource,
+      departmentId,
+      departmentSource: String(parsed.applicantDepartmentSource || '').trim() || 'stored_id',
       departmentPathIds: Array.isArray(parsed.applicantDepartmentPathIds)
         ? parsed.applicantDepartmentPathIds.map((value) => String(value))
         : null,
@@ -139,7 +147,7 @@ async function writeBackup(path: string, plans: RepairPlan[]): Promise<string> {
   for (const plan of plans) records.push(await snapshotPlan(plan));
   await writeFile(absolutePath, JSON.stringify({
     createdAt: new Date().toISOString(),
-    scope: 'missing department identities only',
+    scope: 'missing department identities or path snapshots only',
     records,
   }, null, 2), { encoding: 'utf8', flag: 'wx' });
   return absolutePath;
@@ -154,13 +162,37 @@ async function patchMaster(client: PoolClient, plan: RepairPlan): Promise<number
     `
       UPDATE ${table}
       SET
-        applicant_department_id = $2,
-        applicant_department_source = $3,
-        applicant_department_path_ids = COALESCE($4::jsonb, applicant_department_path_ids),
-        applicant_department_path_names = COALESCE($5::jsonb, applicant_department_path_names),
+        applicant_department_id = CASE
+          WHEN COALESCE(BTRIM(applicant_department_id), '') = '' THEN $2
+          ELSE applicant_department_id
+        END,
+        applicant_department_source = CASE
+          WHEN COALESCE(BTRIM(applicant_department_id), '') = '' THEN $3
+          ELSE applicant_department_source
+        END,
+        applicant_department_path_ids = CASE
+          WHEN COALESCE(applicant_department_path_ids, '[]'::jsonb) = '[]'::jsonb
+            THEN COALESCE($4::jsonb, applicant_department_path_ids)
+          ELSE applicant_department_path_ids
+        END,
+        applicant_department_path_names = CASE
+          WHEN COALESCE(applicant_department_path_names, '[]'::jsonb) = '[]'::jsonb
+            THEN COALESCE($5::jsonb, applicant_department_path_names)
+          ELSE applicant_department_path_names
+        END,
         updated_at = NOW()
       WHERE business_id = $1
-        AND COALESCE(BTRIM(applicant_department_id), '') = ''
+        AND (
+          COALESCE(BTRIM(applicant_department_id), '') = ''
+          OR (
+            COALESCE($4::jsonb, '[]'::jsonb) <> '[]'::jsonb
+            AND COALESCE(applicant_department_path_ids, '[]'::jsonb) = '[]'::jsonb
+          )
+          OR (
+            COALESCE($5::jsonb, '[]'::jsonb) <> '[]'::jsonb
+            AND COALESCE(applicant_department_path_names, '[]'::jsonb) = '[]'::jsonb
+          )
+        )
     `,
     [
       plan.candidate.business_id,
@@ -181,9 +213,18 @@ async function patchSplit(client: PoolClient, businessId: string, patch: SplitId
       WHERE business_id = $1
         AND split_type = $2
         AND department = $3
-        AND COALESCE(BTRIM(department_id), '') = ''
+        AND (
+          COALESCE(BTRIM(department_id), '') = ''
+          OR (
+            department_id = $4
+            AND (
+              COALESCE(department_path_ids, '[]'::jsonb) = '[]'::jsonb
+              OR COALESCE(department_path_names, '[]'::jsonb) = '[]'::jsonb
+            )
+          )
+        )
     `,
-    [businessId, patch.splitType, patch.department]
+    [businessId, patch.splitType, patch.department, patch.departmentId]
   );
   const matches = count.rows[0]?.count || 0;
   if (matches === 0) return 'missing';
@@ -193,15 +234,44 @@ async function patchSplit(client: PoolClient, businessId: string, patch: SplitId
     `
       UPDATE approval_expense_dept_split
       SET
-        department_id = $4,
-        department_source = 'id',
-        department_path_ids = COALESCE($5::jsonb, department_path_ids),
-        department_path_names = COALESCE($6::jsonb, department_path_names),
+        department_id = CASE
+          WHEN COALESCE(BTRIM(department_id), '') = '' THEN $4
+          ELSE department_id
+        END,
+        department_source = CASE
+          WHEN COALESCE(BTRIM(department_id), '') = '' THEN 'id'
+          ELSE department_source
+        END,
+        department_path_ids = CASE
+          WHEN COALESCE(department_path_ids, '[]'::jsonb) = '[]'::jsonb
+            THEN COALESCE($5::jsonb, department_path_ids)
+          ELSE department_path_ids
+        END,
+        department_path_names = CASE
+          WHEN COALESCE(department_path_names, '[]'::jsonb) = '[]'::jsonb
+            THEN COALESCE($6::jsonb, department_path_names)
+          ELSE department_path_names
+        END,
         updated_at = NOW()
       WHERE business_id = $1
         AND split_type = $2
         AND department = $3
-        AND COALESCE(BTRIM(department_id), '') = ''
+        AND (
+          COALESCE(BTRIM(department_id), '') = ''
+          OR (
+            department_id = $4
+            AND (
+              (
+                COALESCE($5::jsonb, '[]'::jsonb) <> '[]'::jsonb
+                AND COALESCE(department_path_ids, '[]'::jsonb) = '[]'::jsonb
+              )
+              OR (
+                COALESCE($6::jsonb, '[]'::jsonb) <> '[]'::jsonb
+                AND COALESCE(department_path_names, '[]'::jsonb) = '[]'::jsonb
+              )
+            )
+          )
+        )
     `,
     [
       businessId,
