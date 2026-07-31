@@ -170,6 +170,13 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           departmentName: departmentQuery.value,
         });
         if (resolution.status !== 'resolved') {
+          logger.warn('Connector department resolution failed', {
+            queryKeys: Object.keys(req.query),
+            department: departmentQuery.value,
+            originator,
+            resolution: resolution.status,
+            candidateCount: resolution.status === 'ambiguous' ? resolution.candidates.length : 0,
+          });
           res.status(422).json({
             error: resolution.status === 'ambiguous'
               ? '部门归属不唯一，请检查提交人和部门配置'
