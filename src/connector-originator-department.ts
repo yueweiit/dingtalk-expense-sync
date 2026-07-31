@@ -16,6 +16,10 @@ function text(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+function isDingTalkUserId(value: string): boolean {
+  return /^\d{12,}$/.test(value);
+}
+
 function firstQueryValue(query: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
     const value = text(query[key]);
@@ -54,7 +58,9 @@ export function buildOriginatorDepartmentQuery({
 }) {
   const userId = text(originatorUserId);
   const name = text(originatorName);
-  const identityColumn = userId ? 'user_snapshot.user_id' : 'user_snapshot.name';
+  // The DingTalk "submitter" connector field supplies a numeric user ID.
+  const inferredUserId = !userId && isDingTalkUserId(name) ? name : '';
+  const identityColumn = (userId || inferredUserId) ? 'user_snapshot.user_id' : 'user_snapshot.name';
 
   return {
     sql: `
@@ -81,8 +87,8 @@ export function buildOriginatorDepartmentQuery({
         AND BTRIM(department.name) = BTRIM($2)
       ORDER BY department.dept_id
     `,
-    params: [userId || name, text(departmentName)],
-    matchedBy: userId ? ('user_id' as const) : ('name' as const),
+    params: [userId || inferredUserId || name, text(departmentName)],
+    matchedBy: (userId || inferredUserId) ? ('user_id' as const) : ('name' as const),
   };
 }
 

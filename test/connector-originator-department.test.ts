@@ -29,6 +29,16 @@ test('accepts DingTalk fixed Chinese submitter parameter name', () => {
   }), { userId: '', name: 'Alice' });
 });
 
+test('treats the numeric DingTalk submitter value as a user ID', () => {
+  const statement = buildOriginatorDepartmentQuery({
+    originatorName: '02485635391924266197',
+    departmentName: 'Sales',
+  });
+  assert.equal(statement.matchedBy, 'user_id');
+  assert.deepEqual(statement.params, ['02485635391924266197', 'Sales']);
+  assert.match(statement.sql, /BTRIM\(user_snapshot\.user_id\) = BTRIM\(\$1\)/);
+});
+
 test('resolves exactly one current department membership by submitter name', async () => {
   const resolution = await resolveOriginatorDepartment({
     originatorName: 'Alice',
