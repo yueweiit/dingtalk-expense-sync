@@ -211,6 +211,14 @@ GET /api/fx-rate?date=2026-06-10
 | `npm run sync:fx-rates` | 同步汇率数据 |
 | `npm run backfill:base-currency` | 回填基准货币金额 |
 
+## Department Identity Repair (部门身份回填)
+
+Historical department-path repair is documented in [docs/department-identity-repair.md](docs/department-identity-repair.md). Always run the read-only `dry-run` (只读预演) first. Write mode (写入模式) requires `--write=1` and an absolute JSON backup path; it only fills empty department identity/path fields and does not delete data.
+
+```bash
+npm run repair:expense-department-identities -- --start=2026-07-01 --end=2026-07-31
+```
+
 ## 项目结构
 
 ```
