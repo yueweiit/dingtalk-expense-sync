@@ -3,6 +3,7 @@ import { sendMarkdownToUsers } from './dingtalk-robot.ts';
 import dingtalk from './dingtalk.ts';
 import config from './config.ts';
 import logger from './logger.ts';
+import { resolveSharedBudgetReportDepartment } from './shared-budget-departments.ts';
 import { approvalExpenseTimeExpr, formatUtcDate, utcDateRange } from './utc-time.ts';
 
 // ─── SQL helpers ───
@@ -34,11 +35,22 @@ function buildOperationBreakdownSql(dateFilter: string): string {
   const dateFilterAliased = dateFilter
     .replace(/\bsource_created_at\b/g, 'o.source_created_at')
     .replace(/\brequest_date\b/g, 'o.request_date');
+  const timeColumnAliased = approvalExpenseTimeExpr('o');
   return `
-    SELECT dept, COALESCE(SUM(amount), 0)::numeric AS total
+    SELECT
+      dept,
+      dept_id,
+      department_path_ids,
+      department_path_names,
+      source_month,
+      COALESCE(SUM(amount), 0)::numeric AS total
     FROM (
       SELECT
         COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+        NULLIF(BTRIM(applicant_department_id), '') AS dept_id,
+        applicant_department_path_ids AS department_path_ids,
+        applicant_department_path_names AS department_path_names,
+        TO_CHAR(${TIME_COLUMN} AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
         COALESCE(base_currency_amount, 0) AS amount
       FROM approval_expense_operation
       WHERE NOT EXISTS (
@@ -52,6 +64,10 @@ function buildOperationBreakdownSql(dateFilter: string): string {
 
       SELECT
         ds.department AS dept,
+        NULLIF(BTRIM(ds.department_id), '') AS dept_id,
+        ds.department_path_ids,
+        ds.department_path_names,
+        TO_CHAR(${timeColumnAliased} AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
         ds.amount
       FROM approval_expense_dept_split ds
       JOIN approval_expense_operation o ON o.business_id = ds.business_id
@@ -59,7 +75,7 @@ function buildOperationBreakdownSql(dateFilter: string): string {
       ${dateFilterAliased}
       ${STATUS_FILTER_ALIASED}
     ) combined
-    GROUP BY dept
+    GROUP BY dept, dept_id, department_path_ids, department_path_names, source_month
     ORDER BY total DESC
   `;
 }
@@ -68,12 +84,16 @@ function buildPurchaseBreakdownSql(dateFilter: string): string {
   return `
     SELECT
       COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+      NULLIF(BTRIM(applicant_department_id), '') AS dept_id,
+      applicant_department_path_ids AS department_path_ids,
+      applicant_department_path_names AS department_path_names,
+      TO_CHAR(${TIME_COLUMN} AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
       COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::numeric AS total
     FROM approval_expense_purchase
     WHERE 1=1
     ${dateFilter}
     ${STATUS_FILTER}
-    GROUP BY dept
+    GROUP BY dept, dept_id, applicant_department_path_ids, applicant_department_path_names, source_month
     ORDER BY total DESC
   `;
 }
@@ -105,11 +125,67 @@ function getCurrentMonth(): string {
 
 interface DeptExpense {
   dept: string;
+  dept_id: string | null;
+  department_path_ids: unknown;
+  department_path_names: unknown;
+  source_month: string | null;
   total: number;
 }
 
-async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Map<string, number>> {
+interface ReportDepartmentTotal {
+  departmentId: string;
+  departmentName: string;
+  total: number;
+}
+
+interface BudgetProgress extends ReportDepartmentTotal {
+  budget: number | null;
+  spent: number | null;
+}
+
+function reportDepartmentKey(departmentId: string, departmentName: string): string {
+  return departmentId ? `id:${departmentId}` : `name:${departmentName}`;
+}
+
+function resolveReportDepartment(row: Pick<DeptExpense, 'dept' | 'dept_id' | 'department_path_ids' | 'department_path_names' | 'source_month'>, fallbackMonth: string): {
+  key: string;
+  departmentId: string;
+  departmentName: string;
+} {
+  const department = resolveSharedBudgetReportDepartment({
+    departmentId: row.dept_id,
+    departmentName: row.dept,
+    departmentPathIds: row.department_path_ids,
+    departmentPathNames: row.department_path_names,
+    month: row.source_month || fallbackMonth,
+  });
+  if (department.missingParentPath) {
+    logger.warn(`共享预算子部门缺少父部门路径，周报保留原部门: id=${department.departmentId}, name=${department.departmentName}`);
+  }
+  return {
+    key: reportDepartmentKey(department.departmentId, department.departmentName),
+    departmentId: department.departmentId,
+    departmentName: department.departmentName,
+  };
+}
+
+function addDepartmentAmount(
+  target: Map<string, ReportDepartmentTotal>,
+  row: DeptExpense,
+  fallbackMonth: string
+): void {
+  const department = resolveReportDepartment(row, fallbackMonth);
+  const existing = target.get(department.key);
+  target.set(department.key, {
+    departmentId: department.departmentId,
+    departmentName: department.departmentName,
+    total: (existing?.total || 0) + Number(row.total),
+  });
+}
+
+async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Map<string, ReportDepartmentTotal>> {
   const dateFilter = buildUtcDateFilter(startDate, endDate);
+  const reportMonth = endDate.slice(0, 7);
 
   const client = await pool.connect();
   try {
@@ -118,12 +194,12 @@ async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Ma
       client.query(buildPurchaseBreakdownSql(dateFilter)),
     ]);
 
-    const merged = new Map<string, number>();
+    const merged = new Map<string, ReportDepartmentTotal>();
     for (const row of opResult.rows as DeptExpense[]) {
-      merged.set(row.dept, (merged.get(row.dept) || 0) + Number(row.total));
+      addDepartmentAmount(merged, row, reportMonth);
     }
     for (const row of purResult.rows as DeptExpense[]) {
-      merged.set(row.dept, (merged.get(row.dept) || 0) + Number(row.total));
+      addDepartmentAmount(merged, row, reportMonth);
     }
     return merged;
   } finally {
@@ -133,10 +209,13 @@ async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Ma
 
 interface BudgetRow {
   dept: string;
+  dept_id: string | null;
+  department_path_ids: unknown;
+  department_path_names: unknown;
   budget: string | null;
 }
 
-async function getMonthlyBudgetProgress(month: string): Promise<Map<string, { budget: number | null; spent: number | null }>> {
+async function getMonthlyBudgetProgress(month: string): Promise<Map<string, BudgetProgress>> {
   const [year, monthNum] = month.split('-').map(Number);
   const startOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-01`;
   const lastDay = new Date(year, monthNum, 0).getDate();
@@ -145,20 +224,20 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, { bu
 
   const client = await pool.connect();
   try {
-    // Query 1: Budget amount from latest submission per department
+    // Query 1: budget amount, later reduced to the latest submission per report department.
     const budgetSql = `
-      SELECT DISTINCT ON (dept) dept, budget
-      FROM (
-        SELECT
-          COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-          monthly_budget_amount AS budget,
-          ${TIME_COLUMN} AS ts
-        FROM approval_expense_operation
-        WHERE monthly_budget_amount IS NOT NULL
-        ${monthDateFilter}
-        ${STATUS_FILTER}
-        ORDER BY dept, ts DESC NULLS LAST
-      ) sub
+      SELECT
+        COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
+        NULLIF(BTRIM(applicant_department_id), '') AS dept_id,
+        applicant_department_path_ids AS department_path_ids,
+        applicant_department_path_names AS department_path_names,
+        monthly_budget_amount AS budget,
+        ${TIME_COLUMN} AS ts
+      FROM approval_expense_operation
+      WHERE monthly_budget_amount IS NOT NULL
+      ${monthDateFilter}
+      ${STATUS_FILTER}
+      ORDER BY ts DESC NULLS LAST
     `;
 
     // Query 2: Actual monthly spending by SUMMING base_currency_amount
@@ -172,26 +251,46 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, { bu
     ]);
 
     // Merge budget data
-    const map = new Map<string, { budget: number | null; spent: number | null }>();
+    const map = new Map<string, BudgetProgress>();
     for (const row of budgetResult.rows as BudgetRow[]) {
-      map.set(row.dept, {
-        budget: row.budget != null ? Number(row.budget) : null,
-        spent: null,
-      });
+      const department = resolveReportDepartment({ ...row, source_month: month }, month);
+      if (!map.has(department.key)) {
+        map.set(department.key, {
+          departmentId: department.departmentId,
+          departmentName: department.departmentName,
+          total: 0,
+          budget: row.budget != null ? Number(row.budget) : null,
+          spent: null,
+        });
+      }
     }
 
     // Merge actual spending from operation table
     for (const row of spentOpResult.rows as DeptExpense[]) {
-      const existing = map.get(row.dept) || { budget: null, spent: null };
+      const department = resolveReportDepartment(row, month);
+      const existing = map.get(department.key) || {
+        departmentId: department.departmentId,
+        departmentName: department.departmentName,
+        total: 0,
+        budget: null,
+        spent: null,
+      };
       existing.spent = (existing.spent || 0) + Number(row.total);
-      map.set(row.dept, existing);
+      map.set(department.key, existing);
     }
 
     // Merge actual spending from purchase table
     for (const row of spentPurResult.rows as DeptExpense[]) {
-      const existing = map.get(row.dept) || { budget: null, spent: null };
+      const department = resolveReportDepartment(row, month);
+      const existing = map.get(department.key) || {
+        departmentId: department.departmentId,
+        departmentName: department.departmentName,
+        total: 0,
+        budget: null,
+        spent: null,
+      };
       existing.spent = (existing.spent || 0) + Number(row.total);
-      map.set(row.dept, existing);
+      map.set(department.key, existing);
     }
 
     return map;
@@ -342,12 +441,14 @@ export async function sendWeeklyBudgetReport(): Promise<void> {
   // 2. Build department reports
   const allDepts = new Set<string>([...weeklyExpenses.keys(), ...budgetProgress.keys()]);
   const reports: DeptReport[] = [];
-  for (const dept of allDepts) {
+  for (const deptKey of allDepts) {
+    const weekly = weeklyExpenses.get(deptKey);
+    const progress = budgetProgress.get(deptKey);
     reports.push({
-      deptName: dept,
-      weeklyExpenses: weeklyExpenses.get(dept) || 0,
-      budget: budgetProgress.get(dept)?.budget ?? null,
-      spent: budgetProgress.get(dept)?.spent ?? null,
+      deptName: weekly?.departmentName || progress?.departmentName || 'Unknown',
+      weeklyExpenses: weekly?.total || 0,
+      budget: progress?.budget ?? null,
+      spent: progress?.spent ?? null,
       weekStart,
       weekEnd,
     });
