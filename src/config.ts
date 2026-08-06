@@ -236,7 +236,7 @@ const config: Config = Object.freeze({
     processTypeMap: resolvedProcessTypeMap,
   }),
   scheduler: Object.freeze({
-    cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7 * * * *',
+    cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7,37 * * * *',
     startTime: process.env.SCHEDULER_START_TIME || fileConfig.scheduler?.startTime || '2026-04-01T00:00:00+08:00',
     oaUpdatedAtInitialLookbackDays: Number(process.env.SCHEDULER_OA_UPDATED_AT_INITIAL_LOOKBACK_DAYS) || fileConfig.scheduler?.oaUpdatedAtInitialLookbackDays || 45,
     oaUpdatedAtOverlapMinutes: Number(process.env.SCHEDULER_OA_UPDATED_AT_OVERLAP_MINUTES) || fileConfig.scheduler?.oaUpdatedAtOverlapMinutes || 10,

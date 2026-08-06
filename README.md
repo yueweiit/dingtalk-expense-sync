@@ -103,7 +103,7 @@ config.json
     }
   },
   "scheduler": {
-    "cron": "7 * * * *",
+    "cron": "7,37 * * * *",
     "startTime": "2026-04-01T00:00:00+08:00",
     "compensationCron": "17 3 * * *",
     "fxRatesCron": "5 0 * * *"
@@ -120,7 +120,7 @@ config.json
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `scheduler.cron` | 增量同步频率 | `7 * * * *`（每小时第7分钟） |
+| `scheduler.cron` | 增量同步频率 | `7,37 * * * *`（每小时第7分和第37分执行，间隔30分钟） |
 | `scheduler.startTime` | 首次同步起始时间 | `2026-04-01T00:00:00+08:00` |
 | `scheduler.oaUpdatedAtInitialLookbackDays` | 首次按 OA 更新时间发现表单时的回看天数 | `45` |
 | `scheduler.oaUpdatedAtOverlapMinutes` | OA 更新时间窗口重叠分钟数，避免边界漏单 | `10` |
