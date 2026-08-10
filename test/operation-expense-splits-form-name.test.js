@@ -38,6 +38,7 @@ test('upsertOperationExpenseWithSplits preserves form_name on insert and update'
     applicationType: '运营支出',
     expenseType: '市场',
     executionRegion: '中国',
+    businessEntity: '凌翔',
     operationExpense: '工资中国',
     amount: 10,
     baseCurrencyAmount: 10,
@@ -58,21 +59,24 @@ test('upsertOperationExpenseWithSplits preserves form_name on insert and update'
     }, splits);
 
     let result = await pool.query(
-      'select form_name from approval_expense_operation where business_id = $1',
+      'select form_name, business_entity from approval_expense_operation where business_id = $1',
       [businessId]
     );
     assert.equal(result.rows[0]?.form_name, '运营支出');
+    assert.equal(result.rows[0]?.business_entity, '凌翔');
 
     await upsertOperationExpenseWithSplits({
       ...payload,
       formName: '电商运营支出',
+      businessEntity: '星铭',
     }, splits);
 
     result = await pool.query(
-      'select form_name from approval_expense_operation where business_id = $1',
+      'select form_name, business_entity from approval_expense_operation where business_id = $1',
       [businessId]
     );
     assert.equal(result.rows[0]?.form_name, '电商运营支出');
+    assert.equal(result.rows[0]?.business_entity, '星铭');
   } finally {
     await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
     await pool.query('delete from approval_expense_operation where business_id = $1', [businessId]);

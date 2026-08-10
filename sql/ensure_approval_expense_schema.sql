@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     application_type VARCHAR(128),
     expense_type VARCHAR(128),
     execution_region VARCHAR(128),
+    business_entity VARCHAR(64),
     form_name VARCHAR(128),
     platform VARCHAR(128),
     platform_name VARCHAR(255),
@@ -87,6 +88,9 @@ ADD COLUMN IF NOT EXISTS applicant_department_path_names JSONB;
 
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS business_entity VARCHAR(64);
 
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS platform VARCHAR(128);
@@ -166,6 +170,8 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase (
     monthly_budget_amount NUMERIC(18, 2),
     monthly_budget_used_amount NUMERIC(18, 2),
     monthly_budget_remaining_amount NUMERIC(18, 2),
+    business_entity VARCHAR(64),
+    service_entity VARCHAR(64),
     form_name VARCHAR(128),
 
     purchase_expense VARCHAR(128),
@@ -231,6 +237,12 @@ ADD COLUMN IF NOT EXISTS applicant_department_path_names JSONB;
 
 ALTER TABLE approval_expense_purchase
 ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS business_entity VARCHAR(64);
+
+ALTER TABLE approval_expense_purchase
+ADD COLUMN IF NOT EXISTS service_entity VARCHAR(64);
 
 DO $$
 BEGIN

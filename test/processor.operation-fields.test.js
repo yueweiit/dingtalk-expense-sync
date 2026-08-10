@@ -148,6 +148,19 @@ test('parseOperationExpenseData leaves new fields empty when old forms do not pr
   assert.equal(result.storeName, null);
   assert.equal(result.monthlyBudgetRemainingAmount, null);
   assert.equal(result.paymentDetailReason, null);
+  assert.equal(result.businessEntity, null);
+});
+
+test('parseOperationExpenseData archives business entity without changing applicant department identity', () => {
+  const processor = getProcessor();
+  const result = processor.parseOperationExpenseData([
+    { componentType: 'DepartmentField', value: '广州凌翔', extendValue: '{"id":"1089383728"}' },
+    { name: '业务主体', value: '星铭' },
+  ]);
+
+  assert.equal(result.businessEntity, '星铭');
+  assert.equal(result.applicantDepartment, '广州凌翔');
+  assert.equal(result.applicantDepartmentId, '1089383728');
 });
 
 test('parseOperationExpenseData keeps retired bilingual platform fields empty', () => {
@@ -206,7 +219,7 @@ test('resolveOperationFormName maps Xingming and Lingxiang operation forms', () 
 
   assert.equal(
     resolveOperationFormName('PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B'),
-    '\u4e1c\u839e\u661f\u94ed\u8fd0\u8425\u652f\u51fa'
+    '\u51cc\u7fd4\u661f\u94ed\u8fd0\u8425\u652f\u51fa'
   );
   assert.equal(resolveOperationFormName('PROC-A4AA23BD-8980-4098-87E8-6898667371CC'), null);
   assert.equal(

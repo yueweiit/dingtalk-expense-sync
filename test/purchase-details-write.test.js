@@ -28,7 +28,18 @@ test('replacePurchaseDetails replaces detail rows and clears removed rows', asyn
       businessId,
       requestDate: '2026-07-14',
       applicantDepartment: '采购部',
+      businessEntity: '凌翔',
+      serviceEntity: '拉丁购',
       rawData: {},
+    });
+
+    const archivedEntities = await pool.query(
+      'select business_entity, service_entity from approval_expense_purchase where business_id = $1',
+      [businessId]
+    );
+    assert.deepEqual(archivedEntities.rows[0], {
+      business_entity: '凌翔',
+      service_entity: '拉丁购',
     });
 
     assert.equal(typeof database.replacePurchaseDetails, 'function');

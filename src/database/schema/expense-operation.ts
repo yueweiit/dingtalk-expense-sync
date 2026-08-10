@@ -18,6 +18,7 @@ export const approvalExpenseOperation = pgTable('approval_expense_operation', {
   applicationType: varchar('application_type', { length: 128 }),
   expenseType: varchar('expense_type', { length: 128 }),
   executionRegion: varchar('execution_region', { length: 128 }),
+  businessEntity: varchar('business_entity', { length: 64 }),
   formName: varchar('form_name', { length: 128 }),
   platform: varchar('platform', { length: 128 }),
   platformName: varchar('platform_name', { length: 255 }),

@@ -599,6 +599,8 @@ export class ApprovalProcessor {
       || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
     );
     const paymentDetailReason = this.extractFormValueExact(fc, '付款详细事由');
+    const businessEntity = this.extractFormValueExact(fc, '业务主体')
+      || this.extractFormValueExact(fc, '业务主体Empresa');
 
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
@@ -636,6 +638,7 @@ export class ApprovalProcessor {
       storeName: null,
       monthlyBudgetRemainingAmount,
       paymentDetailReason,
+      businessEntity,
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
@@ -658,6 +661,10 @@ export class ApprovalProcessor {
       || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
       || this.extractFormValueExact(fc, '本月预算剩余金额Importe restante del presupuesto mensual')
     );
+    const businessEntity = this.extractFormValueExact(fc, '业务主体Empresa')
+      || this.extractFormValueExact(fc, '业务主体');
+    const serviceEntity = this.extractFormValueExact(fc, '服务主体Cliente')
+      || this.extractFormValueExact(fc, '服务主体');
 
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
@@ -668,6 +675,8 @@ export class ApprovalProcessor {
       monthlyBudgetAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算金额Importe presupuestado')),
       monthlyBudgetUsedAmount: this.normalizeNumber(this.extractFormValue(fc, '本月预算已用金额Importe utilizado')),
       monthlyBudgetRemainingAmount,
+      businessEntity,
+      serviceEntity,
       purchaseExpense: this.extractFormValue(fc, '采购支出Gastos de Compra') || this.extractFormValue(fc, '采购支出'),
       orderName: this.extractFormValue(fc, '订单Pedido') || this.extractFormValue(fc, '订单'),
       projectName: this.extractFormValue(fc, '项目Proyecto') || this.extractFormValue(fc, '项目'),

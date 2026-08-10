@@ -122,6 +122,20 @@ test('parsePurchaseExpenseData keeps purchase detail tables and normalizes custo
   assert.equal(result.customsClearanceService, '报关服务、清关代理');
 });
 
+test('parsePurchaseExpenseData archives business and service entities without changing the applicant department', () => {
+  const processor = getProcessor();
+  const result = processor.parsePurchaseExpenseData([
+    { componentType: 'DepartmentField', value: '东莞星铭', extendValue: '{"id":"1109001296"}' },
+    { name: '业务主体Empresa', value: '凌翔' },
+    { name: '服务主体Cliente', value: '拉丁购' },
+  ]);
+
+  assert.equal(result.businessEntity, '凌翔');
+  assert.equal(result.serviceEntity, '拉丁购');
+  assert.equal(result.applicantDepartment, '东莞星铭');
+  assert.equal(result.applicantDepartmentId, '1109001296');
+});
+
 test('resolvePurchaseFormName maps legacy and ecommerce purchase process codes', () => {
   const formSourceModule = getFormSourceModule();
   const resolvePurchaseFormName =
@@ -161,7 +175,7 @@ test('resolvePurchaseFormName maps Xingming and Lingxiang purchase forms', () =>
 
   assert.equal(
     resolvePurchaseFormName('PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F'),
-    '\u4e1c\u839e\u661f\u94ed\u91c7\u8d2d\u652f\u51fa'
+    '\u51cc\u7fd4\u661f\u94ed\u91c7\u8d2d\u652f\u51fa'
   );
   assert.equal(
     resolvePurchaseFormName('PROC-866867B6-1F7B-4F70-AB8F-3500D6560785'),

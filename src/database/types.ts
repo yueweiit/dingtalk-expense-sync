@@ -46,6 +46,7 @@ export interface OperationExpenseData {
   applicationType?: string | null;
   expenseType?: string | null;
   executionRegion?: string | null;
+  businessEntity?: string | null;
   formName?: string | null;
   platform?: string | null;
   platformName?: string | null;
@@ -102,6 +103,8 @@ export interface PurchaseExpenseData {
   monthlyBudgetAmount?: number | null;
   monthlyBudgetUsedAmount?: number | null;
   monthlyBudgetRemainingAmount?: number | null;
+  businessEntity?: string | null;
+  serviceEntity?: string | null;
   formName?: string | null;
   purchaseExpense?: string | null;
   orderName?: string | null;

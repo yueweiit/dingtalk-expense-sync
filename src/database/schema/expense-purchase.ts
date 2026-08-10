@@ -15,6 +15,8 @@ export const approvalExpensePurchase = pgTable('approval_expense_purchase', {
   monthlyBudgetAmount: decimal('monthly_budget_amount', { precision: 18, scale: 2 }),
   monthlyBudgetUsedAmount: decimal('monthly_budget_used_amount', { precision: 18, scale: 2 }),
   monthlyBudgetRemainingAmount: decimal('monthly_budget_remaining_amount', { precision: 18, scale: 2 }),
+  businessEntity: varchar('business_entity', { length: 64 }),
+  serviceEntity: varchar('service_entity', { length: 64 }),
   formName: varchar('form_name', { length: 128 }),
   purchaseExpense: varchar('purchase_expense', { length: 128 }),
   orderName: varchar('order_name', { length: 255 }),
