@@ -1,6 +1,6 @@
 export function approvalExpenseTimeExpr(tableAlias?: string): string {
   const prefix = tableAlias ? `${tableAlias}.` : '';
-  return `COALESCE(${prefix}source_created_at, ${prefix}request_date::timestamp AT TIME ZONE 'UTC')`;
+  return `${prefix}approval_completed_at`;
 }
 
 export function formatUtcDate(date: Date): string {

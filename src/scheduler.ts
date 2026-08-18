@@ -113,8 +113,13 @@ class Scheduler {
   }
 
   getOaUpdatedAtOverlapMs(): number {
-    const overlapMinutes = Math.max(0, Number(config.scheduler.oaUpdatedAtOverlapMinutes) || 0);
+    const overlapMinutes = Math.max(0, Number(config.scheduler.oaUpdatedAtOverlapMinutes) || 120);
     return overlapMinutes * 60 * 1000;
+  }
+
+  getOaUpdatedAtDailyReconciliationLookbackMs(): number {
+    const lookbackDays = Math.max(1, Number(config.scheduler.oaUpdatedAtDailyReconciliationLookbackDays) || 7);
+    return lookbackDays * 24 * 60 * 60 * 1000;
   }
 
   getProcessType(processCode: string): string {
@@ -317,7 +322,7 @@ class Scheduler {
 
   // 定时与页面手动同步按 OA 更新时间发现数据；业务日期仍由原始钉钉载荷决定。
   async syncApprovals(): Promise<void> {
-    if (this.isRunning) {
+    if (this.isRunning || this.isCompensating) {
       logger.warn('上次任务尚未完成，跳过本次执行');
       return;
     }
@@ -375,9 +380,48 @@ class Scheduler {
     }
   }
 
-  // 每日补偿：只拉取数据库中"尚未出纳同意"的记录，防止漏同步
+  /**
+   * Re-scan a bounded OA update window to repair delayed OA arrivals that are
+   * absent from the downstream expense tables and therefore cannot be reached
+   * by the normal pending-record compensation task.
+   */
+  async reconcileRecentOaApprovals(end = Date.now()): Promise<void> {
+    const start = Math.max(
+      this.getFallbackStartTime(),
+      end - this.getOaUpdatedAtDailyReconciliationLookbackMs()
+    );
+    const allProcessCodes = config.dingtalk.allProcessCodes;
+    let candidateCount = 0;
+    let failedProcessCount = 0;
+
+    logger.info(
+      `OA 最近窗口核对开始: ${this.formatBeijingTime(start)} ~ ${this.formatBeijingTime(end)}, 流程数量: ${allProcessCodes.length}`
+    );
+
+    for (const processCode of allProcessCodes) {
+      try {
+        const ids = await this.syncSingleProcessByOaUpdatedAt(processCode, start, end);
+        candidateCount += ids.length;
+        const processed = await this.processInstanceIdBatch(ids);
+        if (!processed) {
+          failedProcessCount++;
+          logger.warn(`OA 最近窗口核对未完成: ${processCode}`);
+        }
+      } catch (error: unknown) {
+        failedProcessCount++;
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`OA 最近窗口核对失败: ${processCode}, ${message}`);
+      }
+    }
+
+    logger.info(
+      `OA 最近窗口核对完成: 候选 ${candidateCount} 条, 失败流程 ${failedProcessCount} 条`
+    );
+  }
+
+  // 每日补偿：先核对 OA 最近更新窗口，再刷新已进入下游的待处理记录。
   async compensatePendingApprovals(): Promise<void> {
-    if (this.isCompensating) {
+    if (this.isCompensating || this.isRunning) {
       logger.warn('上次补偿任务尚未完成，跳过本次执行');
       return;
     }
@@ -388,6 +432,7 @@ class Scheduler {
     try {
       await database.ensureApprovalExpenseSchema();
       await this.maybeEnsureTodayFxRates();
+      await this.reconcileRecentOaApprovals();
 
       const limit = Number(config.scheduler.pendingCompensationLimit || 500);
       const staleLimit = Number(config.scheduler.staleAgreedRefreshLimit || 0);

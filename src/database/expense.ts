@@ -19,11 +19,17 @@ import {
   ExpenseInstanceRow,
   DeptSplitRow,
 } from './types.ts';
+import {
+  completedApprovalResult,
+  completedApprovedApprovalStateSql,
+  completedApprovedExpenseSql,
+} from '../completed-expense-policy.ts';
 
 interface ExpenseInstanceQueryRow extends Record<string, unknown>, ExpenseInstanceRow {}
 type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseInstanceRow[]> {
+  const completedAndAgreed = completedApprovedApprovalStateSql('e');
   const result = await db.execute<ExpenseInstanceQueryRow>(sql`
     SELECT *
     FROM (
@@ -35,7 +41,7 @@ export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseIn
         raw_data->>'processCode' AS process_code,
         updated_at,
         approval_status,
-        raw_data->>'flowResult' AS flow_result
+        approval_completed_at
       FROM approval_expense_operation
       WHERE business_id IS NOT NULL
       UNION ALL
@@ -47,14 +53,11 @@ export async function getPendingExpenseInstances(limit = 500): Promise<ExpenseIn
         raw_data->>'processCode' AS process_code,
         updated_at,
         approval_status,
-        raw_data->>'flowResult' AS flow_result
+        approval_completed_at
       FROM approval_expense_purchase
       WHERE business_id IS NOT NULL
     ) AS e
-    WHERE approval_status IS NULL
-       OR approval_status != 'COMPLETED'
-       OR flow_result IS NULL
-       OR UPPER(flow_result) != 'AGREE'
+    WHERE NOT (${sql.raw(completedAndAgreed)})
     ORDER BY updated_at DESC NULLS LAST
     LIMIT ${limit}
   `);
@@ -65,6 +68,7 @@ export async function getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstance
   if (!limit || limit <= 0) {
     return [];
   }
+  const completedAndAgreed = completedApprovedExpenseSql('e');
   const result = await db.execute<ExpenseInstanceQueryRow>(sql`
     SELECT *
     FROM (
@@ -76,7 +80,7 @@ export async function getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstance
         raw_data->>'processCode' AS process_code,
         updated_at,
         approval_status,
-        raw_data->>'flowResult' AS flow_result
+        approval_completed_at
       FROM approval_expense_operation
       WHERE business_id IS NOT NULL
       UNION ALL
@@ -88,12 +92,11 @@ export async function getStaleExpenseAgreed(limit = 80): Promise<ExpenseInstance
         raw_data->>'processCode' AS process_code,
         updated_at,
         approval_status,
-        raw_data->>'flowResult' AS flow_result
+        approval_completed_at
       FROM approval_expense_purchase
       WHERE business_id IS NOT NULL
     ) AS e
-    WHERE approval_status = 'COMPLETED'
-      AND UPPER(COALESCE(flow_result, '')) = 'AGREE'
+    WHERE ${sql.raw(completedAndAgreed)}
     ORDER BY updated_at ASC NULLS FIRST
     LIMIT ${limit}
   `);
@@ -461,26 +464,23 @@ function normalizedStatus(value: unknown): string {
   return String(value || '').trim().toUpperCase();
 }
 
-function shouldKeepDeptSplits(source: DeptSplitStatusSource): boolean {
+export function shouldKeepDeptSplits(source: DeptSplitStatusSource): boolean {
   const rawData = asRecord(source.rawData);
   const approvalStatus = normalizedStatus(source.approvalStatus || rawData.status);
   const bizAction = normalizedStatus(rawData.bizAction || rawData.biz_action);
-  const flowResult = normalizedStatus(rawData.flowResult || rawData.flow_result || rawData.result);
+  const finalResult = normalizedStatus(completedApprovalResult(rawData));
   const terminalStatuses = new Set(['TERMINATED', 'CANCELED', 'CANCELLED']);
   const terminalActions = new Set(['REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED']);
 
   if (terminalStatuses.has(approvalStatus) || terminalActions.has(bizAction)) {
     return false;
   }
-  if (flowResult === 'REFUSE' || flowResult === 'REJECT') {
+  if (finalResult === 'REFUSE' || finalResult === 'REJECT') {
     return false;
   }
 
-  const tasks = Array.isArray(rawData.tasks) ? rawData.tasks : [];
-  return !tasks.some((task) => {
-    const result = normalizedStatus(asRecord(task).result);
-    return result === 'REFUSE' || result === 'REJECT';
-  });
+  // Historical task outcomes do not determine the final approval outcome.
+  return true;
 }
 
 function aggregateDeptSplits(splits: DeptSplitRow[]): DeptSplitRow[] {
@@ -797,12 +797,12 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
               AND (
                 UPPER(COALESCE(${approvalExpenseOperation.approvalStatus}, ${approvalExpenseOperation.rawData}->>'status', '')) IN ('TERMINATED', 'CANCELED', 'CANCELLED')
                 OR UPPER(COALESCE(${approvalExpenseOperation.rawData}->>'bizAction', ${approvalExpenseOperation.rawData}->>'biz_action', '')) IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')
-                OR UPPER(COALESCE(${approvalExpenseOperation.rawData}->>'flowResult', ${approvalExpenseOperation.rawData}->>'flow_result', ${approvalExpenseOperation.rawData}->>'result', '')) IN ('REFUSE', 'REJECT')
-                OR EXISTS (
-                  SELECT 1
-                  FROM jsonb_array_elements(COALESCE(${approvalExpenseOperation.rawData}->'tasks', '[]'::jsonb)) AS t
-                  WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
-                )
+                OR UPPER(COALESCE(
+                  NULLIF(${approvalExpenseOperation.rawData}->>'result', ''),
+                  NULLIF(${approvalExpenseOperation.rawData}->>'flowResult', ''),
+                  ${approvalExpenseOperation.rawData}->>'flow_result',
+                  ''
+                )) IN ('REFUSE', 'REJECT')
               )
             )`);
 

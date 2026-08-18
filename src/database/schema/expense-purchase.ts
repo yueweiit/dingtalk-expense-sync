@@ -64,4 +64,6 @@ export const approvalExpensePurchase = pgTable('approval_expense_purchase', {
   index('idx_approval_expense_purchase_department').on(table.applicantDepartment),
   index('idx_approval_expense_purchase_applicant_department_id').on(table.applicantDepartmentId),
   index('idx_approval_expense_purchase_status').on(table.approvalStatus),
+  index('idx_approval_expense_purchase_completed_at').on(table.approvalCompletedAt)
+    .where(sql`${table.approvalCompletedAt} IS NOT NULL`),
 ]);

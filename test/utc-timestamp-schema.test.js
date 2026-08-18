@@ -25,3 +25,13 @@ test('legacy expense timestamps migrate to timestamptz as UTC instants', () => {
     }
   }
 });
+
+test('completed expense reporting has partial completion-time indexes that match the date range predicate', () => {
+  const schema = fs.readFileSync(
+    path.join(__dirname, '..', 'sql', 'ensure_approval_expense_schema.sql'),
+    'utf8'
+  );
+
+  assert.match(schema, /idx_approval_expense_operation_completed_at[\s\S]*approval_completed_at[\s\S]*WHERE approval_completed_at IS NOT NULL/i);
+  assert.match(schema, /idx_approval_expense_purchase_completed_at[\s\S]*approval_completed_at[\s\S]*WHERE approval_completed_at IS NOT NULL/i);
+});

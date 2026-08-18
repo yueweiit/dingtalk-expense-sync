@@ -39,6 +39,7 @@ export interface ApprovalInstance {
   processCode?: string;
   processType?: string;
   status?: string;
+  result?: string;
   originatorUserId?: string;
   originatorDeptId?: string;
   originatorDeptName?: string;
@@ -707,24 +708,11 @@ export class ApprovalProcessor {
     };
   }
 
-  // 整单最终结果：只要任意人工节点拒绝即记为 REFUSE，便于数据库直接识别"被拒绝单"
-  deriveFlowResult(tasks?: Task[]): string {
-    if (!Array.isArray(tasks) || tasks.length === 0) {
-      return 'NONE';
-    }
-    const userTasks = tasks.filter((task) => task && task.userId && task.userId !== 'bpms_system');
-    if (!userTasks.length) {
-      return 'NONE';
-    }
-    const hasRefuse = userTasks.some((task) => {
-      const r = String(task.result || '').toUpperCase();
-      return r === 'REFUSE' || r === 'REJECT';
-    });
-    if (hasRefuse) {
-      return 'REFUSE';
-    }
-    const hasAgree = userTasks.some((task) => String(task.result || '').toUpperCase() === 'AGREE');
-    return hasAgree ? 'AGREE' : 'NONE';
+  // The OA record's final result is authoritative. Task history may include
+  // earlier rejected rounds after a requester resubmits the same approval.
+  deriveFlowResult(finalResult?: unknown): string {
+    const result = String(finalResult || '').trim().toUpperCase();
+    return result || 'NONE';
   }
 
   /**
@@ -756,7 +744,7 @@ export class ApprovalProcessor {
       originatorDeptName: instance.originatorDeptName,
       bizAction: instance.bizAction,
       createTime: instance.createTime,
-      flowResult: this.deriveFlowResult(instance.tasks),
+      flowResult: this.deriveFlowResult(instance.result),
       ...formData,
       rawData: instance
     };

@@ -207,16 +207,34 @@ test('运营单据变为已撤回后清理历史部门拆分', async () => {
   }
 });
 
-test('运营单据变为已驳回后清理历史部门拆分', async () => {
+test('最终完成单据保留部门拆分，即使任务历史包含驳回', async () => {
   const businessId = `test-split-refused-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();
   try {
     await processor.processInstance(operationInstance(businessId, 'RUNNING'));
     assert.equal(await splitCount(businessId), 1);
 
-    await processor.processInstance(
-      operationInstance(businessId, 'COMPLETED', [{ userId: 'approver-1', result: 'REFUSE' }])
-    );
+    await processor.processInstance({
+      ...operationInstance(businessId, 'COMPLETED', [{ userId: 'approver-1', result: 'REFUSE' }]),
+      result: 'AGREE',
+    });
+    assert.equal(await splitCount(businessId), 1);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test('最终驳回单据清理历史部门拆分', async () => {
+  const businessId = `test-split-final-refused-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    assert.equal(await splitCount(businessId), 1);
+
+    await processor.processInstance({
+      ...operationInstance(businessId, 'COMPLETED'),
+      result: 'REFUSE',
+    });
     assert.equal(await splitCount(businessId), 0);
   } finally {
     await clean(businessId);

@@ -373,6 +373,10 @@ CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_applicant_department_i
 CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_status
     ON approval_expense_operation(approval_status);
 
+CREATE INDEX IF NOT EXISTS idx_approval_expense_operation_completed_at
+    ON approval_expense_operation(approval_completed_at)
+    WHERE approval_completed_at IS NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uk_approval_expense_purchase_business_id
     ON approval_expense_purchase(business_id)
     WHERE business_id IS NOT NULL;
@@ -392,6 +396,10 @@ CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_applicant_department_id
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_status
     ON approval_expense_purchase(approval_status);
+
+CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_completed_at
+    ON approval_expense_purchase(approval_completed_at)
+    WHERE approval_completed_at IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_items_purchase_id
     ON approval_expense_purchase_items(purchase_id);

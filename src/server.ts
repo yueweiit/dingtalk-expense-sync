@@ -9,6 +9,7 @@ import { resolveDepartmentQuery } from './department-query.ts';
 import { getConnectorOriginator, resolveOriginatorDepartment } from './connector-originator-department.ts';
 import { resolveSharedBudgetDepartmentIds } from './shared-budget-departments.ts';
 import { approvalExpenseTimeExpr, utcDateRange } from './utc-time.ts';
+import { completedApprovedExpenseSql } from './completed-expense-policy.ts';
 
 const app = express();
 const PORT = config.server.port;
@@ -82,21 +83,8 @@ interface ExpenseQueryConfig {
 /** 为 UNION ALL 的 joined 部分生成带表别名前缀的状态过滤 SQL */
 function buildStatusFiltersForAlias(
   tableAlias: string,
-  flowStatusCompletedOnly: boolean,
-  allowRevokedBiz: boolean
 ): string {
-  const a = tableAlias;
-  const filters: string[] = [];
-  if (flowStatusCompletedOnly) {
-    filters.push(`${a}.approval_status = 'COMPLETED'`);
-  }
-  filters.push(`UPPER(COALESCE(NULLIF(TRIM(${a}.approval_status), ''), NULLIF(TRIM(${a}.raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
-  if (!allowRevokedBiz) {
-    filters.push(`UPPER(COALESCE(NULLIF(TRIM(${a}.raw_data->>'bizAction'), ''), NULLIF(TRIM(${a}.raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
-  }
-  filters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(${a}.raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
-  filters.push(`UPPER(COALESCE(${a}.raw_data->>'flowResult', ${a}.raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
-  return filters.map(f => ` AND ${f}`).join('');
+  return ` AND ${completedApprovedExpenseSql(tableAlias)}`;
 }
 
 /** 为 UNION ALL 的 joined 部分生成带表别名前缀的时间过滤 SQL */
@@ -108,7 +96,8 @@ function buildTimeFilterForAlias(
   const a = tableAlias;
   return timeFilter
     .replace(/\bsource_created_at\b/g, `${a}.source_created_at`)
-    .replace(/\brequest_date\b/g, `${a}.request_date`);
+    .replace(/\brequest_date\b/g, `${a}.request_date`)
+    .replace(/\bapproval_completed_at\b/g, `${a}.approval_completed_at`);
 }
 
 function getExpenseQueryConfig(processKind: string): ExpenseQueryConfig {
@@ -138,9 +127,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       month: providedMonth,
       debug,
       date_field,
-      echo,
-      flow_status,
-      include_revoked
+      echo
     } = req.query;
 
     // DingTalk connector parameter names can be fixed as Chinese labels.
@@ -148,12 +135,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
 
     const queryConfig = getExpenseQueryConfig(processKind);
     const timeColumn = approvalExpenseTimeExpr();
-
-    /** 默认排除钉钉 biz_action 为撤销类（仍可能被标成流程完结）的单据 */
-    const allowRevokedBiz = String(include_revoked || '').toLowerCase() === '1';
-
-    /** 默认统计所有流程状态；如需只看归档完结，可传 flow_status=completed */
-    const flowStatusCompletedOnly = String(flow_status || '').toLowerCase() === 'completed';
 
     let departmentQuery = resolveDepartmentQuery(req.query as Record<string, unknown>);
     let deptMatch = departmentQuery?.value || null;
@@ -200,7 +181,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     }
 
     logger.info(
-      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, flow_status=${flowStatusCompletedOnly ? 'COMPLETED-only' : 'all'}, exclude_revoked_biz=${!allowRevokedBiz}`
+      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, expense_policy=completed-approved`
     );
 
     const wantEcho = String(echo || '') === '1';
@@ -238,17 +219,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     const deptCodeMode = departmentQuery?.mode === 'code' && isDeptCodeLike(deptMatch);
 
     // 状态过滤（通用）
-    const statusFilters: string[] = [];
-    if (flowStatusCompletedOnly) {
-      statusFilters.push(`o.approval_status = 'COMPLETED'`);
-    }
-    statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(o.approval_status), ''), NULLIF(TRIM(o.raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
-    if (!allowRevokedBiz) {
-      statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(o.raw_data->>'bizAction'), ''), NULLIF(TRIM(o.raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
-    }
-    statusFilters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(o.raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
-    statusFilters.push(`UPPER(COALESCE(o.raw_data->>'flowResult', o.raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
-    const statusWhere = statusFilters.map(f => `      AND ${f}`).join('\n');
+    const statusWhere = `      AND ${completedApprovedExpenseSql('o')}`;
 
     // 时间过滤
     let timeFilter = '';
@@ -418,8 +389,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
             sourceTable: queryConfig.tableName,
             timeColumn,
             monthParsed: month ? parseMonthBucket(month) : null,
-            flowStatusFilter: flowStatusCompletedOnly ? "approval_status='COMPLETED'" : 'none',
-            excludeRevokedBiz: !allowRevokedBiz
+            expensePolicy: 'completed-approved'
           };
           payload.receivedQuery = req.query;
         }
@@ -445,8 +415,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           sourceTable: queryConfig.tableName,
           timeColumn,
           monthParsed: month ? parseMonthBucket(month) : null,
-          flowStatusFilter: flowStatusCompletedOnly ? "approval_status='COMPLETED'" : 'none',
-          excludeRevokedBiz: !allowRevokedBiz
+          expensePolicy: 'completed-approved'
         };
         payload.receivedQuery = req.query;
       }
@@ -469,19 +438,14 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
       end_date,
       month,
       debug,
-      echo,
-      flow_status,
-      include_revoked
+      echo
     } = req.query;
 
     const queryConfig = getExpenseQueryConfig(processKind);
     const timeColumn = approvalExpenseTimeExpr();
 
-    const allowRevokedBiz = String(include_revoked || '').toLowerCase() === '1';
-    const flowStatusCompletedOnly = String(flow_status || '').toLowerCase() === 'completed';
-
     logger.info(
-      `全部门查询: month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, start_date=${start_date}, end_date=${end_date}, flow_status=${flowStatusCompletedOnly ? 'COMPLETED-only' : 'all'}`
+      `全部门查询: month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, start_date=${start_date}, end_date=${end_date}, expense_policy=completed-approved`
     );
 
     const wantEcho = String(echo || '') === '1';
@@ -489,17 +453,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const isOperation = queryConfig.processKind === 'operation';
 
     // 状态过滤
-    const statusFilters: string[] = [];
-    if (flowStatusCompletedOnly) {
-      statusFilters.push(`approval_status = 'COMPLETED'`);
-    }
-    statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')`);
-    if (!allowRevokedBiz) {
-      statusFilters.push(`UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')`);
-    }
-    statusFilters.push(`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT'))`);
-    statusFilters.push(`UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')`);
-    const statusWhere = statusFilters.map(f => `      AND ${f}`).join('\n');
+    const statusWhere = `      AND ${completedApprovedExpenseSql()}`;
 
     const params: unknown[] = [];
     let paramIndex = 1;
@@ -602,7 +556,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
             FROM approval_expense_dept_split ds
             JOIN ${queryConfig.tableName} o ON o.business_id = ds.business_id
             WHERE 1=1
-            ${buildStatusFiltersForAlias('o', flowStatusCompletedOnly, allowRevokedBiz)}
+            ${buildStatusFiltersForAlias('o')}
             ${buildTimeFilterForAlias('o', timeFilter)}
           ) combined
           GROUP BY dept
@@ -626,8 +580,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
           sourceTable: queryConfig.tableName,
           timeColumn,
           monthParsed: month ? parseMonthBucket(month) : null,
-          flowStatusFilter: flowStatusCompletedOnly ? "approval_status='COMPLETED'" : 'none',
-          excludeRevokedBiz: !allowRevokedBiz
+          expensePolicy: 'completed-approved'
         };
         payload.receivedQuery = req.query;
       }

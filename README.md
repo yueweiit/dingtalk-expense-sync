@@ -6,7 +6,7 @@
 
 - **定时同步**：自动拉取钉钉审批实例（运营支出、采购支出）
 - **增量同步**：基于游标的增量拉取，支持断点续传
-- **补偿机制**：自动重试失败的记录，处理 RUNNING 状态的审批
+- **补偿机制**：按 OA `updated_at`（更新时间）增量同步，并以 2 小时重叠窗口和每日 7 天核对兜底晚到、状态变化或漏入库的审批
 - **汇率转换**：自动同步汇率并转换为人民币基準货币
 - **结构化存储**：将审批表单数据解析为结构化字段
 - **工资分部门**：支持工资中国按部门拆分存储
@@ -121,9 +121,18 @@ config.json
 | `scheduler.cron` | 增量同步频率 | `7,37 * * * *`（每小时第7分和第37分执行，间隔30分钟） |
 | `scheduler.startTime` | 首次同步起始时间 | `2026-04-01T00:00:00+08:00` |
 | `scheduler.oaUpdatedAtInitialLookbackDays` | 首次按 OA 更新时间发现表单时的回看天数 | `45` |
-| `scheduler.oaUpdatedAtOverlapMinutes` | OA 更新时间窗口重叠分钟数，避免边界漏单 | `10` |
+| `scheduler.oaUpdatedAtOverlapMinutes` | OA 更新时间窗口重叠分钟数，避免边界和延迟到达漏单 | `120` |
+| `scheduler.oaUpdatedAtDailyReconciliationLookbackDays` | 每日补偿前按 OA 更新时间核对的最近天数 | `7` |
 | `scheduler.compensationCron` | 补偿任务频率 | `17 3 * * *`（每天凌晨3:17） |
 | `scheduler.fxRatesCron` | 汇率同步频率 | `5 0 * * *`（每天凌晨0:05） |
+
+### 实际支出统计口径
+
+- 实际支出只统计整单 `COMPLETED`（已完成）且最终结果为同意/通过的审批，并要求存在 `approval_completed_at`（审批完成时间）。
+- 最终结果优先读取 OA 原始数据的 `result`；仅当它为空时，才兼容回退到旧的 `flowResult`、`flow_result` 字段。
+- 实际支出归属月份使用 `approval_completed_at` 的 UTC（世界协调时间）月份；预算申请金额仍沿用原提交时间和原有效状态口径。
+- 不再根据出纳节点、付款节点、`activityId`（节点 ID）、`bizAction`（业务动作）或历史任务中曾经出现的驳回判断实际支出。
+- 每半小时增量同步按 OA 更新时间回看最近 2 小时；每日补偿任务先核对最近 7 天 OA 更新时间窗口，再刷新已进入审批支出库的待处理记录。两类任务互斥执行。
 
 ## API 接口
 

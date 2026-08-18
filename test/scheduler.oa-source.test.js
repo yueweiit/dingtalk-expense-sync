@@ -250,6 +250,47 @@ test('incremental sync discovers forms by OA updated_at with an independent curs
   assert.equal(processorModule.state.processedBatches.length, 3);
 });
 
+test('daily reconciliation rechecks a bounded seven-day OA update window', async (t) => {
+  const fixtureSrc = createSchedulerFixture();
+  t.after(() => {
+    fs.rmSync(path.dirname(fixtureSrc), { recursive: true, force: true });
+  });
+  const schedulerModule = await import(pathToFileURL(path.join(fixtureSrc, 'scheduler.ts')).href);
+  const oaSourceModule = await import(pathToFileURL(path.join(fixtureSrc, 'oa-source.ts')).href);
+  const processorModule = await import(pathToFileURL(path.join(fixtureSrc, 'processor.ts')).href);
+
+  const scheduler = schedulerModule.default?.default ?? schedulerModule.default ?? schedulerModule;
+  const end = Date.parse('2026-08-18T00:00:00.000Z');
+  await scheduler.reconcileRecentOaApprovals(end);
+
+  assert.equal(oaSourceModule.state.updatedAtQueryCalls.length, 3);
+  for (const query of oaSourceModule.state.updatedAtQueryCalls) {
+    assert.equal(query.start, Date.parse('2026-08-11T00:00:00.000Z'));
+    assert.equal(query.end, end);
+  }
+  assert.equal(processorModule.state.processedBatches.length, 3);
+});
+
+test('incremental sync and daily compensation do not run at the same time', async (t) => {
+  const fixtureSrc = createSchedulerFixture();
+  t.after(() => {
+    fs.rmSync(path.dirname(fixtureSrc), { recursive: true, force: true });
+  });
+  const schedulerModule = await import(pathToFileURL(path.join(fixtureSrc, 'scheduler.ts')).href);
+  const oaSourceModule = await import(pathToFileURL(path.join(fixtureSrc, 'oa-source.ts')).href);
+
+  const scheduler = schedulerModule.default?.default ?? schedulerModule.default ?? schedulerModule;
+
+  scheduler.isCompensating = true;
+  await scheduler.syncApprovals();
+  assert.equal(oaSourceModule.state.updatedAtQueryCalls.length, 0);
+
+  scheduler.isCompensating = false;
+  scheduler.isRunning = true;
+  await scheduler.compensatePendingApprovals();
+  assert.equal(oaSourceModule.state.updatedAtQueryCalls.length, 0);
+});
+
 test('manual operation split sync reads every operation process code', async (t) => {
   const fixtureSrc = createSchedulerFixture();
   t.after(() => {

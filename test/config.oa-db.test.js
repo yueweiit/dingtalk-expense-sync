@@ -31,6 +31,7 @@ function runConfigFixture(envLines, configJson = null) {
   delete childEnv.DINGTALK_APPSECRET;
   delete childEnv.DINGTALK_PROCESS_CODES;
   delete childEnv.DINGTALK_PROCESS_TYPE_MAP;
+  delete childEnv.SCHEDULER_CRON;
 
   const child = spawnSync(
     process.execPath,
@@ -46,6 +47,7 @@ function runConfigFixture(envLines, configJson = null) {
         '  appkey: config.dingtalk.appkey ?? null,',
         '  appsecret: config.dingtalk.appsecret ?? null,',
         '  allProcessCodes: config.dingtalk.allProcessCodes,',
+        '  schedulerCron: config.scheduler.cron,',
         '}));',
       ].join('\n'),
     ],
@@ -85,6 +87,19 @@ test('config loads with OA database credentials and a complete process type map'
   assert.equal(parsed.appkey, null);
   assert.equal(parsed.appsecret, null);
   assert.equal(parsed.allProcessCodes.length, 14);
+  assert.equal(parsed.schedulerCron, '7,37 * * * *');
+});
+
+test('SCHEDULER_CRON overrides the versioned half-hour default', () => {
+  const child = runConfigFixture([
+    'DB_PASSWORD=test-db-password',
+    'SCHEDULER_CRON=5 * * * *',
+    ...completeProcessTypeMap,
+  ]);
+
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+  const parsed = JSON.parse(child.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1));
+  assert.equal(parsed.schedulerCron, '5 * * * *');
 });
 
 test('config rejects the deprecated process code array even when it is otherwise valid', () => {

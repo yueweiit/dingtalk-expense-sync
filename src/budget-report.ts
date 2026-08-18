@@ -5,36 +5,34 @@ import config from './config.ts';
 import logger from './logger.ts';
 import { resolveSharedBudgetReportDepartment } from './shared-budget-departments.ts';
 import { approvalExpenseTimeExpr, formatUtcDate, utcDateRange } from './utc-time.ts';
+import { completedApprovalResultSql, completedApprovedExpenseSql } from './completed-expense-policy.ts';
 
 // ─── SQL helpers ───
 
 const TIME_COLUMN = approvalExpenseTimeExpr();
+const BUDGET_SUBMISSION_TIME_COLUMN = `COALESCE(source_created_at, request_date::timestamp AT TIME ZONE 'UTC')`;
 
-const STATUS_FILTER = `
+/** Actual spending is recognized only after the whole approval is completed and agreed. */
+const EXPENSE_STATUS_FILTER = `AND ${completedApprovedExpenseSql()}`;
+const EXPENSE_STATUS_FILTER_ALIASED = `AND ${completedApprovedExpenseSql('o')}`;
+
+/** Budget applications remain visible while they are pending, as before this change. */
+const BUDGET_STATUS_FILTER = `
   AND UPPER(COALESCE(NULLIF(TRIM(approval_status), ''), NULLIF(TRIM(raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')
   AND UPPER(COALESCE(NULLIF(TRIM(raw_data->>'bizAction'), ''), NULLIF(TRIM(raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')
   AND NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(COALESCE(raw_data->'tasks', '[]'::jsonb)) AS t
     WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
   )
-  AND UPPER(COALESCE(raw_data->>'flowResult', raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')
-`;
-
-const STATUS_FILTER_ALIASED = `
-  AND UPPER(COALESCE(NULLIF(TRIM(o.approval_status), ''), NULLIF(TRIM(o.raw_data->>'status'), ''), 'NONE')) NOT IN ('TERMINATED', 'CANCELED', 'CANCELLED')
-  AND UPPER(COALESCE(NULLIF(TRIM(o.raw_data->>'bizAction'), ''), NULLIF(TRIM(o.raw_data->>'biz_action'), ''), 'NONE')) NOT IN ('REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED')
-  AND NOT EXISTS (
-    SELECT 1 FROM jsonb_array_elements(COALESCE(o.raw_data->'tasks', '[]'::jsonb)) AS t
-    WHERE UPPER(COALESCE(t->>'result', '')) IN ('REFUSE', 'REJECT')
-  )
-  AND UPPER(COALESCE(o.raw_data->>'flowResult', o.raw_data->>'result', '')) NOT IN ('REFUSE', 'REJECT')
+  AND ${completedApprovalResultSql()} NOT IN ('refuse', 'reject')
 `;
 
 /** 运营支出按部门 breakdown：UNION ALL 非拆分 + 拆分表 */
 function buildOperationBreakdownSql(dateFilter: string): string {
   const dateFilterAliased = dateFilter
     .replace(/\bsource_created_at\b/g, 'o.source_created_at')
-    .replace(/\brequest_date\b/g, 'o.request_date');
+    .replace(/\brequest_date\b/g, 'o.request_date')
+    .replace(/\bapproval_completed_at\b/g, 'o.approval_completed_at');
   const timeColumnAliased = approvalExpenseTimeExpr('o');
   return `
     SELECT
@@ -58,7 +56,7 @@ function buildOperationBreakdownSql(dateFilter: string): string {
         WHERE ds.business_id = approval_expense_operation.business_id
       )
       ${dateFilter}
-      ${STATUS_FILTER}
+      ${EXPENSE_STATUS_FILTER}
 
       UNION ALL
 
@@ -73,7 +71,7 @@ function buildOperationBreakdownSql(dateFilter: string): string {
       JOIN approval_expense_operation o ON o.business_id = ds.business_id
       WHERE 1=1
       ${dateFilterAliased}
-      ${STATUS_FILTER_ALIASED}
+      ${EXPENSE_STATUS_FILTER_ALIASED}
     ) combined
     GROUP BY dept, dept_id, department_path_ids, department_path_names, source_month
     ORDER BY total DESC
@@ -92,7 +90,7 @@ function buildPurchaseBreakdownSql(dateFilter: string): string {
     FROM approval_expense_purchase
     WHERE 1=1
     ${dateFilter}
-    ${STATUS_FILTER}
+    ${EXPENSE_STATUS_FILTER}
     GROUP BY dept, dept_id, applicant_department_path_ids, applicant_department_path_names, source_month
     ORDER BY total DESC
   `;
@@ -100,9 +98,9 @@ function buildPurchaseBreakdownSql(dateFilter: string): string {
 
 // ─── Date helpers ───
 
-function buildUtcDateFilter(startDate: string, endDate: string): string {
+function buildUtcDateFilter(startDate: string, endDate: string, timeColumn = TIME_COLUMN): string {
   const range = utcDateRange(startDate, endDate);
-  return `AND ${TIME_COLUMN} >= '${range.start}'::timestamptz AND ${TIME_COLUMN} < '${range.endExclusive}'::timestamptz`;
+  return `AND ${timeColumn} >= '${range.start}'::timestamptz AND ${timeColumn} < '${range.endExclusive}'::timestamptz`;
 }
 
 function getLastWeekRange(): { start: string; end: string } {
@@ -221,6 +219,7 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, Budg
   const lastDay = new Date(year, monthNum, 0).getDate();
   const endOfMonth = `${year}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
   const monthDateFilter = buildUtcDateFilter(startOfMonth, endOfMonth);
+  const budgetMonthDateFilter = buildUtcDateFilter(startOfMonth, endOfMonth, BUDGET_SUBMISSION_TIME_COLUMN);
 
   const client = await pool.connect();
   try {
@@ -232,11 +231,11 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, Budg
         applicant_department_path_ids AS department_path_ids,
         applicant_department_path_names AS department_path_names,
         monthly_budget_amount AS budget,
-        ${TIME_COLUMN} AS ts
+        ${BUDGET_SUBMISSION_TIME_COLUMN} AS ts
       FROM approval_expense_operation
       WHERE monthly_budget_amount IS NOT NULL
-      ${monthDateFilter}
-      ${STATUS_FILTER}
+      ${budgetMonthDateFilter}
+      ${BUDGET_STATUS_FILTER}
       ORDER BY ts DESC NULLS LAST
     `;
 

@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -7,11 +9,17 @@ const {
   utcDateRange,
 } = require('../src/utc-time.ts');
 
-test('approval expense timestamps use UTC for date-only fallback values', () => {
+test('approval expense reporting uses the final approval completion timestamp', () => {
   assert.equal(
     approvalExpenseTimeExpr('expense'),
-    "COALESCE(expense.source_created_at, expense.request_date::timestamp AT TIME ZONE 'UTC')"
+    'expense.approval_completed_at'
   );
+});
+
+test('weekly-report budget submissions retain their source submission timestamp', async () => {
+  const source = await fs.promises.readFile(path.join(__dirname, '../src/budget-report.ts'), 'utf8');
+  assert.match(source, /const BUDGET_SUBMISSION_TIME_COLUMN = `COALESCE\(source_created_at, request_date::timestamp AT TIME ZONE 'UTC'\)`/);
+  assert.match(source, /\$\{budgetMonthDateFilter\}[\s\S]{0,1000}\$\{BUDGET_STATUS_FILTER\}/);
 });
 
 test('UTC date ranges include the full ending date without session timezone dependence', () => {
