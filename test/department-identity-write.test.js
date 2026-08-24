@@ -203,6 +203,7 @@ test('运营支出主表保存申请部门的 ID、来源与路径快照', async
       originatorDeptId: 'originator-department-id',
       formComponentValues: [
         {
+          name: '申请部门/组织 Departamento Solicitante',
           componentType: 'DepartmentField',
           value: 'PG1 国内注塑',
           extendValue: [{ id: '1079492125' }],
@@ -232,6 +233,70 @@ test('运营支出主表保存申请部门的 ID、来源与路径快照', async
   }
 });
 
+test('服务主体和对应部门会覆盖运营主表的申请部门身份', async () => {
+  const businessId = `test-service-entity-operation-${Date.now()}`;
+  const processorWithServiceEntityRouting = new ApprovalProcessor({
+    getDepartmentSnapshots: async (departmentIds) => new Map(
+      departmentIds.map((departmentId) => [departmentId, {
+        department: departmentId === 'service-entity-child-id' ? 'PG生产Producción PG' : '申请部门',
+        departmentPathIds: departmentId === 'service-entity-child-id'
+          ? ['root', 'service-entity-parent-id', 'service-entity-child-id']
+          : ['root', departmentId],
+        departmentPathNames: departmentId === 'service-entity-child-id'
+          ? ['ROOT', 'YUEWEI MX核心制造', 'PG生产Producción PG']
+          : ['ROOT', '申请部门'],
+      }])
+    ),
+    resolveServiceEntityDepartment: async ({ serviceEntity, correspondingDepartment }) => {
+      assert.equal(serviceEntity, 'YUEWEI MX核心制造');
+      assert.equal(correspondingDepartment, 'PG生产Producción PG');
+      return {
+        status: 'resolved',
+        department: 'PG生产Producción PG',
+        departmentId: 'service-entity-child-id',
+        departmentPathIds: ['root', 'service-entity-parent-id', 'service-entity-child-id'],
+        departmentPathNames: ['ROOT', 'YUEWEI MX核心制造', 'PG生产Producción PG'],
+      };
+    },
+  });
+
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processorWithServiceEntityRouting.processInstance({
+      businessId,
+      processInstanceId: `pid-${businessId}`,
+      processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
+      processType: '运营支出',
+      status: 'RUNNING',
+      createTime: '2026-08-21T10:00:00+08:00',
+      formComponentValues: [
+        { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: '旧申请部门', extendValue: [{ id: 'old-applicant-id' }] },
+        { name: '服务主体', value: 'YUEWEI MX核心制造' },
+        { name: '对应的部门', value: 'PG生产Producción PG' },
+        { name: '金额importe', value: '100' },
+        { name: '币种Moneda', value: '人民币RMB' },
+      ],
+    });
+
+    const result = await pool.query(
+      `SELECT applicant_department, applicant_department_id, applicant_department_source,
+              applicant_department_path_names, service_entity
+       FROM approval_expense_operation
+       WHERE business_id = $1`,
+      [businessId]
+    );
+    assert.deepEqual(result.rows, [{
+      applicant_department: 'PG生产Producción PG',
+      applicant_department_id: 'service-entity-child-id',
+      applicant_department_source: 'service_entity_exact',
+      applicant_department_path_names: ['ROOT', 'YUEWEI MX核心制造', 'PG生产Producción PG'],
+      service_entity: 'YUEWEI MX核心制造',
+    }]);
+  } finally {
+    await pool.query('DELETE FROM approval_expense_operation WHERE business_id = $1', [businessId]);
+  }
+});
+
 test('采购支出主表在表单无 ID 时保存发起部门 ID', async () => {
   const businessId = `test-applicant-department-purchase-${Date.now()}`;
   const processorWithPaths = new ApprovalProcessor({
@@ -253,7 +318,7 @@ test('采购支出主表在表单无 ID 时保存发起部门 ID', async () => {
       createTime: '2026-07-22T10:00:00+08:00',
       originatorDeptId: '1079492125',
       formComponentValues: [
-        { componentType: 'DepartmentField', value: 'PG1 国内注塑' },
+        { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: 'PG1 国内注塑' },
         { name: '明细汇总金额Monto total detallado', value: '100' },
         { name: '币种Moneda', value: '人民币RMB' },
       ],
@@ -302,6 +367,7 @@ test('专用流程也以表单 extValue 中的部门 ID 为准，不覆盖实际
       originatorDeptName: '财务中心',
       formComponentValues: [
         {
+          name: '申请部门/组织 Departamento Solicitante',
           componentType: 'DepartmentField',
           value: 'OBG 线上业务组（中国）',
           extValue: '[{"itemId":"obg-cn-id","name":"OBG 线上业务组（中国）"}]',

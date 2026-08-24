@@ -6,7 +6,6 @@ import config from './config.ts';
 import { normalizeCurrencyToIso } from './fxToCny.ts';
 import scheduler from './scheduler.ts';
 import { resolveDepartmentQuery } from './department-query.ts';
-import { getConnectorOriginator, resolveOriginatorDepartment } from './connector-originator-department.ts';
 import { resolveSharedBudgetDepartmentIds } from './shared-budget-departments.ts';
 import { approvalExpenseTimeExpr, utcDateRange } from './utc-time.ts';
 import { completedApprovedExpenseSql } from './completed-expense-policy.ts';
@@ -145,37 +144,6 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       ? `${monthBucket.year}-${String(monthBucket.monthNum).padStart(2, '0')}`
       : '';
 
-    if (departmentQuery?.mode === 'name') {
-      const originator = getConnectorOriginator(req.query as Record<string, unknown>);
-      if (originator.userId || originator.name) {
-        const resolution = await resolveOriginatorDepartment({
-          originatorUserId: originator.userId,
-          originatorName: originator.name,
-          departmentName: departmentQuery.value,
-          sharedBudgetMonth: queryMonth,
-        });
-        if (resolution.status !== 'resolved') {
-          logger.warn('Connector department resolution failed', {
-            queryKeys: Object.keys(req.query),
-            department: departmentQuery.value,
-            originator,
-            resolution: resolution.status,
-            candidateCount: resolution.status === 'ambiguous' ? resolution.candidates.length : 0,
-          });
-          res.status(422).json({
-            error: resolution.status === 'ambiguous'
-              ? '部门归属不唯一，请检查提交人和部门配置'
-              : '未找到提交人与部门的对应关系，请检查组织架构同步',
-          });
-          return;
-        }
-        departmentQuery = { mode: 'id', value: resolution.departmentId };
-        deptMatch = resolution.departmentId;
-        departmentIdMode = true;
-        departmentIds = [resolution.departmentId];
-      }
-    }
-
     if (departmentIdMode && deptMatch) {
       departmentIds = resolveSharedBudgetDepartmentIds(deptMatch, queryMonth);
     }
@@ -200,15 +168,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       COALESCE(
         NULLIF(TRIM(applicant_department), ''),
         NULLIF(TRIM(creator_department), ''),
-        NULLIF(TRIM(raw_data->>'originatorDeptName'), ''),
-        (
-          SELECT NULLIF(TRIM(fc->>'value'), '')
-          FROM jsonb_array_elements(COALESCE(raw_data->'formComponentValues', '[]'::jsonb)) AS fc
-          WHERE LOWER(COALESCE(fc->>'componentType', '')) = 'departmentfield'
-            OR COALESCE(fc->>'name', '') LIKE '部门%'
-            OR COALESCE(fc->>'name', '') ILIKE '%Departamento%'
-          LIMIT 1
-        )
+        NULLIF(TRIM(raw_data->>'originatorDeptName'), '')
       )
     `;
 

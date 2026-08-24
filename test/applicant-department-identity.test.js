@@ -13,6 +13,7 @@ test('申请部门优先使用表单组件中的部门 ID', () => {
   const result = parseApplicantDepartmentIdentity([
     {
       componentType: 'DepartmentField',
+      name: '申请部门/组织 Departamento Solicitante',
       value: 'PG1 国内注塑',
       extendValue: [{ id: '1079492125' }],
     },
@@ -32,6 +33,7 @@ test('表单没有部门 ID 时使用发起部门 ID 兜底', () => {
   const result = parseApplicantDepartmentIdentity([
     {
       componentType: 'DepartmentField',
+      name: '申请部门/组织 Departamento Solicitante',
       value: 'PG1 国内注塑',
     },
   ], {
@@ -50,6 +52,7 @@ test('没有任何部门 ID 时保留名称并标记为仅名称', () => {
   const result = parseApplicantDepartmentIdentity([
     {
       componentType: 'DepartmentField',
+      name: '申请部门/组织 Departamento Solicitante',
       value: '历史部门',
     },
   ], {
@@ -68,6 +71,7 @@ test('运营支出解析保留申请部门身份字段', () => {
   const result = processor.parseOperationExpenseData([
     {
       componentType: 'DepartmentField',
+      name: '申请部门/组织 Departamento Solicitante',
       value: 'PG1 国内注塑',
       extendValue: [{ id: '1079492125' }],
     },
@@ -85,6 +89,7 @@ test('采购支出解析在表单无 ID 时使用发起部门 ID', () => {
   const result = processor.parsePurchaseExpenseData([
     {
       componentType: 'DepartmentField',
+      name: '申请部门/组织 Departamento Solicitante',
       value: 'PG1 国内注塑',
     },
   ], {
@@ -94,4 +99,22 @@ test('采购支出解析在表单无 ID 时使用发起部门 ID', () => {
   assert.equal(result.applicantDepartment, 'PG1 国内注塑');
   assert.equal(result.applicantDepartmentId, '1079492125');
   assert.equal(result.applicantDepartmentSource, 'originator_id');
+});
+
+test('不把工资或个税明细中的 DepartmentField 误认为旧申请部门', () => {
+  const result = parseApplicantDepartmentIdentity([{
+    name: '工资分部门明细',
+    componentType: 'DepartmentField',
+    value: '工资部门',
+    extendValue: [{ id: 'salary-department-id' }],
+  }], {
+    originatorDeptId: 'originator-department-id',
+    originatorDeptName: '发起部门',
+  });
+
+  assert.deepEqual(result, {
+    department: '发起部门',
+    departmentId: 'originator-department-id',
+    departmentSource: 'originator_id',
+  });
 });

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     expense_type VARCHAR(128),
     execution_region VARCHAR(128),
     business_entity VARCHAR(64),
+    service_entity VARCHAR(64),
     form_name VARCHAR(128),
     platform VARCHAR(128),
     platform_name VARCHAR(255),
@@ -91,6 +92,9 @@ ADD COLUMN IF NOT EXISTS form_name VARCHAR(128);
 
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS business_entity VARCHAR(64);
+
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS service_entity VARCHAR(64);
 
 ALTER TABLE approval_expense_operation
 ADD COLUMN IF NOT EXISTS platform VARCHAR(128);
@@ -457,6 +461,7 @@ COMMENT ON COLUMN approval_expense_operation.monthly_budget_remaining_amount IS 
 COMMENT ON COLUMN approval_expense_operation.application_type IS '申请类型 Tipo de trámite';
 COMMENT ON COLUMN approval_expense_operation.expense_type IS '支出类型';
 COMMENT ON COLUMN approval_expense_operation.execution_region IS '执行地区 Región de ejecución';
+COMMENT ON COLUMN approval_expense_operation.service_entity IS '服务主体 Cliente；用于新表单部门归属审计';
 COMMENT ON COLUMN approval_expense_operation.platform IS '平台 Plataforma';
 COMMENT ON COLUMN approval_expense_operation.platform_name IS '平台名称 Nombre de la plataforma';
 COMMENT ON COLUMN approval_expense_operation.store_name IS '店铺名称 Nombre de la tienda';

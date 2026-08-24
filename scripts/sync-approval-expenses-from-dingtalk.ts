@@ -17,6 +17,7 @@ import config from '../src/config.ts';
 import { convertAmountToCny } from '../src/fxToCny.ts';
 import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurchaseFormName } from '../src/form-source.ts';
 import { collectOperationDeptSplits } from '../src/operation-dept-splits.ts';
+import { routeByServiceEntity } from '../src/service-entity-department.ts';
 import {
   getProcessKind as resolveProcessKind,
   getProcessTypeLabel as resolveProcessTypeLabel,
@@ -149,10 +150,12 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       (instance as unknown as ApprovalInstance).formComponentValues,
       instance as unknown as ApprovalInstance
     );
+    const operationRouteStatus = await routeByServiceEntity(opData, approvalSource);
     await processor.enrichOperationDepartmentPaths(opData);
-    const opApplicantDepartment =
-      (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null) ||
-      fixedApplicantDepartment;
+    const opApplicantDepartment = operationRouteStatus === 'unresolved'
+      ? null
+      : (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null) ||
+        fixedApplicantDepartment;
     const amount = opData.amount ?? normalizeNumber(processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).amount);
     const currency = opData.currency ?? processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues).currency;
     const baseCurrencyAmount = await convertAmountToCny({
@@ -185,10 +188,12 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       (instance as unknown as ApprovalInstance).formComponentValues,
       instance as unknown as ApprovalInstance
     );
+    const purchaseRouteStatus = await routeByServiceEntity(pData, approvalSource);
     await processor.enrichOperationDepartmentPaths(pData);
-    const purchaseApplicantDepartment =
-      (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null) ||
-      fixedApplicantDepartment;
+    const purchaseApplicantDepartment = purchaseRouteStatus === 'unresolved'
+      ? null
+      : (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null) ||
+        fixedApplicantDepartment;
     const formData = processor.parseFormData((instance as unknown as ApprovalInstance).formComponentValues);
     const amount = pData.detailSummaryAmount ?? normalizeNumber(formData.amount);
     const currency = pData.currency ?? formData.currency;

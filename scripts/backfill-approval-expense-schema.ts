@@ -20,6 +20,8 @@ import { collectOperationDeptSplits } from '../src/operation-dept-splits.ts';
 import processor, { parseApplicantDepartmentIdentity } from '../src/processor.ts';
 import { resolveProcessInstanceFetchId } from '../src/workflowIds.ts';
 import { normalizePurchaseMultiSelect, parsePurchaseDetails } from '../src/purchase-details.ts';
+import approvalSource from '../src/oa-source.ts';
+import { extractServiceEntityCode, hasServiceEntityField, routeByServiceEntity } from '../src/service-entity-department.ts';
 import { normalizeNumber } from '../src/utils.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -109,13 +111,6 @@ function findLastValue(components: unknown[], tokens: string[]): unknown {
   }
   return null;
 }
-
-function findDepartment(components: unknown[], fallback: unknown): string | null {
-  if (compact(fallback)) return String(fallback);
-  const deptField = components.find((item) => norm((item as Record<string, unknown>)?.componentType) === 'departmentfield');
-  return String(componentValue(deptField) || findValue(components, ['Departamento Solicitante', '申请部门', '部门']) || '');
-}
-
 
 function normalizeDate(value: unknown): string | null {
   if (value == null) return null;
@@ -238,7 +233,7 @@ function buildPaymentRows(components: unknown[]): Array<Record<string, unknown>>
   return [];
 }
 
-function parseRow(row: Record<string, unknown>): Record<string, unknown> {
+async function parseRow(row: Record<string, unknown>): Promise<Record<string, unknown>> {
   const raw = asObject(row.raw_data);
   const components = formComponents(raw);
   const meta = approvalMeta(raw);
@@ -250,15 +245,22 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
 
   const typeText = norm(row.process_type);
   const isPurchase = typeText.includes(norm('采购')) || typeText.includes('purchase');
+  const parsedFormData = isPurchase
+    ? processor.parsePurchaseExpenseData(components as any, raw as any)
+    : processor.parseOperationExpenseData(components as any, raw as any);
 
   // 通用字段
   const common: Record<string, unknown> = {
     ...meta,
     creatorDepartment: meta.creatorDepartment,
     requestDate: normalizeDate(findValue(components, ['Fecha de solicitud', '申请日期'])) || normalizeDate(row.create_time),
-    applicantDepartment: applicantDepartmentIdentity.department || findDepartment(components, row.originator_dept_name || row.department) || fixedApplicantDepartment,
+    applicantDepartment: applicantDepartmentIdentity.department || fixedApplicantDepartment,
     applicantDepartmentId: applicantDepartmentIdentity.departmentId,
     applicantDepartmentSource: applicantDepartmentIdentity.departmentSource,
+    serviceEntity: parsedFormData.serviceEntity || null,
+    serviceEntityCode: extractServiceEntityCode(components as Array<{ name?: string; extendValue?: unknown; extValue?: unknown }>),
+    serviceEntityExpected: hasServiceEntityField(components as Array<{ name?: string }>),
+    correspondingDepartment: parsedFormData.correspondingDepartment || null,
     productionType: findValue(components, ['Produccion', 'Producción', '生产/非生产']),
     monthlyBudgetAmount: normalizeNumber(findValue(components, ['Importe presupuestado', '本月预算金额'])) || normalizeNumber(row.monthly_budget),
     monthlyBudgetUsedAmount: normalizeNumber(findValue(components, ['Importe utilizado', '本月预算已用金额'])) || normalizeNumber(row.monthly_budget_used),
@@ -267,6 +269,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     businessId: row.business_id,
     rawData: raw
   };
+  await routeByServiceEntity(common, approvalSource);
 
   if (isPurchase) {
     const purchaseDetails = parsePurchaseDetails(components);
@@ -307,7 +310,7 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   }
 
   // 运营支出
-  const operationFields = processor.parseOperationExpenseData(components as any, raw as any);
+  const operationFields = parsedFormData;
   return {
     type: 'operation',
     ...common,
@@ -336,9 +339,11 @@ function parseRow(row: Record<string, unknown>): Record<string, unknown> {
     paymentDate: normalizeDate(findLastValue(components, ['Fecha de pago', '付款日期'])),
     keyVoucher: compact(findValue(components, ['Comprobante clave', '关键凭证']), 2000),
     ...operationFields,
-    applicantDepartment: typeof operationFields.applicantDepartment === 'string'
-      ? operationFields.applicantDepartment
-      : common.applicantDepartment,
+    applicantDepartment: common.applicantDepartment,
+    applicantDepartmentId: common.applicantDepartmentId,
+    applicantDepartmentSource: common.applicantDepartmentSource,
+    applicantDepartmentPathIds: common.applicantDepartmentPathIds,
+    applicantDepartmentPathNames: common.applicantDepartmentPathNames,
     attachments: extractAttachments(components)
   };
 }
@@ -444,7 +449,7 @@ async function main(): Promise<void> {
         }
       }
 
-      const parsed = parseRow(sourceRow);
+      const parsed = await parseRow(sourceRow);
       if (dryRun) {
         console.log(JSON.stringify({
           business_id: sourceRow.business_id,

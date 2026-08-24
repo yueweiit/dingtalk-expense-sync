@@ -40,11 +40,22 @@ test('direct expense write entrypoints preserve applicant department identity', 
     ['scripts/sync-approval-expenses-from-dingtalk.ts', 'await processor.enrichOperationDepartmentPaths(pData);'],
     ['scripts/backfill-approval-expense-schema.ts', 'parseApplicantDepartmentIdentity'],
     ['scripts/backfill-approval-expense-schema.ts', 'await processor.enrichOperationDepartmentPaths(parsed);'],
+    ['scripts/backfill-approval-expense-schema.ts', 'await routeByServiceEntity(common, approvalSource);'],
   ];
 
   for (const [relativePath, expectedCall] of checks) {
     assert.match(readProjectFile(relativePath), new RegExp(expectedCall.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('manual expense sync applies service-entity routing without falling back when unresolved', () => {
+  const content = readProjectFile('scripts/sync-approval-expenses-from-dingtalk.ts');
+
+  assert.match(content, /import \{ routeByServiceEntity \} from ['"]\.\.\/src\/service-entity-department\.ts['"]/);
+  assert.match(content, /const operationRouteStatus = await routeByServiceEntity\(opData, approvalSource\);/);
+  assert.match(content, /const purchaseRouteStatus = await routeByServiceEntity\(pData, approvalSource\);/);
+  assert.match(content, /const opApplicantDepartment = operationRouteStatus === 'unresolved'\s*\? null\s*:/);
+  assert.match(content, /const purchaseApplicantDepartment = purchaseRouteStatus === 'unresolved'\s*\? null\s*:/);
 });
 
 test('refresh-from-dingtalk-window rejects an inverted time range before touching the database', () => {

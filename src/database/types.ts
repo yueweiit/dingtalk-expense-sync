@@ -47,6 +47,7 @@ export interface OperationExpenseData {
   expenseType?: string | null;
   executionRegion?: string | null;
   businessEntity?: string | null;
+  serviceEntity?: string | null;
   formName?: string | null;
   platform?: string | null;
   platformName?: string | null;

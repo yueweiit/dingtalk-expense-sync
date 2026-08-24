@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import config from './config.ts';
 import { getProcessTypeLabel } from './process-config.ts';
+import type { ServiceEntityDepartmentResolution } from './service-entity-department.ts';
 
 interface QueryResultRow {
   process_instance_id?: string | null;
@@ -42,6 +43,14 @@ export interface DepartmentSnapshot {
   departmentPathNames: string[];
 }
 
+interface DepartmentRouteCandidate {
+  dept_id: string | null;
+  name: string | null;
+  path_ids: unknown;
+  path_names: unknown;
+  is_current: boolean | null;
+}
+
 const oaPool = new Pool({
   host: config.oaDatabase.host,
   port: config.oaDatabase.port,
@@ -56,10 +65,6 @@ const oaPool = new Pool({
 oaPool.on('error', (error: Error) => {
   console.error('dingtalk_oa 数据库连接池错误:', error);
 });
-
-export function getOaDatabaseQuery(): Queryable {
-  return oaPool;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -325,6 +330,79 @@ export function createOaApprovalSource(client: Queryable = oaPool) {
         });
       }
       return snapshots;
+    },
+
+    async resolveServiceEntityDepartment(input: {
+      serviceEntity: string;
+      serviceEntityCode?: string | null;
+      correspondingDepartment?: string | null;
+    }): Promise<ServiceEntityDepartmentResolution> {
+      const serviceEntity = toText(input.serviceEntity);
+      const serviceEntityCode = toText(input.serviceEntityCode);
+      const correspondingDepartment = toText(input.correspondingDepartment);
+      if (!serviceEntity && !serviceEntityCode) {
+        return { status: 'unresolved' };
+      }
+
+      const result = await client.query<DepartmentRouteCandidate>(
+        `
+          SELECT dept_id, name, path_ids, path_names, is_current
+          FROM ding_department_tree
+          WHERE NULLIF(BTRIM(dept_id), '') IS NOT NULL
+            AND (
+              (
+                NULLIF($3::text, '') IS NOT NULL
+                AND BTRIM(dept_id) = $3::text
+              )
+              OR (
+                NULLIF($3::text, '') IS NULL
+                AND (
+                  (
+                    NULLIF($2::text, '') IS NOT NULL
+                    AND BTRIM(name) = $2::text
+                    AND jsonb_typeof(path_names) = 'array'
+                    AND path_names @> jsonb_build_array($1::text)
+                  )
+                  OR (
+                    NULLIF($2::text, '') IS NULL
+                    AND BTRIM(name) = $1::text
+                  )
+                )
+              )
+            )
+        `,
+        [serviceEntity, correspondingDepartment, serviceEntityCode]
+      );
+
+      const pickUnique = (candidates: DepartmentRouteCandidate[]): DepartmentRouteCandidate | null => {
+        const unique = new Map<string, DepartmentRouteCandidate>();
+        for (const candidate of candidates) {
+          const departmentId = toText(candidate.dept_id);
+          const department = toText(candidate.name);
+          if (!departmentId || !department) continue;
+          unique.set(departmentId, candidate);
+        }
+        return unique.size === 1 ? [...unique.values()][0] : null;
+      };
+
+      const currentCandidates = result.rows.filter((row) => row.is_current === true);
+      const selected = pickUnique(currentCandidates);
+      if (!selected) {
+        return { status: 'unresolved' };
+      }
+
+      const departmentId = toText(selected.dept_id);
+      const department = toText(selected.name);
+      if (!departmentId || !department) {
+        return { status: 'unresolved' };
+      }
+      return {
+        status: 'resolved',
+        department,
+        departmentId,
+        departmentPathIds: toArray(selected.path_ids).map((value) => String(value)),
+        departmentPathNames: toArray(selected.path_names).map((value) => String(value)),
+      };
     },
 
     async queryProcessInstanceIds(

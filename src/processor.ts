@@ -5,6 +5,13 @@ import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurch
 import { collectOperationDeptSplits } from './operation-dept-splits.ts';
 import approvalSource from './oa-source.ts';
 import { normalizePurchaseMultiSelect, parsePurchaseDetails } from './purchase-details.ts';
+import {
+  extractCorrespondingDepartment,
+  extractServiceEntityCode,
+  hasServiceEntityField,
+  routeByServiceEntity,
+  type ServiceEntityDepartmentLookup,
+} from './service-entity-department.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 import type { PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
 
@@ -63,6 +70,21 @@ export interface ApplicantDepartmentIdentity {
   departmentSource: 'form_id' | 'originator_id' | 'name_only';
 }
 
+const LEGACY_APPLICANT_DEPARTMENT_FIELD_NAMES = new Set([
+  '申请部门/组织 Departamento Solicitante',
+  '申请部门Departamento Solicitante',
+  '申请部门',
+]);
+
+function findLegacyApplicantDepartmentField(formComponentValues?: FormComponentValue[]): FormComponentValue | null {
+  return Array.isArray(formComponentValues)
+    ? formComponentValues.find((item) =>
+      String(item?.componentType || '').toLowerCase() === 'departmentfield' &&
+      LEGACY_APPLICANT_DEPARTMENT_FIELD_NAMES.has(String(item?.name || '').trim())
+    ) || null
+    : null;
+}
+
 function extractDepartmentId(extendedValue: unknown): string | null {
   let normalizedValue = extendedValue;
   if (typeof extendedValue === 'string') {
@@ -88,9 +110,7 @@ export function parseApplicantDepartmentIdentity(
   formComponentValues?: FormComponentValue[],
   instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName'>
 ): ApplicantDepartmentIdentity {
-  const departmentField = Array.isArray(formComponentValues)
-    ? formComponentValues.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
-    : null;
+  const departmentField = findLegacyApplicantDepartmentField(formComponentValues);
   const formDepartment = String(departmentField?.value || '').trim() || null;
   const originatorDepartment = String(instance?.originatorDeptName || '').trim() || null;
   const formDepartmentId = extractDepartmentId(departmentField?.extendValue ?? departmentField?.extValue);
@@ -182,7 +202,7 @@ interface DeptSplitTypeConfig {
   dbColumn: string;
 }
 
-type DepartmentSnapshotLookup = Pick<typeof approvalSource, 'getDepartmentSnapshots'>;
+type DepartmentSnapshotLookup = Pick<typeof approvalSource, 'getDepartmentSnapshots'> & Partial<ServiceEntityDepartmentLookup>;
 
 const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
   {
@@ -211,6 +231,15 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
 
 export class ApprovalProcessor {
   constructor(private readonly departmentSnapshotLookup: DepartmentSnapshotLookup = approvalSource) {}
+
+  private serviceEntityDepartmentLookup(): ServiceEntityDepartmentLookup | undefined {
+    if (!this.departmentSnapshotLookup.resolveServiceEntityDepartment) {
+      return undefined;
+    }
+    return {
+      resolveServiceEntityDepartment: this.departmentSnapshotLookup.resolveServiceEntityDepartment.bind(this.departmentSnapshotLookup),
+    };
+  }
 
   // 从表单值中提取字段（第一个匹配）
   extractFormValue(formComponentValues: FormComponentValue[] | undefined | null, fieldName: string): unknown {
@@ -429,13 +458,11 @@ export class ApprovalProcessor {
     const amountFromDetail = this.extractFormValueLastNonEmpty(formComponentValues, '金额importe');
     const currencyFromDetail = this.extractFormValueLastNonEmpty(formComponentValues, '币种Moneda');
     const amountFromSummary = this.extractFormValue(formComponentValues, '明细汇总金额');
-    const departmentField = Array.isArray(formComponentValues)
-      ? formComponentValues.find((item) => String(item?.componentType || '').toLowerCase() === 'departmentfield')
-      : null;
+    const departmentField = findLegacyApplicantDepartmentField(formComponentValues);
     const departmentFromComponent =
       departmentField?.value != null && String(departmentField.value).trim() !== '' ? departmentField.value : null;
     return {
-      department: departmentFromComponent ?? this.extractFormValue(formComponentValues, '部门Departamento'),
+      department: departmentFromComponent,
       applyType: this.extractFormValue(formComponentValues, '申请类型Tipo de trámite'),
       expenseType: this.extractFormValue(formComponentValues, '支出类型'),
       region: this.extractFormValue(formComponentValues, '执行地区Región de ejecución'),
@@ -568,8 +595,7 @@ export class ApprovalProcessor {
   ): Record<string, unknown> {
     const fc = formComponentValues;
     const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(fc, instance);
-    const department = applicantDepartmentIdentity.department ||
-      this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+    const department = applicantDepartmentIdentity.department;
 
     const operationExpense = this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出');
     const opExpenseStr = String(operationExpense || '');
@@ -602,6 +628,8 @@ export class ApprovalProcessor {
     const paymentDetailReason = this.extractFormValueExact(fc, '付款详细事由');
     const businessEntity = this.extractFormValueExact(fc, '业务主体')
       || this.extractFormValueExact(fc, '业务主体Empresa');
+    const serviceEntity = this.extractFormValueExact(fc, '服务主体Cliente')
+      || this.extractFormValueExact(fc, '服务主体');
 
     return {
       requestDate: this.extractFormValue(fc, '申请日期Fecha de solicitud') || this.extractFormValue(fc, '申请日期'),
@@ -640,6 +668,10 @@ export class ApprovalProcessor {
       monthlyBudgetRemainingAmount,
       paymentDetailReason,
       businessEntity,
+      serviceEntity,
+      serviceEntityCode: extractServiceEntityCode(fc),
+      serviceEntityExpected: hasServiceEntityField(fc),
+      correspondingDepartment: extractCorrespondingDepartment(fc),
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
@@ -655,8 +687,7 @@ export class ApprovalProcessor {
     const fc = formComponentValues;
     const purchaseDetails = parsePurchaseDetails(fc);
     const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(fc, instance);
-    const department = applicantDepartmentIdentity.department ||
-      this.extractFormValue(fc, '申请部门Departamento Solicitante') || this.extractFormValue(fc, '部门Departamento');
+    const department = applicantDepartmentIdentity.department;
     const monthlyBudgetRemainingAmount = this.normalizeNumber(
       this.extractFormValueExact(fc, '本月预算剩余金额')
       || this.extractFormValueExact(fc, '本月预算剩余金额Saldo restante del presupuesto mensual')
@@ -678,6 +709,9 @@ export class ApprovalProcessor {
       monthlyBudgetRemainingAmount,
       businessEntity,
       serviceEntity,
+      serviceEntityCode: extractServiceEntityCode(fc),
+      serviceEntityExpected: hasServiceEntityField(fc),
+      correspondingDepartment: extractCorrespondingDepartment(fc),
       purchaseExpense: this.extractFormValue(fc, '采购支出Gastos de Compra') || this.extractFormValue(fc, '采购支出'),
       orderName: this.extractFormValue(fc, '订单Pedido') || this.extractFormValue(fc, '订单'),
       projectName: this.extractFormValue(fc, '项目Proyecto') || this.extractFormValue(fc, '项目'),
@@ -763,9 +797,13 @@ export class ApprovalProcessor {
 
       if (String(processType).includes('运营') || String(processType).includes('杩愯惀')) {
         const opData = this.parseOperationExpenseData(instance.formComponentValues, instance);
-        const opApplicantDepartment =
-          (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null) ||
-          fixedApplicantDepartment;
+        const operationRouteStatus = await routeByServiceEntity(opData, this.serviceEntityDepartmentLookup());
+        if (operationRouteStatus === 'unresolved') {
+          logger.warn(`服务主体无法唯一归属，保留待确认: businessId=${businessId}, serviceEntity=${String(opData.serviceEntity || '')}, correspondingDepartment=${String(opData.correspondingDepartment || '')}`);
+        }
+        const opApplicantDepartment = operationRouteStatus === 'unresolved'
+          ? null
+          : (typeof opData.applicantDepartment === 'string' ? opData.applicantDepartment : null) || fixedApplicantDepartment;
         const opAmount = opData.amount ?? data.amount;
         const opCurrency = opData.currency ?? data.currency;
         const opBaseCurrencyAmount = await convertAmountToCny({
@@ -797,10 +835,14 @@ export class ApprovalProcessor {
         }
       } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
         const pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
+        const purchaseRouteStatus = await routeByServiceEntity(pData, this.serviceEntityDepartmentLookup());
+        if (purchaseRouteStatus === 'unresolved') {
+          logger.warn(`服务主体无法唯一归属，保留待确认: businessId=${businessId}, serviceEntity=${String(pData.serviceEntity || '')}, correspondingDepartment=${String(pData.correspondingDepartment || '')}`);
+        }
         await this.enrichOperationDepartmentPaths(pData);
-        const purchaseApplicantDepartment =
-          (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null) ||
-          fixedApplicantDepartment;
+        const purchaseApplicantDepartment = purchaseRouteStatus === 'unresolved'
+          ? null
+          : (typeof pData.applicantDepartment === 'string' ? pData.applicantDepartment : null) || fixedApplicantDepartment;
         const purchaseAmount = pData.detailSummaryAmount ?? data.amount;
         const purchaseCurrency = pData.currency ?? data.currency;
         const purchaseBaseCurrencyAmount = await convertAmountToCny({

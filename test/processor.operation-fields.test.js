@@ -32,7 +32,7 @@ test('parseOperationExpenseData keeps existing operation parsing and split table
   const processor = getProcessor();
   const result = processor.parseOperationExpenseData([
     { name: '\u7533\u8bf7\u65e5\u671fFecha de solicitud', value: '2026-06-30' },
-    { componentType: 'DepartmentField', value: '\u8425\u8fd0\u4e2d\u5fc3' },
+    { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: '\u8425\u8fd0\u4e2d\u5fc3' },
     { name: '\u751f\u4ea7/\u975e\u751f\u4ea7Producci\u00f3n', value: '\u975e\u751f\u4ea7' },
     { name: '\u672c\u6708\u9884\u7b97\u91d1\u989dImporte presupuestado', value: '12345.67' },
     { name: '\u672c\u6708\u9884\u7b97\u5df2\u7528\u91d1\u989dImporte utilizado', value: '2345.67' },
@@ -154,7 +154,7 @@ test('parseOperationExpenseData leaves new fields empty when old forms do not pr
 test('parseOperationExpenseData archives business entity without changing applicant department identity', () => {
   const processor = getProcessor();
   const result = processor.parseOperationExpenseData([
-    { componentType: 'DepartmentField', value: '广州凌翔', extendValue: '{"id":"1089383728"}' },
+    { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: '广州凌翔', extendValue: '{"id":"1089383728"}' },
     { name: '业务主体', value: '星铭' },
   ]);
 

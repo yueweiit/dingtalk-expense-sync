@@ -32,7 +32,7 @@ test('parsePurchaseExpenseData extracts ecommerce purchase remaining budget fiel
   const processor = getProcessor();
   const result = processor.parsePurchaseExpenseData([
     { name: '申请日期Fecha de solicitud', value: '2026-07-08' },
-    { componentType: 'DepartmentField', value: '电商采购组' },
+    { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: '电商采购组' },
     { name: '生产/非生产Producción', value: '非生产' },
     { name: '本月预算金额Importe presupuestado', value: '1000.00' },
     { name: '本月预算已用金额Importe utilizado', value: '250.50' },
@@ -125,7 +125,7 @@ test('parsePurchaseExpenseData keeps purchase detail tables and normalizes custo
 test('parsePurchaseExpenseData archives business and service entities without changing the applicant department', () => {
   const processor = getProcessor();
   const result = processor.parsePurchaseExpenseData([
-    { componentType: 'DepartmentField', value: '东莞星铭', extendValue: '{"id":"1109001296"}' },
+    { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: '东莞星铭', extendValue: '{"id":"1109001296"}' },
     { name: '业务主体Empresa', value: '凌翔' },
     { name: '服务主体Cliente', value: '拉丁购' },
   ]);
@@ -134,6 +134,32 @@ test('parsePurchaseExpenseData archives business and service entities without ch
   assert.equal(result.serviceEntity, '拉丁购');
   assert.equal(result.applicantDepartment, '东莞星铭');
   assert.equal(result.applicantDepartmentId, '1109001296');
+});
+
+test('parsePurchaseExpenseData reads the explicit corresponding department separately from the applicant department', () => {
+  const processor = getProcessor();
+  const result = processor.parsePurchaseExpenseData([
+    { name: '申请部门/组织 Departamento Solicitante', componentType: 'DepartmentField', value: '旧申请部门' },
+    { name: '服务主体Cliente', value: 'YUEWEI MX核心制造' },
+    { name: '对应的部门', value: 'PG生产' },
+  ]);
+
+  assert.equal(result.serviceEntity, 'YUEWEI MX核心制造');
+  assert.equal(result.correspondingDepartment, 'PG生产');
+  assert.equal(result.applicantDepartment, '旧申请部门');
+});
+
+test('parsePurchaseExpenseData keeps the service-entity cascade code for exact department routing', () => {
+  const processor = getProcessor();
+  const result = processor.parsePurchaseExpenseData([
+    {
+      name: '服务主体Cliente',
+      value: 'YUEWEI MX核心制造/PG生产Producción PG',
+      extValue: '{"code":"1092705940","name":"PG生产Producción PG"}',
+    },
+  ]);
+
+  assert.equal(result.serviceEntityCode, '1092705940');
 });
 
 test('resolvePurchaseFormName maps legacy and ecommerce purchase process codes', () => {
