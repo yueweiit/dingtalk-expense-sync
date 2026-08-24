@@ -6,6 +6,7 @@ import config from './config.ts';
 import { normalizeCurrencyToIso } from './fxToCny.ts';
 import scheduler from './scheduler.ts';
 import { resolveDepartmentQuery } from './department-query.ts';
+import { summarizeConnectorDepartmentInputs } from './connector-department-input-diagnostics.ts';
 import { resolveSharedBudgetDepartmentIds } from './shared-budget-departments.ts';
 import { approvalExpenseTimeExpr, utcDateRange } from './utc-time.ts';
 import { completedApprovedExpenseSql } from './completed-expense-policy.ts';
@@ -148,8 +149,11 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       departmentIds = resolveSharedBudgetDepartmentIds(deptMatch, queryMonth);
     }
 
+    const connectorInputDiagnostics = summarizeConnectorDepartmentInputs(
+      req.query as Record<string, unknown>,
+    );
     logger.info(
-      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, expense_policy=completed-approved`
+      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, expense_policy=completed-approved, received_query_keys=${connectorInputDiagnostics.receivedKeys.join('|')}, connector_department_inputs=${JSON.stringify(connectorInputDiagnostics.departmentInputs)}`
     );
 
     const wantEcho = String(echo || '') === '1';
