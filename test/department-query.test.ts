@@ -6,6 +6,7 @@ import { resolveDepartmentQuery } from '../src/department-query.ts';
 test('connector treats DingTalk department ID aliases as exact IDs', () => {
   for (const key of [
     'departmentId',
+    'departmentID',
     'department_id',
     'deptId',
     'dept_id',

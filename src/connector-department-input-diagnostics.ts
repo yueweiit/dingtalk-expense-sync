@@ -1,5 +1,6 @@
 const DEPARTMENT_INPUT_KEYS = [
   'departmentId',
+  'departmentID',
   'department_id',
   'deptId',
   'dept_id',

@@ -16,6 +16,7 @@ function firstNonEmptyValue(input: Record<string, unknown>, keys: string[]): str
 export function resolveDepartmentQuery(input: Record<string, unknown>): DepartmentQuery | null {
   const departmentId = firstNonEmptyValue(input, [
     'departmentId',
+    'departmentID',
     'department_id',
     'deptId',
     'dept_id',

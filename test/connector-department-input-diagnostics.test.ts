@@ -7,12 +7,12 @@ test('connector diagnostics distinguishes missing, empty, and present department
   const summary = summarizeConnectorDepartmentInputs({
     month: '2026-08',
     deptNameID: '',
-    departmentId: '1092411969',
+    departmentID: '1092411969',
     department: ['  ', '业务及生产执行单元'],
   });
 
-  assert.deepEqual(summary.receivedKeys, ['department', 'departmentId', 'deptNameID', 'month']);
-  assert.equal(summary.departmentInputs.departmentId, 'present:1092411969');
+  assert.deepEqual(summary.receivedKeys, ['department', 'departmentID', 'deptNameID', 'month']);
+  assert.equal(summary.departmentInputs.departmentID, 'present:1092411969');
   assert.equal(summary.departmentInputs.deptNameID, 'empty');
   assert.equal(summary.departmentInputs.department, 'present:业务及生产执行单元');
   assert.equal(summary.departmentInputs.deptId, 'missing');
