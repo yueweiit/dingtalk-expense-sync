@@ -19,6 +19,10 @@ export function resolveDepartmentQuery(input: Record<string, unknown>): Departme
     'department_id',
     'deptId',
     'dept_id',
+    // Existing DingTalk connectors serialize the displayed "部门Id" parameter
+    // as deptNameID. Its value is still the service-entity department code.
+    'deptNameID',
+    '部门Id',
   ]);
   if (departmentId) {
     return { mode: 'id', value: departmentId };
