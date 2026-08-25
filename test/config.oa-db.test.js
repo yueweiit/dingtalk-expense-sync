@@ -47,6 +47,7 @@ function runConfigFixture(envLines, configJson = null) {
         '  appkey: config.dingtalk.appkey ?? null,',
         '  appsecret: config.dingtalk.appsecret ?? null,',
         '  allProcessCodes: config.dingtalk.allProcessCodes,',
+        '  paymentEventUserIds: config.dingtalk.paymentEventUserIds,',
         '  schedulerCron: config.scheduler.cron,',
         '}));',
       ].join('\n'),
@@ -87,6 +88,7 @@ test('config loads with OA database credentials and a complete process type map'
   assert.equal(parsed.appkey, null);
   assert.equal(parsed.appsecret, null);
   assert.equal(parsed.allProcessCodes.length, 14);
+  assert.deepEqual(parsed.paymentEventUserIds, ['57521312381178275', '02183637680221426194']);
   assert.equal(parsed.schedulerCron, '7,37 * * * *');
 });
 

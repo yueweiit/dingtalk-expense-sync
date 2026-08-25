@@ -209,8 +209,6 @@ function parseUserIds(envValue: string | undefined, fileValue: string[] | undefi
 const AUTHORIZED_PAYMENT_EVENT_USER_IDS = Object.freeze([
   '57521312381178275',
   '02183637680221426194',
-  // 本地临时测试用户：张树钦。测试结束后恢复正式名单。
-  '02485635391924266197',
 ]);
 
 function validatePaymentEventUserIds(configuredUserIds: string[]): void {

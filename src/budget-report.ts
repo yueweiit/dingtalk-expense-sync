@@ -13,10 +13,14 @@ const TIME_COLUMN = approvalExpenseTimeExpr();
 const BUDGET_SUBMISSION_TIME_COLUMN = `COALESCE(source_created_at, request_date::timestamp AT TIME ZONE 'UTC')`;
 
 const EXPENSE_STATUS_FILTER_ALIASED = `AND ${completedApprovedExpenseSql('o')}`;
+const AUTHORIZED_PAYMENT_EVENT_USER_SQL = config.dingtalk.paymentEventUserIds
+  .map((userId) => `'${userId}'`)
+  .join(', ');
 const PAYMENT_EVENT_FILTER = `
   AND event.status = 'confirmed'
   AND event.rule_version = 'authorized-comment-v1'
   AND event.source_type = 'comment_explicit_amount'
+  AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL})
 `;
 
 /** Budget applications remain visible while they are pending, as before this change. */

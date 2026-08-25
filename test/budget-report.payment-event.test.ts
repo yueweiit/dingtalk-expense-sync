@@ -46,6 +46,17 @@ test('weekly report uses the same payment-event and completed-split facts as the
            ($3, 'purchase', '2026-08-14T10:00:00+08:00', 45, 45, 'comment_explicit_amount', 'authorized-comment-v1', $4, '已支付：45元', 'confirmed')`,
     [operationEventId, 'c'.repeat(64), purchaseEventId, 'd'.repeat(64)]);
 
+  await pool.query(`UPDATE approval_expense_payment_events
+    SET source_user_id = CASE business_id
+      WHEN $1 THEN '57521312381178275'
+      WHEN $2 THEN '02183637680221426194'
+    END
+    WHERE business_id = ANY($3::text[])`, [operationEventId, purchaseEventId, [operationEventId, purchaseEventId]]);
+  await pool.query(`INSERT INTO approval_expense_payment_events
+    (business_id, expense_kind, paid_at, amount, base_currency_amount, currency, source_type, rule_version, source_user_id, source_hash, evidence_text, status)
+    VALUES ($1, 'operation', '2026-08-16T10:00:00+08:00', 40, 40, 'CNY', 'comment_explicit_amount', 'authorized-comment-v1', '02485635391924266197', $2, 'paid 40', 'confirmed')`,
+    [operationFallbackId, 'e'.repeat(64)]);
+
   const totals = await getWeeklyExpenses('2026-08-01', '2026-08-31');
   const matching = [...totals.values()].find((item) => item.departmentName === department);
   assert.equal(matching?.total, 345);

@@ -35,7 +35,7 @@ async function insertExpense(tableName, businessId, status, completedAt = null) 
   );
 }
 
-async function insertPaymentEvent(businessId, expenseKind, amount, paidAt) {
+async function insertPaymentEvent(businessId, expenseKind, amount, paidAt, sourceUserId = '57521312381178275') {
   await pool.query(
     `INSERT INTO approval_expense_payment_events (
       business_id,
@@ -58,7 +58,7 @@ async function insertPaymentEvent(businessId, expenseKind, amount, paidAt) {
       expenseKind,
       paidAt,
       amount,
-      '57521312381178275',
+      sourceUserId,
       `${businessId}`.padEnd(64, '0').slice(0, 64),
       `已支付：${amount}元`,
     ],
@@ -79,6 +79,13 @@ test.before(async () => {
   );
 
   await insertExpense('approval_expense_operation', `${businessPrefix}-operation-completed-no-event`, 'COMPLETED', '2026-08-21T10:00:00+08:00');
+  await insertPaymentEvent(
+    `${businessPrefix}-operation-completed-no-event`,
+    'operation',
+    40,
+    '2026-08-16T10:00:00+08:00',
+    '02485635391924266197',
+  );
 
   await insertExpense('approval_expense_purchase', `${businessPrefix}-purchase-event`, 'RUNNING');
   await insertPaymentEvent(`${businessPrefix}-purchase-event`, 'purchase', 45, '2026-08-14T10:00:00+08:00');
@@ -100,7 +107,7 @@ test.after(async () => {
   await pool.end();
 });
 
-test('payment-event API counts comment payments without double-counting later completion', async () => {
+test('payment-event API counts only formal-user comments without double-counting later completion', async () => {
   const operation = await fetch(`${baseUrl}/api/approvals/approved/operation?departmentId=${departmentId}&month=2026-08`);
   assert.equal(operation.status, 200);
   assert.deepEqual(await operation.json(), { total: '200.00', count: 3 });
