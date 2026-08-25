@@ -1,6 +1,7 @@
 import database from './database.ts';
 import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
+import config from './config.ts';
 import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
 import { collectOperationDeptSplits } from './operation-dept-splits.ts';
 import approvalSource from './oa-source.ts';
@@ -13,6 +14,7 @@ import {
   type ServiceEntityDepartmentLookup,
 } from './service-entity-department.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
+import { extractExplicitPaymentComments, PAYMENT_EVENT_RULE_VERSION, type ApprovalOperationRecord } from './payment-events.ts';
 import type { PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
 
 export interface FormComponentValue {
@@ -61,6 +63,7 @@ export interface ApprovalInstance {
   updateTime?: string;
   modifyTime?: string;
   tasks?: Task[];
+  operationRecords?: ApprovalOperationRecord[];
   formComponentValues?: FormComponentValue[];
 }
 
@@ -83,6 +86,50 @@ function findLegacyApplicantDepartmentField(formComponentValues?: FormComponentV
       LEGACY_APPLICANT_DEPARTMENT_FIELD_NAMES.has(String(item?.name || '').trim())
     ) || null
     : null;
+}
+
+export async function recordExplicitPaymentEvents(
+  instance: ApprovalInstance,
+  expenseKind: 'operation' | 'purchase',
+  formCurrency: unknown,
+  hasDepartmentSplits = false,
+): Promise<void> {
+  // Salary, social insurance, office-space, and individual-income-tax forms
+  // must wait for completion so their stored department splits drive reporting.
+  if (expenseKind === 'operation' && hasDepartmentSplits) return;
+
+  const comments = extractExplicitPaymentComments(instance.operationRecords, config.dingtalk.paymentEventUserIds);
+  if (comments.length === 0) return;
+
+  const events = [];
+  for (const comment of comments) {
+    const currency = comment.currency || (formCurrency == null ? null : String(formCurrency));
+    const baseCurrencyAmount = await convertAmountToCny({
+      amount: comment.amount,
+      currencyLabel: currency,
+      createTime: comment.paidAt,
+    });
+    events.push({
+      businessId: instance.businessId,
+      processInstanceId: instance.processInstanceId == null ? null : String(instance.processInstanceId),
+      expenseKind,
+      paidAt: comment.paidAt,
+      amount: comment.amount,
+      baseCurrencyAmount,
+      currency,
+      sourceType: 'comment_explicit_amount' as const,
+      ruleVersion: PAYMENT_EVENT_RULE_VERSION,
+      sourceUserId: comment.sourceUserId,
+      sourceHash: comment.sourceHash,
+      evidenceText: comment.evidenceText,
+      rawData: comment.rawData,
+    });
+  }
+
+  const inserted = await database.insertPaymentEvents(events);
+  if (inserted > 0) {
+    logger.info(`实例 ${instance.businessId} 新增实际付款事件 ${inserted} 条`);
+  }
 }
 
 function extractDepartmentId(extendedValue: unknown): string | null {
@@ -833,6 +880,7 @@ export class ApprovalProcessor {
         if (opId) {
           await database.replaceAttachments('operation', opId, attachments);
         }
+        await recordExplicitPaymentEvents(instance, 'operation', opCurrency, deptSplits.length > 0);
       } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
         const pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
         const purchaseRouteStatus = await routeByServiceEntity(pData, this.serviceEntityDepartmentLookup());
@@ -885,6 +933,7 @@ export class ApprovalProcessor {
           }
           await database.replacePurchasePayments(purchaseId, payments);
         }
+        await recordExplicitPaymentEvents(instance, 'purchase', purchaseCurrency);
       } else {
         return { skipped: true, reason: `unsupported process type: ${processType || 'unknown'}` };
       }

@@ -344,6 +344,30 @@ CREATE TABLE IF NOT EXISTS approval_expense_purchase_payments (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Actual payment facts from approval comments. This is not the form-entered payment plan.
+CREATE TABLE IF NOT EXISTS approval_expense_payment_events (
+    id BIGSERIAL PRIMARY KEY,
+    business_id VARCHAR(64) NOT NULL,
+    process_instance_id VARCHAR(128),
+    expense_kind VARCHAR(16) NOT NULL CHECK (expense_kind IN ('operation', 'purchase')),
+    paid_at TIMESTAMPTZ NOT NULL,
+    amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
+    base_currency_amount NUMERIC(18, 2),
+    currency VARCHAR(32),
+    source_type VARCHAR(32) NOT NULL CHECK (source_type IN ('comment_explicit_amount', 'manual_confirmed')),
+    rule_version VARCHAR(64),
+    source_user_id VARCHAR(128),
+    source_hash VARCHAR(64) NOT NULL,
+    evidence_text TEXT NOT NULL,
+    raw_data JSONB,
+    status VARCHAR(32) NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'void')),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE approval_expense_payment_events
+    ADD COLUMN IF NOT EXISTS rule_version VARCHAR(64);
+
 CREATE TABLE IF NOT EXISTS approval_expense_attachments (
     id BIGSERIAL PRIMARY KEY,
     parent_type VARCHAR(32) NOT NULL CHECK (parent_type IN ('operation', 'purchase')),
@@ -416,6 +440,15 @@ CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_payments_purchase_id
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_purchase_payments_payment_date
     ON approval_expense_purchase_payments(payment_date);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_payment_event_source
+    ON approval_expense_payment_events(business_id, paid_at, source_hash);
+
+CREATE INDEX IF NOT EXISTS idx_payment_event_business_status
+    ON approval_expense_payment_events(business_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_payment_event_paid_at
+    ON approval_expense_payment_events(paid_at);
 
 CREATE INDEX IF NOT EXISTS idx_approval_expense_attachments_parent
     ON approval_expense_attachments(parent_type, parent_id);
@@ -692,3 +725,15 @@ COMMENT ON COLUMN approval_expense_dept_split.department_path_ids IS '钉钉部�
 COMMENT ON COLUMN approval_expense_dept_split.department_path_names IS '钉钉部门名称完整路径快照';
 COMMENT ON COLUMN approval_expense_dept_split.amount IS '拆分金额';
 COMMENT ON COLUMN approval_expense_dept_split.note IS '备注';
+
+COMMENT ON TABLE approval_expense_payment_events IS '审批评论或人工确认的实际付款事件，不等同于采购表单付款计划';
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_payment_events') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_payment_events
+            BEFORE UPDATE ON approval_expense_payment_events
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+END;
+$$;

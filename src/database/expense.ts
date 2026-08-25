@@ -7,6 +7,7 @@ import {
   approvalExpensePurchase,
   approvalExpensePurchaseItems,
   approvalExpensePurchasePayments,
+  approvalExpensePaymentEvents,
   approvalExpensePurchaseProcessors
 } from './schema/index.ts';
 import {
@@ -15,6 +16,7 @@ import {
   PurchaseItemData,
   PurchaseProcessorData,
   PurchasePaymentData,
+  PaymentEventData,
   AttachmentData,
   ExpenseInstanceRow,
   DeptSplitRow,
@@ -423,6 +425,47 @@ export async function replacePurchasePayments(purchaseId: number, payments: Purc
         rawData: p.rawData || {}
       });
     }
+  });
+}
+
+/**
+ * Insert immutable actual-payment facts. The source identity makes repeated
+ * approval refreshes idempotent without conflating them with payment plans.
+ */
+export async function insertPaymentEvents(events: PaymentEventData[]): Promise<number> {
+  if (events.length === 0) return 0;
+
+  return db.transaction(async (tx) => {
+    let inserted = 0;
+    for (const event of events) {
+      const amount = decimalValue(event.amount);
+      if (amount == null || Number(amount) <= 0) continue;
+
+      const rows = await tx.insert(approvalExpensePaymentEvents).values({
+        businessId: event.businessId.substring(0, 64),
+        processInstanceId: event.processInstanceId?.substring(0, 128) || null,
+        expenseKind: event.expenseKind,
+        paidAt: event.paidAt,
+        amount,
+        baseCurrencyAmount: decimalValue(event.baseCurrencyAmount),
+        currency: event.currency?.substring(0, 32) || null,
+        sourceType: event.sourceType,
+        ruleVersion: event.ruleVersion.substring(0, 64),
+        sourceUserId: event.sourceUserId?.substring(0, 128) || null,
+        sourceHash: event.sourceHash,
+        evidenceText: event.evidenceText.substring(0, 10000),
+        rawData: event.rawData || {},
+        status: 'confirmed',
+      }).onConflictDoNothing({
+        target: [
+          approvalExpensePaymentEvents.businessId,
+          approvalExpensePaymentEvents.paidAt,
+          approvalExpensePaymentEvents.sourceHash,
+        ],
+      }).returning({ id: approvalExpensePaymentEvents.id });
+      inserted += rows.length;
+    }
+    return inserted;
   });
 }
 

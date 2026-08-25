@@ -12,9 +12,12 @@ import { completedApprovalResultSql, completedApprovedExpenseSql } from './compl
 const TIME_COLUMN = approvalExpenseTimeExpr();
 const BUDGET_SUBMISSION_TIME_COLUMN = `COALESCE(source_created_at, request_date::timestamp AT TIME ZONE 'UTC')`;
 
-/** Actual spending is recognized only after the whole approval is completed and agreed. */
-const EXPENSE_STATUS_FILTER = `AND ${completedApprovedExpenseSql()}`;
 const EXPENSE_STATUS_FILTER_ALIASED = `AND ${completedApprovedExpenseSql('o')}`;
+const PAYMENT_EVENT_FILTER = `
+  AND event.status = 'confirmed'
+  AND event.rule_version = 'authorized-comment-v1'
+  AND event.source_type = 'comment_explicit_amount'
+`;
 
 /** Budget applications remain visible while they are pending, as before this change. */
 const BUDGET_STATUS_FILTER = `
@@ -27,13 +30,17 @@ const BUDGET_STATUS_FILTER = `
   AND ${completedApprovalResultSql()} NOT IN ('refuse', 'reject')
 `;
 
-/** 运营支出按部门 breakdown：UNION ALL 非拆分 + 拆分表 */
+/** 运营支出按完成态部门拆分与指定评论付款事件统计。 */
 function buildOperationBreakdownSql(dateFilter: string): string {
   const dateFilterAliased = dateFilter
     .replace(/\bsource_created_at\b/g, 'o.source_created_at')
     .replace(/\brequest_date\b/g, 'o.request_date')
     .replace(/\bapproval_completed_at\b/g, 'o.approval_completed_at');
   const timeColumnAliased = approvalExpenseTimeExpr('o');
+  const paymentDateFilter = dateFilter
+    .replace(/\bsource_created_at\b/g, 'event.paid_at')
+    .replace(/\brequest_date\b/g, 'event.paid_at')
+    .replace(/\bapproval_completed_at\b/g, 'event.paid_at');
   return `
     SELECT
       dept,
@@ -43,23 +50,6 @@ function buildOperationBreakdownSql(dateFilter: string): string {
       source_month,
       COALESCE(SUM(amount), 0)::numeric AS total
     FROM (
-      SELECT
-        COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-        NULLIF(BTRIM(applicant_department_id), '') AS dept_id,
-        applicant_department_path_ids AS department_path_ids,
-        applicant_department_path_names AS department_path_names,
-        TO_CHAR(${TIME_COLUMN} AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
-        COALESCE(base_currency_amount, 0) AS amount
-      FROM approval_expense_operation
-      WHERE NOT EXISTS (
-        SELECT 1 FROM approval_expense_dept_split ds
-        WHERE ds.business_id = approval_expense_operation.business_id
-      )
-      ${dateFilter}
-      ${EXPENSE_STATUS_FILTER}
-
-      UNION ALL
-
       SELECT
         ds.department AS dept,
         NULLIF(BTRIM(ds.department_id), '') AS dept_id,
@@ -72,6 +62,43 @@ function buildOperationBreakdownSql(dateFilter: string): string {
       WHERE 1=1
       ${dateFilterAliased}
       ${EXPENSE_STATUS_FILTER_ALIASED}
+
+      UNION ALL
+
+      SELECT
+        COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS dept,
+        NULLIF(BTRIM(o.applicant_department_id), '') AS dept_id,
+        o.applicant_department_path_ids AS department_path_ids,
+        o.applicant_department_path_names AS department_path_names,
+        TO_CHAR(event.paid_at AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
+        COALESCE(event.base_currency_amount, 0) AS amount
+      FROM approval_expense_payment_events event
+      JOIN approval_expense_operation o ON o.business_id = event.business_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM approval_expense_dept_split ds
+        WHERE ds.business_id = event.business_id
+      )
+      ${paymentDateFilter}
+      ${PAYMENT_EVENT_FILTER}
+
+      UNION ALL
+
+      SELECT
+        COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS dept,
+        NULLIF(BTRIM(o.applicant_department_id), '') AS dept_id,
+        o.applicant_department_path_ids AS department_path_ids,
+        o.applicant_department_path_names AS department_path_names,
+        TO_CHAR(${timeColumnAliased} AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
+        COALESCE(o.base_currency_amount, 0) AS amount
+      FROM approval_expense_operation o
+      WHERE NOT EXISTS (SELECT 1 FROM approval_expense_dept_split ds WHERE ds.business_id = o.business_id)
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_payment_events event
+          WHERE event.business_id = o.business_id
+          ${PAYMENT_EVENT_FILTER}
+        )
+      ${dateFilterAliased}
+      ${EXPENSE_STATUS_FILTER_ALIASED}
     ) combined
     GROUP BY dept, dept_id, department_path_ids, department_path_names, source_month
     ORDER BY total DESC
@@ -79,18 +106,24 @@ function buildOperationBreakdownSql(dateFilter: string): string {
 }
 
 function buildPurchaseBreakdownSql(dateFilter: string): string {
+  const paymentDateFilter = dateFilter.replace(/\bapproval_completed_at\b/g, 'event.paid_at');
   return `
-    SELECT
-      COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-      NULLIF(BTRIM(applicant_department_id), '') AS dept_id,
-      applicant_department_path_ids AS department_path_ids,
-      applicant_department_path_names AS department_path_names,
-      TO_CHAR(${TIME_COLUMN} AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
-      COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::numeric AS total
-    FROM approval_expense_purchase
-    WHERE 1=1
-    ${dateFilter}
-    ${EXPENSE_STATUS_FILTER}
+    SELECT COALESCE(NULLIF(TRIM(p.applicant_department), ''), 'Unknown') AS dept,
+      NULLIF(BTRIM(p.applicant_department_id), '') AS dept_id,
+      p.applicant_department_path_ids AS department_path_ids, p.applicant_department_path_names AS department_path_names,
+      TO_CHAR(p.accounting_at AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
+      COALESCE(SUM(p.event_amount), 0)::numeric AS total
+    FROM (
+      SELECT p.*, event.paid_at AS accounting_at, event.base_currency_amount AS event_amount
+      FROM approval_expense_payment_events event JOIN approval_expense_purchase p ON p.business_id = event.business_id
+      WHERE 1=1 ${paymentDateFilter} ${PAYMENT_EVENT_FILTER}
+      UNION ALL
+      SELECT p.*, p.approval_completed_at AS accounting_at, p.base_currency_amount AS event_amount
+      FROM approval_expense_purchase p
+      WHERE NOT EXISTS (SELECT 1 FROM approval_expense_payment_events event WHERE event.business_id = p.business_id ${PAYMENT_EVENT_FILTER})
+      ${dateFilter}
+      AND ${completedApprovedExpenseSql('p')}
+    ) p
     GROUP BY dept, dept_id, applicant_department_path_ids, applicant_department_path_names, source_month
     ORDER BY total DESC
   `;
@@ -181,7 +214,7 @@ function addDepartmentAmount(
   });
 }
 
-async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Map<string, ReportDepartmentTotal>> {
+export async function getWeeklyExpenses(startDate: string, endDate: string): Promise<Map<string, ReportDepartmentTotal>> {
   const dateFilter = buildUtcDateFilter(startDate, endDate);
   const reportMonth = endDate.slice(0, 7);
 
@@ -377,7 +410,7 @@ function formatDeptReport(dept: DeptReport): { title: string; text: string } {
 
   lines.push('');
   lines.push('---');
-  lines.push('> 说明：月度预算来源于审批单中的"本月预算金额"字段（取最近一次提交值），累计支出为本月所有已审批通过支出的实际汇总。');
+  lines.push('> 说明：月度预算来源于审批单中的"本月预算金额"字段（取最近一次提交值）；普通运营/采购支出仅统计指定用户评论中的明确付款金额，部门拆分表单在完成后按明细统计。');
 
   return {
     title: `预算执行周报 - ${dept.deptName}`,

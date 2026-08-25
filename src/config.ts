@@ -36,6 +36,7 @@ interface DingtalkConfig {
   robotAppsecret: string | undefined;
   allProcessCodes: string[];
   processTypeMap: Required<ProcessTypeMap>;
+  paymentEventUserIds: string[];
 }
 
 interface SchedulerConfig {
@@ -194,6 +195,33 @@ function parseDeptRecipients(
   return result;
 }
 
+function parseUserIds(envValue: string | undefined, fileValue: string[] | undefined): string[] {
+  const values = envValue?.trim()
+    ? envValue.split(/[\s,;]+/)
+    : Array.isArray(fileValue) ? fileValue : [];
+  const result = [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
+  if (result.some((value) => !/^\d+$/.test(value))) {
+    throw new Error('DINGTALK_PAYMENT_EVENT_USER_IDS must contain numeric user IDs');
+  }
+  return result;
+}
+
+const AUTHORIZED_PAYMENT_EVENT_USER_IDS = Object.freeze([
+  '57521312381178275',
+  '02183637680221426194',
+  // 本地临时测试用户：张树钦。测试结束后恢复正式名单。
+  '02485635391924266197',
+]);
+
+function validatePaymentEventUserIds(configuredUserIds: string[]): void {
+  if (configuredUserIds.length === 0) return;
+  const expected = [...AUTHORIZED_PAYMENT_EVENT_USER_IDS].sort();
+  const actual = [...configuredUserIds].sort();
+  if (actual.length !== expected.length || actual.some((value, index) => value !== expected[index])) {
+    throw new Error('DINGTALK_PAYMENT_EVENT_USER_IDS is fixed to the authorized payment commenters');
+  }
+}
+
 // Build configuration object with env vars taking precedence over config.json
 if (process.env.DINGTALK_PROCESS_CODES?.trim()) {
   throw new Error('DINGTALK_PROCESS_CODES 已废弃，请仅配置 DINGTALK_PROCESS_TYPE_MAP');
@@ -211,6 +239,11 @@ const allProcessCodes = [
   ...resolvedProcessTypeMap.operation,
   ...resolvedProcessTypeMap.purchase,
 ];
+const configuredPaymentEventUserIds = parseUserIds(
+  process.env.DINGTALK_PAYMENT_EVENT_USER_IDS,
+  fileConfig.dingtalk?.paymentEventUserIds,
+);
+validatePaymentEventUserIds(configuredPaymentEventUserIds);
 
 const config: Config = Object.freeze({
   database: Object.freeze({
@@ -235,6 +268,7 @@ const config: Config = Object.freeze({
     robotAppsecret: process.env.DINGTALK_ROBOT_APPSECRET || fileConfig.dingtalk?.robotAppsecret,
     allProcessCodes,
     processTypeMap: resolvedProcessTypeMap,
+    paymentEventUserIds: [...AUTHORIZED_PAYMENT_EVENT_USER_IDS],
   }),
   scheduler: Object.freeze({
     cron: process.env.SCHEDULER_CRON || fileConfig.scheduler?.cron || '7,37 * * * *',

@@ -1,6 +1,11 @@
 {
   "dingtalk": {
-    "robotCode": ""
+    "robotCode": "",
+    "paymentEventUserIds": [
+      "57521312381178275",
+      "02183637680221426194",
+      "02485635391924266197"
+    ]
   },
   "scheduler": {
     "cron": "7,37 * * * *",

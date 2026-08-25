@@ -185,6 +185,22 @@ export interface PurchasePaymentData {
   rawData?: Record<string, unknown>;
 }
 
+export interface PaymentEventData {
+  businessId: string;
+  processInstanceId?: string | null;
+  expenseKind: 'operation' | 'purchase';
+  paidAt: string;
+  amount: number;
+  baseCurrencyAmount?: number | null;
+  currency?: string | null;
+  sourceType: 'comment_explicit_amount' | 'manual_confirmed';
+  ruleVersion: string;
+  sourceUserId?: string | null;
+  sourceHash: string;
+  evidenceText: string;
+  rawData?: Record<string, unknown> | null;
+}
+
 export interface AttachmentData {
   rowNo?: number;
   attachmentType?: string;
@@ -250,6 +266,7 @@ import type {
   approvalExpensePurchaseItems,
   approvalExpensePurchaseProcessors,
   approvalExpensePurchasePayments,
+  approvalExpensePaymentEvents,
   approvalExpenseAttachments,
   approvalExpenseDeptSplit,
 } from './schema/index.ts';
@@ -262,5 +279,6 @@ export type PurchaseExpense = typeof approvalExpensePurchase.$inferSelect;
 export type PurchaseItem = typeof approvalExpensePurchaseItems.$inferSelect;
 export type PurchaseProcessor = typeof approvalExpensePurchaseProcessors.$inferSelect;
 export type PurchasePayment = typeof approvalExpensePurchasePayments.$inferSelect;
+export type PaymentEvent = typeof approvalExpensePaymentEvents.$inferSelect;
 export type Attachment = typeof approvalExpenseAttachments.$inferSelect;
 export type DeptSplit = typeof approvalExpenseDeptSplit.$inferSelect;

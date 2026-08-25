@@ -88,18 +88,6 @@ function buildStatusFiltersForAlias(
 }
 
 /** 为 UNION ALL 的 joined 部分生成带表别名前缀的时间过滤 SQL */
-function buildTimeFilterForAlias(
-  tableAlias: string,
-  timeFilter: string,
-): string {
-  if (!timeFilter) return '';
-  const a = tableAlias;
-  return timeFilter
-    .replace(/\bsource_created_at\b/g, `${a}.source_created_at`)
-    .replace(/\brequest_date\b/g, `${a}.request_date`)
-    .replace(/\bapproval_completed_at\b/g, `${a}.approval_completed_at`);
-}
-
 function getExpenseQueryConfig(processKind: string): ExpenseQueryConfig {
   if (processKind === 'purchase') {
     return {
@@ -153,7 +141,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       req.query as Record<string, unknown>,
     );
     logger.info(
-      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, expense_policy=completed-approved, received_query_keys=${connectorInputDiagnostics.receivedKeys.join('|')}, connector_department_inputs=${JSON.stringify(connectorInputDiagnostics.departmentInputs)}`
+      `查询参数: department=${department}, departmentQueryMode=${departmentQuery?.mode || 'none'}, deptMatch=${deptMatch}, month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, date_field=${timeColumn}, expense_policy=authorized-payment-comment-or-completed-approval-fallback, received_query_keys=${connectorInputDiagnostics.receivedKeys.join('|')}, connector_department_inputs=${JSON.stringify(connectorInputDiagnostics.departmentInputs)}`
     );
 
     const wantEcho = String(echo || '') === '1';
@@ -219,122 +207,139 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       params.push(range.endExclusive);
     }
 
-    let query: string;
+    const eventTimeFilter = timeFilter.replace(/\bapproval_completed_at\b/g, 'event.paid_at');
+    const splitTimeFilter = timeFilter.replace(/\bapproval_completed_at\b/g, 'o.approval_completed_at');
+    const eventDepartmentExpr = departmentExpr
+      .replace(/\bapplicant_department\b/g, 'o.applicant_department')
+      .replace(/\bcreator_department\b/g, 'o.creator_department')
+      .replace(/\braw_data\b/g, 'o.raw_data');
+    const paymentEventWhere = `
+      AND event.status = 'confirmed'
+      AND event.rule_version = 'authorized-comment-v1'
+      AND event.source_type = 'comment_explicit_amount'
+    `;
+    let factsSql: string;
 
     if (isOperation) {
-      // 运营支出：通过 split 表处理部门拆分。部门 ID 存在时必须精确匹配，避免同名部门串账。
       const splitDeptParam = `$${paramIndex++}`;
+      const eventDeptParam = `$${paramIndex++}`;
       params.push(departmentIdMode ? departmentIds : deptMatch);
+      params.push(departmentIdMode ? departmentIds : (deptCodeMode
+        ? `(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`
+        : deptMatch));
       const splitDepartmentWhere = departmentIdMode
         ? `ds.department_id = ANY(${splitDeptParam}::varchar[])`
         : `LOWER(BTRIM(ds.department)) = LOWER(BTRIM(${splitDeptParam}))`;
-      const directDepartmentWhere = departmentIdMode
-        ? `o.applicant_department_id = ANY($${paramIndex++}::varchar[])`
-        : `LOWER(BTRIM(COALESCE(${departmentExpr}, ''))) = LOWER(BTRIM($${paramIndex++}))`;
+      const eventDepartmentWhere = departmentIdMode
+        ? `o.applicant_department_id = ANY(${eventDeptParam}::varchar[])`
+        : deptCodeMode
+          ? `UPPER(COALESCE(${eventDepartmentExpr}, '')) ~ ${eventDeptParam}`
+          : `LOWER(BTRIM(COALESCE(${eventDepartmentExpr}, ''))) = LOWER(BTRIM(${eventDeptParam}))`;
+      factsSql = `
+        SELECT
+          ds.business_id,
+          SUM(ds.amount) AS base_currency_amount,
+          o.approval_completed_at AS accounting_at,
+          ds.department AS department_resolved,
+          o.raw_data->>'title' AS title,
+          'completed_department_split'::text AS accounting_source
+        FROM approval_expense_dept_split ds
+        JOIN approval_expense_operation o ON o.business_id = ds.business_id
+        WHERE ${splitDepartmentWhere}
+        ${statusWhere}
+        ${splitTimeFilter}
+        GROUP BY ds.business_id, o.approval_completed_at, ds.department, o.raw_data
 
-      if (isDebug) {
-        query = `
-          SELECT o.business_id,
-                 o.amount,
-                 o.base_currency_amount,
-                 o.approval_completed_at,
-                 o.source_created_at,
-                 o.request_date,
-                 o.applicant_department,
-                 o.creator_department,
-                 o.approval_status,
-                 o.raw_data->>'bizAction' AS biz_action,
-                 o.raw_data->>'title' AS title,
-                 ${departmentExpr} AS department_resolved
-          FROM ${queryConfig.tableName} o
-          LEFT JOIN (
-            SELECT ds.business_id, SUM(ds.amount) AS split_total
-            FROM approval_expense_dept_split ds
-            JOIN ${queryConfig.tableName} o2 ON o2.business_id = ds.business_id
-            WHERE ${splitDepartmentWhere}
-            ${statusWhere.replace(/\bo\./g, 'o2.')}
-            ${timeFilter.replace(/\bo\./g, 'o2.')}
-            GROUP BY ds.business_id
-          ) ds ON ds.business_id = o.business_id
-          WHERE (
-            (ds.business_id IS NULL AND ${directDepartmentWhere})
-            OR ds.business_id IS NOT NULL
-          )
-          ${statusWhere}
-          ${timeFilter}
-          ORDER BY ${timeColumn} DESC
-        `;
-        params.push(departmentIdMode ? departmentIds : deptMatch);
-      } else {
-        query = `
-          SELECT COALESCE(SUM(COALESCE(ds.split_total, o.base_currency_amount)), 0)::text AS total, COUNT(*)::int AS count
-          FROM ${queryConfig.tableName} o
-          LEFT JOIN (
-            SELECT ds.business_id, SUM(ds.amount) AS split_total
-            FROM approval_expense_dept_split ds
-            JOIN ${queryConfig.tableName} o2 ON o2.business_id = ds.business_id
-            WHERE ${splitDepartmentWhere}
-            ${statusWhere.replace(/\bo\./g, 'o2.')}
-            ${timeFilter.replace(/\bo\./g, 'o2.')}
-            GROUP BY ds.business_id
-          ) ds ON ds.business_id = o.business_id
-          WHERE (
-            (ds.business_id IS NULL AND ${directDepartmentWhere})
-            OR ds.business_id IS NOT NULL
-          )
-          ${statusWhere}
-          ${timeFilter}
-        `;
-        params.push(departmentIdMode ? departmentIds : deptMatch);
-      }
+        UNION ALL
+
+        SELECT
+          event.business_id,
+          event.base_currency_amount,
+          event.paid_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          o.raw_data->>'title' AS title,
+          'payment_event'::text AS accounting_source
+        FROM approval_expense_payment_events event
+        JOIN approval_expense_operation o ON o.business_id = event.business_id
+        WHERE ${eventDepartmentWhere}
+        ${paymentEventWhere}
+        ${eventTimeFilter}
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_dept_split ds
+          WHERE ds.business_id = event.business_id
+        )
+
+        UNION ALL
+
+        SELECT
+          o.business_id,
+          o.base_currency_amount,
+          o.approval_completed_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          o.raw_data->>'title' AS title,
+          'completed_approval_fallback'::text AS accounting_source
+        FROM approval_expense_operation o
+        WHERE ${eventDepartmentWhere}
+        ${statusWhere}
+        ${splitTimeFilter}
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_dept_split ds
+          WHERE ds.business_id = o.business_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_payment_events event
+          WHERE event.business_id = o.business_id
+          ${paymentEventWhere}
+        )
+      `;
     } else {
-      // 采购支出：不涉及拆分，直接查询
-      const nonSplitDeptParam = `$${paramIndex++}`;
-      if (departmentIdMode) {
-        params.push(departmentIds);
-      } else if (deptCodeMode) {
-        params.push(`(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`);
-      } else {
-        params.push(deptMatch);
-      }
+      const eventDeptParam = `$${paramIndex++}`;
+      params.push(departmentIdMode ? departmentIds : (deptCodeMode
+        ? `(^|[^A-Z0-9])${deptMatch.toUpperCase()}([^A-Z0-9]|$)`
+        : deptMatch));
+      const eventDepartmentWhere = departmentIdMode
+        ? `o.applicant_department_id = ANY(${eventDeptParam}::varchar[])`
+        : deptCodeMode
+          ? `UPPER(COALESCE(${eventDepartmentExpr}, '')) ~ ${eventDeptParam}`
+          : `LOWER(BTRIM(COALESCE(${eventDepartmentExpr}, ''))) = LOWER(BTRIM(${eventDeptParam}))`;
+      factsSql = `
+        SELECT
+          event.business_id,
+          event.base_currency_amount,
+          event.paid_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          o.raw_data->>'title' AS title,
+          'payment_event'::text AS accounting_source
+        FROM approval_expense_payment_events event
+        JOIN approval_expense_purchase o ON o.business_id = event.business_id
+        WHERE ${eventDepartmentWhere}
+        ${paymentEventWhere}
+        ${eventTimeFilter}
 
-      if (isDebug) {
-        query = `
-          SELECT o.business_id,
-                 ${queryConfig.sourceAmountColumn} AS amount,
-                 o.base_currency_amount,
-                 o.approval_completed_at,
-                 o.source_created_at,
-                 o.request_date,
-                 o.applicant_department,
-                 o.creator_department,
-                 o.approval_status,
-                 o.raw_data->>'bizAction' AS biz_action,
-                 o.raw_data->>'title' AS title,
-                 ${departmentExpr} AS department_resolved
-          FROM ${queryConfig.tableName} o
-          WHERE 1=1
-          ${statusWhere}
-          ${timeFilter}
-        `;
-      } else {
-        query = `
-          SELECT COALESCE(SUM(${queryConfig.amountRmbExpr}), 0)::text AS total, COUNT(*)::int AS count
-          FROM ${queryConfig.tableName} o
-          WHERE 1=1
-          ${statusWhere}
-          ${timeFilter}
-        `;
-      }
+        UNION ALL
 
-      if (departmentIdMode) {
-        query += ` AND o.applicant_department_id = ANY(${nonSplitDeptParam}::varchar[])`;
-      } else if (deptCodeMode) {
-        query += ` AND UPPER(COALESCE(${departmentExpr}, '')) ~ ${nonSplitDeptParam}`;
-      } else {
-        query += ` AND LOWER(BTRIM(COALESCE(${departmentExpr}, ''))) = LOWER(BTRIM(${nonSplitDeptParam}))`;
-      }
+        SELECT
+          o.business_id,
+          o.base_currency_amount,
+          o.approval_completed_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          o.raw_data->>'title' AS title,
+          'completed_approval_fallback'::text AS accounting_source
+        FROM approval_expense_purchase o
+        WHERE ${eventDepartmentWhere}
+        ${statusWhere}
+        ${splitTimeFilter}
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_payment_events event
+          WHERE event.business_id = o.business_id
+          ${paymentEventWhere}
+        )
+      `;
     }
+
+    const query = isDebug
+      ? `SELECT * FROM (${factsSql}) actual ORDER BY accounting_at DESC`
+      : `SELECT COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::text AS total, COUNT(*)::int AS count FROM (${factsSql}) actual`;
 
     const client = await pool.connect();
     try {
@@ -350,10 +355,10 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
             deptMatch,
             deptMatchMode: departmentIdMode ? 'id-exact' : (deptCodeMode ? 'code-token' : 'name-exact'),
             departmentIds: departmentIdMode ? departmentIds : null,
-            sourceTable: queryConfig.tableName,
-            timeColumn,
+            sourceTable: 'approval_expense_payment_events + completed approvals',
+            timeColumn: 'paid_at / approval_completed_at',
             monthParsed: month ? parseMonthBucket(month) : null,
-            expensePolicy: 'completed-approved'
+            expensePolicy: 'authorized-payment-comment-or-completed-approval-fallback'
           };
           payload.receivedQuery = req.query;
         }
@@ -376,10 +381,10 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
           deptMatch,
           deptMatchMode: departmentIdMode ? 'id-exact' : (deptCodeMode ? 'code-token' : 'name-exact'),
           departmentIds: departmentIdMode ? departmentIds : null,
-          sourceTable: queryConfig.tableName,
-          timeColumn,
+          sourceTable: 'approval_expense_payment_events + completed approvals',
+          timeColumn: 'paid_at / approval_completed_at',
           monthParsed: month ? parseMonthBucket(month) : null,
-          expensePolicy: 'completed-approved'
+          expensePolicy: 'authorized-payment-comment-or-completed-approval-fallback'
         };
         payload.receivedQuery = req.query;
       }
@@ -409,7 +414,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const timeColumn = approvalExpenseTimeExpr();
 
     logger.info(
-      `全部门查询: month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, start_date=${start_date}, end_date=${end_date}, expense_policy=completed-approved`
+      `全部门查询: month=${month}, processKind=${queryConfig.processKind}, table=${queryConfig.tableName}, start_date=${start_date}, end_date=${end_date}, expense_policy=authorized-payment-comment-or-completed-approval-fallback`
     );
 
     const wantEcho = String(echo || '') === '1';
@@ -456,102 +461,146 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
       params.push(range.endExclusive);
     }
 
-    // 总额查询：直接 SUM(base_currency_amount)
-    let query: string;
-    if (isDebug) {
-      query = `
-        SELECT business_id,
-               ${queryConfig.sourceAmountColumn} AS amount,
-               base_currency_amount,
-               approval_completed_at,
-               source_created_at,
-               request_date,
-               applicant_department,
-               creator_department,
-               approval_status,
-               raw_data->>'bizAction' AS biz_action,
-               raw_data->>'title' AS title
-        FROM ${queryConfig.tableName}
+    const eventTimeFilter = timeFilter.replace(/\bapproval_completed_at\b/g, 'event.paid_at');
+    const splitTimeFilter = timeFilter.replace(/\bapproval_completed_at\b/g, 'o.approval_completed_at');
+    const paymentEventWhere = `
+      AND event.status = 'confirmed'
+      AND event.rule_version = 'authorized-comment-v1'
+      AND event.source_type = 'comment_explicit_amount'
+    `;
+    const factsSql = isOperation
+      ? `
+        SELECT
+          ds.business_id,
+          SUM(ds.amount) AS base_currency_amount,
+          o.approval_completed_at AS accounting_at,
+          ds.department AS department_resolved,
+          'completed_department_split'::text AS accounting_source
+        FROM approval_expense_dept_split ds
+        JOIN approval_expense_operation o ON o.business_id = ds.business_id
         WHERE 1=1
-        ${statusWhere}
-        ${timeFilter}
-        ORDER BY ${timeColumn} DESC
-      `;
-    } else {
-      query = `
-        SELECT COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::text AS total, COUNT(*)::int AS count
-        FROM ${queryConfig.tableName}
-        WHERE 1=1
-        ${statusWhere}
-        ${timeFilter}
-      `;
-    }
+        ${buildStatusFiltersForAlias('o')}
+        ${splitTimeFilter}
+        GROUP BY ds.business_id, o.approval_completed_at, ds.department
 
-    const client = await pool.connect();
+        UNION ALL
+
+        SELECT
+          event.business_id,
+          event.base_currency_amount,
+          event.paid_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          'payment_event'::text AS accounting_source
+        FROM approval_expense_payment_events event
+        JOIN approval_expense_operation o ON o.business_id = event.business_id
+        WHERE NOT EXISTS (
+          SELECT 1 FROM approval_expense_dept_split ds
+          WHERE ds.business_id = event.business_id
+        )
+        ${paymentEventWhere}
+        ${eventTimeFilter}
+
+        UNION ALL
+
+        SELECT
+          o.business_id,
+          o.base_currency_amount,
+          o.approval_completed_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          'completed_approval_fallback'::text AS accounting_source
+        FROM approval_expense_operation o
+        WHERE 1=1
+        ${buildStatusFiltersForAlias('o')}
+        ${splitTimeFilter}
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_dept_split ds
+          WHERE ds.business_id = o.business_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_payment_events event
+          WHERE event.business_id = o.business_id
+          ${paymentEventWhere}
+        )
+      `
+      : `
+        SELECT
+          event.business_id,
+          event.base_currency_amount,
+          event.paid_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          'payment_event'::text AS accounting_source
+        FROM approval_expense_payment_events event
+        JOIN approval_expense_purchase o ON o.business_id = event.business_id
+        WHERE 1=1
+        ${paymentEventWhere}
+        ${eventTimeFilter}
+
+        UNION ALL
+
+        SELECT
+          o.business_id,
+          o.base_currency_amount,
+          o.approval_completed_at AS accounting_at,
+          COALESCE(NULLIF(TRIM(o.applicant_department), ''), 'Unknown') AS department_resolved,
+          'completed_approval_fallback'::text AS accounting_source
+        FROM approval_expense_purchase o
+        WHERE 1=1
+        ${buildStatusFiltersForAlias('o')}
+        ${splitTimeFilter}
+        AND NOT EXISTS (
+          SELECT 1 FROM approval_expense_payment_events event
+          WHERE event.business_id = o.business_id
+          ${paymentEventWhere}
+        )
+      `;
+    const actualClient = await pool.connect();
     try {
-      const result = await client.query(query, params);
+      const query = isDebug
+        ? `SELECT * FROM (${factsSql}) actual ORDER BY accounting_at DESC`
+        : `SELECT COALESCE(SUM(COALESCE(base_currency_amount, 0)), 0)::text AS total, COUNT(*)::int AS count FROM (${factsSql}) actual`;
+      const result = await actualClient.query(query, params);
       const row = result.rows[0] || { total: '0', count: 0 };
-      const payload: Record<string, unknown> = {
-        total: Number.parseFloat(row.total || 0).toFixed(2),
-        count: Number(row.count || 0)
-      };
-
-      // 运营支出：按部门 breakdown（UNION ALL 非拆分 + 拆分）
+      const payload: Record<string, unknown> = isDebug
+        ? {
+          total: result.rows.reduce((sum: number, item: Record<string, unknown>) => sum + Number(item.base_currency_amount || 0), 0).toFixed(2),
+          count: result.rows.length,
+          items: result.rows,
+        }
+        : {
+          total: Number.parseFloat(row.total || 0).toFixed(2),
+          count: Number(row.count || 0),
+        };
       if (isOperation && !isDebug) {
-        const breakdownSql = `
-          SELECT dept, COALESCE(SUM(amount), 0)::text AS total
-          FROM (
-            SELECT
-              COALESCE(NULLIF(TRIM(applicant_department), ''), 'Unknown') AS dept,
-              COALESCE(base_currency_amount, 0) AS amount
-            FROM ${queryConfig.tableName}
-            WHERE NOT EXISTS (
-              SELECT 1 FROM approval_expense_dept_split ds
-              WHERE ds.business_id = ${queryConfig.tableName}.business_id
-            )
-            ${statusWhere}
-            ${timeFilter}
-
-            UNION ALL
-
-            SELECT
-              ds.department AS dept,
-              ds.amount
-            FROM approval_expense_dept_split ds
-            JOIN ${queryConfig.tableName} o ON o.business_id = ds.business_id
-            WHERE 1=1
-            ${buildStatusFiltersForAlias('o')}
-            ${buildTimeFilterForAlias('o', timeFilter)}
-          ) combined
-          GROUP BY dept
-          ORDER BY SUM(amount) DESC
-        `;
-        const breakdownResult = await client.query(breakdownSql, params);
+        const breakdownResult = await actualClient.query(`
+          SELECT department_resolved AS dept, COALESCE(SUM(base_currency_amount), 0)::text AS total
+          FROM (${factsSql}) actual
+          GROUP BY department_resolved
+          ORDER BY SUM(base_currency_amount) DESC
+        `, params);
         payload.breakdown = Object.fromEntries(
-          breakdownResult.rows.map((r: { dept: string; total: string }) => [
-            String(r.dept || 'Unknown'),
-            Number.parseFloat(String(r.total || 0)).toFixed(2)
+          breakdownResult.rows.map((item: { dept: string; total: string }) => [
+            String(item.dept || 'Unknown'),
+            Number.parseFloat(String(item.total || 0)).toFixed(2),
           ])
         );
-      } else if (isDebug) {
-        payload.items = result.rows;
       }
-
       if (wantEcho) {
         payload.resolved = {
           deptMatch: '(all)',
           deptMatchMode: 'all',
-          sourceTable: queryConfig.tableName,
-          timeColumn,
+          sourceTable: 'approval_expense_payment_events + completed approvals',
+          timeColumn: 'paid_at / approval_completed_at',
           monthParsed: month ? parseMonthBucket(month) : null,
-          expensePolicy: 'completed-approved'
+          expensePolicy: 'authorized-payment-comment-or-completed-approval-fallback',
         };
         payload.receivedQuery = req.query;
       }
       res.json(payload);
+      return;
     } finally {
-      client.release();
+      actualClient.release();
     }
+
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`全部门查询失败: ${message}`);

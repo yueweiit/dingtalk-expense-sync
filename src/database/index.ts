@@ -9,6 +9,7 @@ import type {
   PurchaseItemData,
   PurchaseProcessorData,
   PurchasePaymentData,
+  PaymentEventData,
   AttachmentData,
   FxRateRow,
   FxRateResult,
@@ -97,6 +98,10 @@ class Database {
 
   async replacePurchasePayments(purchaseId: number, payments: PurchasePaymentData[]): Promise<void> {
     return expense.replacePurchasePayments(purchaseId, payments);
+  }
+
+  async insertPaymentEvents(events: PaymentEventData[]): Promise<number> {
+    return expense.insertPaymentEvents(events);
   }
 
   async replaceAttachments(parentType: string, parentId: number, attachments: AttachmentData[]): Promise<void> {

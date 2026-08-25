@@ -6,5 +6,6 @@ export { approvalExpensePurchase } from './expense-purchase.ts';
 export { approvalExpensePurchaseItems } from './expense-purchase-items.ts';
 export { approvalExpensePurchaseProcessors } from './expense-purchase-processors.ts';
 export { approvalExpensePurchasePayments } from './expense-purchase-payments.ts';
+export { approvalExpensePaymentEvents } from './expense-payment-events.ts';
 export { approvalExpenseAttachments } from './expense-attachments.ts';
 export { approvalExpenseDeptSplit } from './expense-dept-split.ts';

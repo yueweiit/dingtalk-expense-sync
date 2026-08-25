@@ -23,6 +23,7 @@ import {
   getProcessTypeLabel as resolveProcessTypeLabel,
 } from '../src/process-config.ts';
 import type { ApprovalInstance } from '../src/processor.ts';
+import { recordExplicitPaymentEvents } from '../src/processor.ts';
 import type { PurchaseItemData, PurchaseProcessorData } from '../src/database/types.ts';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -180,6 +181,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
     if (id) {
       await database.replaceAttachments('operation', id, attachments);
     }
+    await recordExplicitPaymentEvents(instance as unknown as ApprovalInstance, 'operation', currency, deptSplits.length > 0);
     return { id, amount: amount as number, currency: currency as string, baseCurrencyAmount: baseCurrencyAmount as number, department: opData.applicantDepartment } as unknown as { skipped?: boolean; id?: number };
   }
 
@@ -237,6 +239,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       }
       await database.replacePurchasePayments(id, payments);
     }
+    await recordExplicitPaymentEvents(instance as unknown as ApprovalInstance, 'purchase', currency);
     return { id, amount: amount as number, currency: currency as string, baseCurrencyAmount: baseCurrencyAmount as number, department: pData.applicantDepartment } as unknown as { skipped?: boolean; id?: number };
   }
 
