@@ -4,8 +4,8 @@ const { extractExplicitPaymentComments } = require('../src/payment-events.ts');
 
 const authorizedUserIds = ['57521312381178275', '02183637680221426194'];
 
-function extract(records) {
-  return extractExplicitPaymentComments(records, authorizedUserIds);
+function extract(records, fallbackAmount) {
+  return extractExplicitPaymentComments(records, authorizedUserIds, fallbackAmount);
 }
 
 test('records one amount from an authorized paid comment', () => {
@@ -74,4 +74,40 @@ test('requires an explicit amount immediately after the payment phrase', () => {
     userId: authorizedUserIds[0],
     remark: '\u5df2\u652f\u4ed8\uff0c\u51ed\u8bc1\u89c1\u9644\u4ef6',
   }]), []);
+});
+
+test('uses the form amount for an authorized paid comment without an amount', () => {
+  const events = extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: authorizedUserIds[0],
+    remark: '\u5df2\u652f\u4ed8\uff0c\u51ed\u8bc1\u89c1\u9644\u4ef6',
+  }], 200);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].amount, 200);
+  assert.equal(events[0].amountSource, 'form_amount_fallback');
+});
+
+test('does not use the form amount for a partial payment without an amount', () => {
+  assert.deepEqual(extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: authorizedUserIds[0],
+    remark: '\u90e8\u5206\u652f\u4ed8\uff0c\u540e\u7eed\u652f\u4ed8',
+  }], 200), []);
+});
+
+test('does not use the form amount for an unauthorized paid comment', () => {
+  assert.deepEqual(extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: 'not-authorized',
+    remark: '\u5df2\u652f\u4ed8\uff0c\u51ed\u8bc1\u89c1\u9644\u4ef6',
+  }], 200), []);
+});
+
+test('does not use a fallback when the comment has a non-adjacent amount', () => {
+  assert.deepEqual(extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: authorizedUserIds[0],
+    remark: '\u5df2\u652f\u4ed8\uff0c\u91d1\u989d100\u5143',
+  }], 200), []);
 });

@@ -93,12 +93,17 @@ export async function recordExplicitPaymentEvents(
   expenseKind: 'operation' | 'purchase',
   formCurrency: unknown,
   hasDepartmentSplits = false,
+  formAmount?: unknown,
 ): Promise<void> {
   // Salary, social insurance, office-space, and individual-income-tax forms
   // must wait for completion so their stored department splits drive reporting.
   if (expenseKind === 'operation' && hasDepartmentSplits) return;
 
-  const comments = extractExplicitPaymentComments(instance.operationRecords, config.dingtalk.paymentEventUserIds);
+  const comments = extractExplicitPaymentComments(
+    instance.operationRecords,
+    config.dingtalk.paymentEventUserIds,
+    formAmount,
+  );
   if (comments.length === 0) return;
 
   const events = [];
@@ -122,7 +127,7 @@ export async function recordExplicitPaymentEvents(
       sourceUserId: comment.sourceUserId,
       sourceHash: comment.sourceHash,
       evidenceText: comment.evidenceText,
-      rawData: comment.rawData,
+      rawData: { ...comment.rawData, paymentAmountSource: comment.amountSource },
     });
   }
 
@@ -880,7 +885,7 @@ export class ApprovalProcessor {
         if (opId) {
           await database.replaceAttachments('operation', opId, attachments);
         }
-        await recordExplicitPaymentEvents(instance, 'operation', opCurrency, deptSplits.length > 0);
+        await recordExplicitPaymentEvents(instance, 'operation', opCurrency, deptSplits.length > 0, opAmount);
       } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
         const pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
         const purchaseRouteStatus = await routeByServiceEntity(pData, this.serviceEntityDepartmentLookup());
@@ -933,7 +938,7 @@ export class ApprovalProcessor {
           }
           await database.replacePurchasePayments(purchaseId, payments);
         }
-        await recordExplicitPaymentEvents(instance, 'purchase', purchaseCurrency);
+        await recordExplicitPaymentEvents(instance, 'purchase', purchaseCurrency, false, purchaseAmount);
       } else {
         return { skipped: true, reason: `unsupported process type: ${processType || 'unknown'}` };
       }

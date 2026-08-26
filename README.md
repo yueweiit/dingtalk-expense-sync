@@ -271,6 +271,6 @@ Private
 
 ## Actual Payment Event Ingestion
 
-The sync service extracts actual payment events from approval operation comments and accepts only authorized users with an explicit amount phrase. Events are written to `approval_expense_payment_events` and are idempotent on `business_id + paid_at + source_hash`, so repeated synchronization does not duplicate accounting. Salary, social insurance, housing fund, office space, and individual income tax forms continue through department splits instead of whole-form payment events.
+The sync service extracts actual payment events from approval operation comments. It accepts only authorized users: an explicit amount in the comment takes priority; a single `已支付` comment without an amount uses the form amount component; a `部分支付` comment without an amount remains review-only. Events are written to `approval_expense_payment_events` and are idempotent on `business_id + paid_at + source_hash`, so repeated synchronization does not duplicate accounting. Salary, social insurance, housing fund, office space, and individual income tax forms continue through department splits instead of whole-form payment events.
 
 Historical payment backfill is dry-run by default and requires explicit `--write=1` to write. Run `sql/ensure_approval_expense_schema.sql` before deployment; this project does not automatically migrate the budget server database.

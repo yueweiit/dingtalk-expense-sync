@@ -14,6 +14,7 @@ export interface ApprovalOperationRecord {
 export interface ExplicitPaymentComment {
   paidAt: string;
   amount: number;
+  amountSource: 'comment' | 'form_amount_fallback';
   currency: string | null;
   sourceUserId: string | null;
   sourceHash: string;
@@ -24,6 +25,7 @@ export interface ExplicitPaymentComment {
 
 const PAYMENT_WITH_AMOUNT = /(?:\u5df2\u652f\u4ed8|\u90e8\u5206\u652f\u4ed8)\s*[:\uff1a=]?\s*(?:(?:\u4eba\u6c11\u5e01|RMB|CNY|\uffe5|\u00a5)\s*)?(\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:\u5143|\u4eba\u6c11\u5e01|RMB|CNY)?/giu;
 const PAYMENT_PHRASE = /(?:\u5df2\u652f\u4ed8|\u90e8\u5206\u652f\u4ed8)/giu;
+const PAYMENT_AMOUNT_HINT = /(?:\u91d1\u989d|\u4eba\u6c11\u5e01|RMB|CNY|\uffe5|\u00a5)\s*\d+(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:,\d{3})*(?:\.\d{1,2})?\s*\u5143/giu;
 
 function normalizeComment(value: string): string {
   return value
@@ -39,6 +41,15 @@ function toTimestamp(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function normalizePositiveAmount(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const amount = typeof value === 'number'
+    ? value
+    : Number(String(value).replace(/,/g, '').trim());
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return Math.round(amount * 100) / 100;
+}
+
 /**
  * Extract one explicit payment amount from an authorized user's comment.
  * A comment with multiple payment phrases or multiple adjacent amounts stays
@@ -47,10 +58,12 @@ function toTimestamp(value: unknown): string | null {
 export function extractExplicitPaymentComments(
   records: unknown,
   authorizedUserIds: Iterable<string> = [],
+  fallbackAmount?: unknown,
 ): ExplicitPaymentComment[] {
   if (!Array.isArray(records)) return [];
   const allowed = new Set([...authorizedUserIds].map((value) => String(value).trim()).filter(Boolean));
   if (allowed.size === 0) return [];
+  const normalizedFallbackAmount = normalizePositiveAmount(fallbackAmount);
 
   const events: ExplicitPaymentComment[] = [];
   for (const entry of records) {
@@ -67,21 +80,32 @@ export function extractExplicitPaymentComments(
     PAYMENT_PHRASE.lastIndex = 0;
     const matches = [...evidenceText.matchAll(PAYMENT_WITH_AMOUNT)];
     const phrases = [...evidenceText.matchAll(PAYMENT_PHRASE)];
-    if (matches.length !== 1 || phrases.length !== 1) continue;
+    if (phrases.length !== 1 || matches.length > 1) continue;
 
-    const amount = Number(String(matches[0][1]).replace(/,/g, ''));
-    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const phrase = phrases[0][0].includes('\u90e8\u5206\u652f\u4ed8') ? 'partial' : 'paid';
+    let amount: number | null = null;
+    let amountSource: ExplicitPaymentComment['amountSource'] = 'comment';
+    if (matches.length === 1) {
+      amount = normalizePositiveAmount(matches[0][1]);
+    } else if (phrase === 'paid' && normalizedFallbackAmount != null) {
+      PAYMENT_AMOUNT_HINT.lastIndex = 0;
+      if ([...evidenceText.matchAll(PAYMENT_AMOUNT_HINT)].length > 0) continue;
+      amount = normalizedFallbackAmount;
+      amountSource = 'form_amount_fallback';
+    }
+    if (amount == null) continue;
 
     const normalized = normalizeComment(evidenceText);
     events.push({
       paidAt,
-      amount: Math.round(amount * 100) / 100,
+      amount,
+      amountSource,
       currency: null,
       sourceUserId,
       sourceHash: createHash('sha256').update(`${sourceUserId}\u0000${paidAt}\u0000${normalized}`).digest('hex'),
       evidenceText,
       rawData: record as Record<string, unknown>,
-      phrase: phrases[0][0].includes('\u90e8\u5206\u652f\u4ed8') ? 'partial' : 'paid',
+      phrase,
     });
   }
 

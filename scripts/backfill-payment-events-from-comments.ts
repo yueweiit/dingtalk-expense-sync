@@ -41,10 +41,11 @@ async function main(): Promise<void> {
     process_instance_id: string | null;
     execution_region: string | null;
     currency: string | null;
+    form_amount: string | number | null;
     has_department_splits: boolean;
     raw_data: Record<string, unknown> | null;
   }>(`
-    SELECT 'operation'::text AS expense_kind, business_id, process_instance_id, execution_region, currency,
+    SELECT 'operation'::text AS expense_kind, business_id, process_instance_id, execution_region, currency, amount AS form_amount,
       EXISTS (
         SELECT 1 FROM approval_expense_dept_split AS split
         WHERE split.business_id = approval_expense_operation.business_id
@@ -52,7 +53,7 @@ async function main(): Promise<void> {
       raw_data
     FROM approval_expense_operation
     UNION ALL
-    SELECT 'purchase'::text AS expense_kind, business_id, process_instance_id, execution_region, NULL::varchar AS currency,
+    SELECT 'purchase'::text AS expense_kind, business_id, process_instance_id, execution_region, NULL::varchar AS currency, detail_summary_amount AS form_amount,
       false AS has_department_splits,
       raw_data
     FROM approval_expense_purchase
@@ -75,7 +76,11 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const comments = extractExplicitPaymentComments(row.raw_data?.operationRecords, config.dingtalk.paymentEventUserIds);
+    const comments = extractExplicitPaymentComments(
+      row.raw_data?.operationRecords,
+      config.dingtalk.paymentEventUserIds,
+      row.form_amount,
+    );
     if (comments.length === 0) {
       stats.noExplicitAmount++;
       continue;
@@ -102,7 +107,7 @@ async function main(): Promise<void> {
         sourceUserId: comment.sourceUserId,
         sourceHash: comment.sourceHash,
         evidenceText: comment.evidenceText,
-        rawData: comment.rawData,
+        rawData: { ...comment.rawData, paymentAmountSource: comment.amountSource },
       });
     }
     stats.candidates += events.length;

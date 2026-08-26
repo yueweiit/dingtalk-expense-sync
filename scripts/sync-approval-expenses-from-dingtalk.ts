@@ -181,7 +181,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
     if (id) {
       await database.replaceAttachments('operation', id, attachments);
     }
-    await recordExplicitPaymentEvents(instance as unknown as ApprovalInstance, 'operation', currency, deptSplits.length > 0);
+    await recordExplicitPaymentEvents(instance as unknown as ApprovalInstance, 'operation', currency, deptSplits.length > 0, amount);
     return { id, amount: amount as number, currency: currency as string, baseCurrencyAmount: baseCurrencyAmount as number, department: opData.applicantDepartment } as unknown as { skipped?: boolean; id?: number };
   }
 
@@ -239,7 +239,7 @@ async function writeExpenseInstance(instance: Record<string, unknown>, kind: str
       }
       await database.replacePurchasePayments(id, payments);
     }
-    await recordExplicitPaymentEvents(instance as unknown as ApprovalInstance, 'purchase', currency);
+    await recordExplicitPaymentEvents(instance as unknown as ApprovalInstance, 'purchase', currency, false, amount);
     return { id, amount: amount as number, currency: currency as string, baseCurrencyAmount: baseCurrencyAmount as number, department: pData.applicantDepartment } as unknown as { skipped?: boolean; id?: number };
   }
 

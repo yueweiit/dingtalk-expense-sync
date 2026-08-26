@@ -51,6 +51,18 @@ function runningOperation(businessId) {
   };
 }
 
+function runningOperationWithoutCommentAmount(businessId) {
+  return {
+    ...runningOperation(businessId),
+    operationRecords: [{
+      type: 'ADD_REMARK',
+      date: '2026-08-05T12:00:00+08:00',
+      userId: '57521312381178275',
+      remark: '\u5df2\u652f\u4ed8\uff0c\u51ed\u8bc1\u89c1\u9644\u4ef6',
+    }],
+  };
+}
+
 function runningSalaryOperation(businessId) {
   return {
     ...runningOperation(businessId),
@@ -97,6 +109,25 @@ test('records an authorized payment event once and does not create another on co
       [businessId]
     );
     assert.equal(result.rows[0].count, 1);
+  } finally {
+    await pool.query('delete from approval_expense_payment_events where business_id = $1', [businessId]);
+    await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
+    await pool.query('delete from approval_expense_operation where business_id = $1', [businessId]);
+  }
+});
+
+test('uses the operation form amount when an authorized paid comment omits the amount', async () => {
+  const businessId = `test-payment-event-form-fallback-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(runningOperationWithoutCommentAmount(businessId));
+    const result = await pool.query(
+      'select amount, raw_data->>\'paymentAmountSource\' as amount_source from approval_expense_payment_events where business_id = $1',
+      [businessId]
+    );
+    assert.equal(result.rows.length, 1);
+    assert.equal(Number(result.rows[0].amount), 100);
+    assert.equal(result.rows[0].amount_source, 'form_amount_fallback');
   } finally {
     await pool.query('delete from approval_expense_payment_events where business_id = $1', [businessId]);
     await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
