@@ -19,6 +19,7 @@
     "backfill:approval-expense-schema": "tsx scripts/backfill-approval-expense-schema.ts",
     "backfill:approval-expense-attachments": "tsx scripts/backfill-approval-expense-attachments.ts",
     "backfill:payment-events": "tsx scripts/backfill-payment-events-from-comments.ts",
+    "apply:july-payment-exceptions": "tsx scripts/apply-july-payment-exceptions.ts",
     "repair:expense-department-identities": "tsx scripts/repair-expense-department-identities.ts",
     "reparse:amount-from-raw": "tsx scripts/reparse-amount-from-raw.ts",
     "build": "tsc",

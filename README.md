@@ -289,3 +289,37 @@ npx tsx scripts/backfill-payment-events-from-comments.ts \
 then consider a separate run with `--write=1`. Add `--paid-end=YYYY-MM-DD` when
 the review needs a bounded final date; the date filters apply to the actual
 payment-comment timestamp, not the form creation date.
+
+For the one-time July historical exception review, use the narrower read-only
+scope below. It returns only: (1) a July payment comment on an approval that
+completed and agreed in August, and (2) a July-submitted approval that is still
+`RUNNING` and has a qualifying payment comment, regardless of that comment's
+month. This scope requires a JSON export and rejects `--write=1`.
+
+```bash
+npx tsx scripts/backfill-payment-events-from-comments.ts \
+  --review-scope=july-payment-exceptions \
+  --details-output=/tmp/july-payment-exceptions.json
+```
+
+Each detail carries the submission time, completion time, current approval
+status, final result, review category, and `alreadyRecorded` flag. Entries with
+`manualReview` must be checked against the payment evidence before any later,
+separately authorized correction.
+
+The reviewed application is a separate closed-list script. It defaults to a
+dry run, checks the exact source comment timestamp and hash, and only contains
+the 10 new reviewed events. The 3 already-recorded events and the ambiguous
+`202607171104000565826` are excluded. `202607150207000370144` is fixed at
+`1920` as a manually confirmed partial payment.
+
+```bash
+npx tsx scripts/apply-july-payment-exceptions.ts
+npx tsx scripts/apply-july-payment-exceptions.ts \
+  --target=local --write=1 --confirm=july-payment-exceptions
+```
+
+The write command must be run against the intended database only after the
+dry-run output is reviewed. It does not alter form rows, status, department
+splits, attachments, or schema; inserts are idempotent by the payment-event
+source key.
