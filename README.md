@@ -274,3 +274,18 @@ Private
 The sync service extracts actual payment events from approval operation comments. It accepts only authorized users: an explicit amount in the comment takes priority; a single `已支付` comment without an amount uses the form amount component; a `部分支付` comment without an amount remains review-only. Events are written to `approval_expense_payment_events` and are idempotent on `business_id + paid_at + source_hash`, so repeated synchronization does not duplicate accounting. Salary, social insurance, housing fund, office space, and individual income tax forms continue through department splits instead of whole-form payment events.
 
 Historical payment backfill is dry-run by default and requires explicit `--write=1` to write. Run `sql/ensure_approval_expense_schema.sql` before deployment; this project does not automatically migrate the budget server database.
+
+To review every candidate before writing, export a read-only JSON detail file. The
+file contains the business ID, form name, approval status, comment, payment time,
+amount, amount source, and converted base-currency amount:
+
+```bash
+npx tsx scripts/backfill-payment-events-from-comments.ts \
+  --paid-start=2026-07-01 \
+  --details-output=/tmp/payment-event-candidates-$(date +%F).json
+```
+
+`--details-output` never writes payment-event rows. Review the file first; only
+then consider a separate run with `--write=1`. Add `--paid-end=YYYY-MM-DD` when
+the review needs a bounded final date; the date filters apply to the actual
+payment-comment timestamp, not the form creation date.
