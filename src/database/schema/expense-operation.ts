@@ -60,6 +60,7 @@ export const approvalExpenseOperation = pgTable('approval_expense_operation', {
   socialInsuranceByDepartment: jsonb('social_insurance_by_department'),
   officeSpaceByDepartment: jsonb('office_space_by_department'),
   individualIncomeTaxByDepartment: jsonb('individual_income_tax_by_department'),
+  itOperationByDepartment: jsonb('it_operation_by_department'),
   rawData: jsonb('raw_data'),
   createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'string', withTimezone: true }).defaultNow(),

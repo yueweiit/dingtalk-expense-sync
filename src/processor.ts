@@ -248,7 +248,9 @@ interface BatchProcessResult {
 interface DeptSplitTypeConfig {
   label: string;
   labelEs?: string;
+  matchAdministrativeExpense?: boolean;
   tableFieldId: string;
+  tableFieldName?: string;
   moneyFieldId: string;
   textFieldId: string | null;
   dbColumn: string;
@@ -278,6 +280,16 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     moneyFieldId: 'MoneyField_O4L4S81Y0MO0',
     textFieldId: null,
     dbColumn: 'officeSpaceByDepartment',
+  },
+  {
+    label: 'IT运维费用',
+    labelEs: 'Gastos de operación de TI',
+    matchAdministrativeExpense: true,
+    tableFieldId: '',
+    tableFieldName: 'IT运维费用明细',
+    moneyFieldId: '',
+    textFieldId: null,
+    dbColumn: 'itOperationByDepartment',
   },
 ];
 
@@ -466,6 +478,7 @@ export class ApprovalProcessor {
       'socialInsuranceByDepartment',
       'officeSpaceByDepartment',
       'individualIncomeTaxByDepartment',
+      'itOperationByDepartment',
     ];
     const rows = splitFields.flatMap((field) => {
       const value = data[field];
@@ -651,6 +664,8 @@ export class ApprovalProcessor {
 
     const operationExpense = this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出');
     const opExpenseStr = String(operationExpense || '');
+    const administrativeExpense = this.extractFormValue(fc, '管理费用Gastos administrativos') || this.extractFormValue(fc, '管理费用');
+    const administrativeExpenseStr = String(administrativeExpense || '');
     const deptSplitResults: Record<string, Array<{
       department: string;
       departmentId: string | null;
@@ -659,10 +674,14 @@ export class ApprovalProcessor {
       note: string;
     }> | null> = {};
     for (const cfg of DEPT_SPLIT_TYPES) {
-      const matches = opExpenseStr.includes(cfg.label) || (cfg.labelEs ? opExpenseStr.includes(cfg.labelEs) : false);
-      if (matches && cfg.tableFieldId) {
+      const matchesOperationExpense = opExpenseStr.includes(cfg.label) || (cfg.labelEs ? opExpenseStr.includes(cfg.labelEs) : false);
+      const matchesAdministrativeExpense = cfg.matchAdministrativeExpense && (
+        administrativeExpenseStr.includes(cfg.label) || (cfg.labelEs ? administrativeExpenseStr.includes(cfg.labelEs) : false)
+      );
+      const matches = matchesOperationExpense || matchesAdministrativeExpense;
+      if (matches && (cfg.tableFieldId || cfg.tableFieldName)) {
         deptSplitResults[cfg.dbColumn] = this.extractTableFieldData(
-          fc, cfg.tableFieldId, cfg.moneyFieldId, cfg.textFieldId
+          fc, cfg.tableFieldId, cfg.moneyFieldId, cfg.textFieldId, cfg.tableFieldName
         );
       }
     }
@@ -698,7 +717,7 @@ export class ApprovalProcessor {
       employeeBenefitsExpense: this.extractFormValue(fc, '职工福利费Gastos de beneficios') || this.extractFormValue(fc, '职工福利费'),
       bonusExpense: this.extractFormValue(fc, '奖金Bonificaciones') || this.extractFormValue(fc, '奖金'),
       salaryExpense: this.extractFormValue(fc, '工资salario') || this.extractFormValue(fc, '工资'),
-      administrativeExpense: this.extractFormValue(fc, '管理费用Gastos administrativos') || this.extractFormValue(fc, '管理费用'),
+      administrativeExpense,
       vehicleUsageExpense: this.extractFormValue(fc, '车辆使用费gastos de uso') || this.extractFormValue(fc, '车辆使用费'),
       taxExpense,
       financeRelatedExpense: this.extractFormValue(fc, '财务相关费用Gastos relacionados con finanzas') || this.extractFormValue(fc, '财务相关费用'),
@@ -728,6 +747,7 @@ export class ApprovalProcessor {
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
       individualIncomeTaxByDepartment,
+      itOperationByDepartment: deptSplitResults.itOperationByDepartment ?? null,
     };
   }
 

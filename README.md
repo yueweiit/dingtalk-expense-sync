@@ -10,6 +10,7 @@
 - **汇率转换**：自动同步汇率并转换为人民币基準货币
 - **结构化存储**：将审批表单数据解析为结构化字段
 - **工资分部门**：支持工资中国按部门拆分存储
+- **IT运维费用分部门**：支持管理费用中的 IT 运维费用明细按部门拆分存储，使用独立的 `it_operation` 类型
 
 ## 快速开始
 
@@ -52,8 +53,9 @@ DINGTALK_APPSECRET=your_appsecret
 psql -f sql/ensure_approval_expense_schema.sql
 psql -f sql/ensure_fx_rates_daily.sql
 
-# 添加工资分部门字段（如需要）
+# 添加工资、社保、办公场地、IT运维分部门字段（如需要）
 psql -f sql/add_salary_by_department.sql
+psql -f sql/add_dept_split_columns.sql
 ```
 
 ### 5. 启动服务
@@ -263,7 +265,7 @@ src/
 | `approval_expense_purchase_processors` | 采购加工商信息 |
 | `approval_expense_purchase_payments` | 采购付款信息 |
 | `approval_expense_attachments` | 审批附件（运营/采购共用） |
-| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model） |
+| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model，包含工资/社保/办公场地/个税/IT运维） |
 
 ## License
 

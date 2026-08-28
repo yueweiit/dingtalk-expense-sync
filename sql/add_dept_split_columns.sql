@@ -11,3 +11,10 @@ ADD COLUMN IF NOT EXISTS office_space_by_department JSONB;
 
 COMMENT ON COLUMN approval_expense_operation.office_space_by_department
 IS '办公场地总费用分部门明细 — JSON array of {department, amount}';
+
+-- IT运维费用分部门明细
+ALTER TABLE approval_expense_operation
+ADD COLUMN IF NOT EXISTS it_operation_by_department JSONB;
+
+COMMENT ON COLUMN approval_expense_operation.it_operation_by_department
+IS 'IT运维费用分部门明细 — JSON array of {department, amount, note}';

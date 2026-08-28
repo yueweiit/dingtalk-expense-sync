@@ -15,6 +15,7 @@ type OperationDeptSplitSource = {
   socialInsuranceByDepartment?: ParsedDeptSplit[] | null;
   officeSpaceByDepartment?: ParsedDeptSplit[] | null;
   individualIncomeTaxByDepartment?: ParsedDeptSplit[] | null;
+  itOperationByDepartment?: ParsedDeptSplit[] | null;
 };
 
 const SPLIT_SOURCES = [
@@ -22,6 +23,7 @@ const SPLIT_SOURCES = [
   { key: 'socialInsuranceByDepartment', splitType: 'social_insurance' },
   { key: 'officeSpaceByDepartment', splitType: 'office_space' },
   { key: 'individualIncomeTaxByDepartment', splitType: 'individual_income_tax' },
+  { key: 'itOperationByDepartment', splitType: 'it_operation' },
 ] as const;
 
 export function collectOperationDeptSplits(data: OperationDeptSplitSource): DeptSplitRow[] {

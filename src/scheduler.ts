@@ -20,7 +20,7 @@ interface InstanceIdWithMeta {
   processCode: string;
 }
 
-type OperationSplitType = 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax';
+type OperationSplitType = 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax' | 'it_operation';
 
 interface OperationSplitSyncOptions {
   startTime: string | number;
@@ -63,6 +63,11 @@ const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelE
     labelEs: 'Impuesto sobre la renta',
     dbColumn: 'individualIncomeTaxByDepartment',
     sourceField: 'taxExpense',
+  },
+  it_operation: {
+    label: 'IT运维费用',
+    labelEs: 'Gastos de operación de TI',
+    dbColumn: 'itOperationByDepartment',
   },
 };
 
@@ -141,7 +146,7 @@ class Scheduler {
   normalizeSplitTypes(splitTypes?: OperationSplitType[]): OperationSplitType[] {
     const requested = Array.isArray(splitTypes) && splitTypes.length > 0
       ? splitTypes
-      : (['salary', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
+      : (['salary', 'social_insurance', 'office_space', 'individual_income_tax', 'it_operation'] as OperationSplitType[]);
     const validTypes = new Set(Object.keys(OPERATION_SPLIT_CONFIG));
     for (const type of requested) {
       if (!validTypes.has(type)) {
@@ -531,6 +536,7 @@ class Scheduler {
         social_insurance: 0,
         office_space: 0,
         individual_income_tax: 0,
+        it_operation: 0,
       },
       failures: [],
     };
