@@ -5,7 +5,7 @@ export const approvalExpensePaymentEvents = pgTable('approval_expense_payment_ev
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   businessId: varchar('business_id', { length: 64 }).notNull(),
   processInstanceId: varchar('process_instance_id', { length: 128 }),
-  expenseKind: varchar('expense_kind', { length: 16 }).notNull(),
+  expenseKind: varchar('expense_kind', { length: 32 }).notNull(),
   paidAt: timestamp('paid_at', { mode: 'string', withTimezone: true }).notNull(),
   amount: decimal('amount', { precision: 18, scale: 2 }).notNull(),
   baseCurrencyAmount: decimal('base_currency_amount', { precision: 18, scale: 2 }),

@@ -14,6 +14,7 @@ export const MOLD_PRINT_OPERATION_FORM_CODE = 'PROC-CCB314E9-1458-4D53-9EF2-F68A
 export const MOLD_PRINT_PURCHASE_FORM_CODE = 'PROC-525D584D-ED10-4B8B-9C7A-9D67257BF6EE';
 export const YUEWEI_MX_OPERATION_FORM_CODE = 'PROC-D3ED660B-A5D4-4516-BC82-D83E52B5FEF8';
 export const YUEWEI_MX_PURCHASE_FORM_CODE = 'PROC-98934E07-96ED-491C-8650-DFE8C3B707BF';
+export const MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE = 'PROC-EE85EDD4-5CF2-4C08-B948-1690A6ACC51C';
 
 const YW_INTELLIGENT_DEPARTMENT = '悦为智能 YW Tech_Ai';
 
@@ -56,4 +57,8 @@ export function resolveFixedApplicantDepartment(processCode: string | null | und
     return YW_INTELLIGENT_DEPARTMENT;
   }
   return null;
+}
+
+export function resolveMonthlySettlementFormName(processCode: string | null | undefined): string | null {
+  return String(processCode || '').trim() === MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE ? '月结付款' : null;
 }

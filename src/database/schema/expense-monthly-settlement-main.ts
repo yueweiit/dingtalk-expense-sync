@@ -1,0 +1,37 @@
+import { pgTable, bigserial, varchar, decimal, timestamp, date, jsonb, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+
+export const approvalExpenseMonthlySettlement = pgTable('approval_expense_monthly_settlement', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  processInstanceId: varchar('process_instance_id', { length: 128 }),
+  businessId: varchar('business_id', { length: 64 }),
+  requestDate: date('request_date', { mode: 'string' }),
+  formName: varchar('form_name', { length: 128 }),
+  totalAmount: decimal('total_amount', { precision: 18, scale: 2 }),
+  baseCurrencyAmount: decimal('base_currency_amount', { precision: 18, scale: 2 }),
+  currency: varchar('currency', { length: 32 }),
+  approvalCompletedAt: timestamp('approval_completed_at', { mode: 'string', withTimezone: true }),
+  approvalStatus: varchar('approval_status', { length: 64 }),
+  approvalResult: varchar('approval_result', { length: 32 }),
+  approvalNo: varchar('approval_no', { length: 128 }),
+  creatorName: varchar('creator_name', { length: 255 }),
+  applicantDepartment: varchar('applicant_department', { length: 500 }),
+  applicantDepartmentId: varchar('applicant_department_id', { length: 64 }),
+  applicantDepartmentSource: varchar('applicant_department_source', { length: 32 }),
+  applicantDepartmentPathIds: jsonb('applicant_department_path_ids'),
+  applicantDepartmentPathNames: jsonb('applicant_department_path_names'),
+  sourceCreatedAt: timestamp('source_created_at', { mode: 'string', withTimezone: true }),
+  sourceUpdatedAt: timestamp('source_updated_at', { mode: 'string', withTimezone: true }),
+  resolvedDepartment: varchar('resolved_department', { length: 500 }),
+  resolvedDepartmentId: varchar('resolved_department_id', { length: 64 }),
+  resolutionStatus: varchar('resolution_status', { length: 32 }).notNull().default('independent'),
+  resolutionNote: varchar('resolution_note', { length: 500 }),
+  linkedExpenseKind: varchar('linked_expense_kind', { length: 16 }),
+  rawData: jsonb('raw_data'),
+  createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'string', withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex('uk_monthly_settlement_business_id').on(table.businessId).where(sql`${table.businessId} IS NOT NULL`),
+  uniqueIndex('uk_monthly_settlement_process_instance_id').on(table.processInstanceId).where(sql`${table.processInstanceId} IS NOT NULL`),
+  index('idx_monthly_settlement_status').on(table.approvalStatus),
+]);

@@ -4,6 +4,7 @@
  * Examples:
  *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04
  *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04 --process=purchase
+ *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-08 --process=monthly_settlement
  *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --start=2026-04-01T00:00:00+08:00 --end=2026-04-30T23:59:59+08:00
  *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04 --department=IT --limit=100
  *   npx tsx scripts/sync-approval-expenses-from-dingtalk.ts --month=2026-04 --dry-run=1
@@ -41,7 +42,10 @@ function parseProcessArg(value: string): string {
   if (!text || text === 'all') return 'all';
   if (text === 'operation' || text.includes('运营')) return 'operation';
   if (text === 'purchase' || text.includes('采购')) return 'purchase';
-  throw new Error('--process must be all, operation, or purchase');
+  if (text === 'monthly_settlement' || text === 'monthly-settlement' || text === 'monthly' || text.includes('月结')) {
+    return 'monthly_settlement';
+  }
+  throw new Error('--process must be all, operation, purchase, or monthly_settlement');
 }
 
 function getProcessKind(processCode: string): string {
@@ -142,6 +146,11 @@ function getDepartmentText(instance: Record<string, unknown>, parsedData: Record
 }
 
 async function writeExpenseInstance(instance: Record<string, unknown>, kind: string, options: Record<string, string>): Promise<{ skipped?: boolean; id?: number }> {
+  if (kind === 'monthly_settlement') {
+    const result = await processor.processInstance(instance as unknown as ApprovalInstance, { force: true });
+    return result.skipped ? { skipped: true } : { id: result.success ? 1 : undefined };
+  }
+
   const meta = processor.parseApprovalMeta(instance as unknown as ApprovalInstance);
   const attachments = processor.extractAttachments((instance as unknown as ApprovalInstance).formComponentValues);
   const fixedApplicantDepartment = resolveFixedApplicantDepartment(String(instance.processCode || ''));
@@ -295,7 +304,12 @@ async function main(): Promise<void> {
 
       const previewData = item.kind === 'purchase'
         ? processor.parsePurchaseExpenseData((instance as unknown as ApprovalInstance).formComponentValues)
-        : processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
+        : item.kind === 'monthly_settlement'
+          ? processor.parseMonthlySettlementData(
+            (instance as unknown as ApprovalInstance).formComponentValues,
+            instance as unknown as ApprovalInstance,
+          )
+          : processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
       const departmentText = getDepartmentText(instance, previewData).toLowerCase();
       if (departmentFilter && !departmentText.includes(departmentFilter)) {
         skipped++;

@@ -354,7 +354,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_payment_events (
     id BIGSERIAL PRIMARY KEY,
     business_id VARCHAR(64) NOT NULL,
     process_instance_id VARCHAR(128),
-    expense_kind VARCHAR(16) NOT NULL CHECK (expense_kind IN ('operation', 'purchase')),
+    expense_kind VARCHAR(16) NOT NULL CHECK (expense_kind IN ('operation', 'purchase', 'monthly_settlement')),
     paid_at TIMESTAMPTZ NOT NULL,
     amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
     base_currency_amount NUMERIC(18, 2),
@@ -372,6 +372,11 @@ CREATE TABLE IF NOT EXISTS approval_expense_payment_events (
 
 ALTER TABLE approval_expense_payment_events
     ADD COLUMN IF NOT EXISTS rule_version VARCHAR(64);
+
+-- monthly_settlement is 18 characters; keep the shared event discriminator wide enough
+-- for all supported expense kinds when upgrading an existing database.
+ALTER TABLE approval_expense_payment_events
+    ALTER COLUMN expense_kind TYPE VARCHAR(32);
 
 CREATE TABLE IF NOT EXISTS approval_expense_attachments (
     id BIGSERIAL PRIMARY KEY,
@@ -455,6 +460,106 @@ CREATE INDEX IF NOT EXISTS idx_payment_event_business_status
 CREATE INDEX IF NOT EXISTS idx_payment_event_paid_at
     ON approval_expense_payment_events(paid_at);
 
+-- 月结付款独立模型：月结单可关联多张运营/采购原单，不能复用普通采购表。
+CREATE TABLE IF NOT EXISTS approval_expense_monthly_settlement (
+    id BIGSERIAL PRIMARY KEY,
+    process_instance_id VARCHAR(128),
+    business_id VARCHAR(64),
+    request_date DATE,
+    form_name VARCHAR(128),
+    total_amount NUMERIC(18, 2),
+    base_currency_amount NUMERIC(18, 2),
+    currency VARCHAR(32),
+    approval_completed_at TIMESTAMPTZ,
+    approval_status VARCHAR(64),
+    approval_result VARCHAR(32),
+    approval_no VARCHAR(128),
+    creator_name VARCHAR(255),
+    applicant_department VARCHAR(500),
+    applicant_department_id VARCHAR(64),
+    applicant_department_source VARCHAR(32),
+    applicant_department_path_ids JSONB,
+    applicant_department_path_names JSONB,
+    source_created_at TIMESTAMPTZ,
+    source_updated_at TIMESTAMPTZ,
+    resolved_department VARCHAR(500),
+    resolved_department_id VARCHAR(64),
+    resolution_status VARCHAR(32) NOT NULL DEFAULT 'independent',
+    resolution_note VARCHAR(500),
+    linked_expense_kind VARCHAR(16),
+    raw_data JSONB,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS resolved_department VARCHAR(500);
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS resolved_department_id VARCHAR(64);
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS applicant_department VARCHAR(500);
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS applicant_department_id VARCHAR(64);
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS applicant_department_source VARCHAR(32);
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS applicant_department_path_ids JSONB;
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS applicant_department_path_names JSONB;
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS resolution_status VARCHAR(32) NOT NULL DEFAULT 'independent';
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS resolution_note VARCHAR(500);
+ALTER TABLE approval_expense_monthly_settlement ADD COLUMN IF NOT EXISTS linked_expense_kind VARCHAR(16);
+ALTER TABLE approval_expense_monthly_settlement ALTER COLUMN resolution_status SET DEFAULT 'independent';
+
+DO $$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  FOR constraint_name IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'approval_expense_payment_events'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%expense_kind%'
+  LOOP
+    EXECUTE format('ALTER TABLE approval_expense_payment_events DROP CONSTRAINT %I', constraint_name);
+  END LOOP;
+  ALTER TABLE approval_expense_payment_events
+    ADD CONSTRAINT approval_expense_payment_events_expense_kind_check
+    CHECK (expense_kind IN ('operation', 'purchase', 'monthly_settlement'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$$;
+
+CREATE TABLE IF NOT EXISTS approval_expense_monthly_settlement_details (
+    id BIGSERIAL PRIMARY KEY,
+    settlement_id BIGINT NOT NULL REFERENCES approval_expense_monthly_settlement(id) ON DELETE CASCADE,
+    row_no INTEGER NOT NULL DEFAULT 1,
+    payment_date DATE,
+    amount NUMERIC(18, 2) NOT NULL,
+    base_currency_amount NUMERIC(18, 2),
+    currency VARCHAR(32),
+    payment_reason TEXT,
+    raw_data JSONB,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_monthly_settlement_detail_row UNIQUE (settlement_id, row_no)
+);
+
+CREATE TABLE IF NOT EXISTS approval_expense_monthly_settlement_links (
+    id BIGSERIAL PRIMARY KEY,
+    settlement_id BIGINT NOT NULL REFERENCES approval_expense_monthly_settlement(id) ON DELETE CASCADE,
+    linked_business_id VARCHAR(64) NOT NULL,
+    linked_process_instance_id VARCHAR(128),
+    raw_data JSONB,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_monthly_settlement_link UNIQUE (settlement_id, linked_business_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_monthly_settlement_business_id
+    ON approval_expense_monthly_settlement(business_id) WHERE business_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_monthly_settlement_process_instance_id
+    ON approval_expense_monthly_settlement(process_instance_id) WHERE process_instance_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_monthly_settlement_status
+    ON approval_expense_monthly_settlement(approval_status);
+CREATE INDEX IF NOT EXISTS idx_monthly_settlement_detail_date
+    ON approval_expense_monthly_settlement_details(payment_date);
+CREATE INDEX IF NOT EXISTS idx_monthly_settlement_link_business
+    ON approval_expense_monthly_settlement_links(linked_business_id);
+
 CREATE INDEX IF NOT EXISTS idx_approval_expense_attachments_parent
     ON approval_expense_attachments(parent_type, parent_id);
 
@@ -477,6 +582,16 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_purchase') THEN
         CREATE TRIGGER set_updated_at_approval_expense_purchase
             BEFORE UPDATE ON approval_expense_purchase
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_monthly_settlement') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_monthly_settlement
+            BEFORE UPDATE ON approval_expense_monthly_settlement
+            FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_approval_expense_monthly_settlement_details') THEN
+        CREATE TRIGGER set_updated_at_approval_expense_monthly_settlement_details
+            BEFORE UPDATE ON approval_expense_monthly_settlement_details
             FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
     END IF;
 END;

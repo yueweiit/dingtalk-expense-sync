@@ -9,3 +9,6 @@ export { approvalExpensePurchasePayments } from './expense-purchase-payments.ts'
 export { approvalExpensePaymentEvents } from './expense-payment-events.ts';
 export { approvalExpenseAttachments } from './expense-attachments.ts';
 export { approvalExpenseDeptSplit } from './expense-dept-split.ts';
+export { approvalExpenseMonthlySettlement } from './expense-monthly-settlement-main.ts';
+export { approvalExpenseMonthlySettlementDetails } from './expense-monthly-settlement.ts';
+export { approvalExpenseMonthlySettlementLinks } from './expense-monthly-settlement-links.ts';

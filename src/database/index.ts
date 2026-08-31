@@ -1,6 +1,7 @@
 import { pool } from './pool.ts';
 import * as approval from './approval.ts';
 import * as expense from './expense.ts';
+import * as expenseMonthlySettlement from './monthly-settlement.ts';
 import * as fx from './fx.ts';
 import type {
   ApprovalInstanceData,
@@ -16,6 +17,9 @@ import type {
   PendingInstance,
   ExpenseInstanceRow,
   DeptSplitRow,
+  MonthlySettlementData,
+  MonthlySettlementDetailData,
+  MonthlySettlementLinkData,
 } from './types.ts';
 
 class Database {
@@ -102,6 +106,14 @@ class Database {
 
   async insertPaymentEvents(events: PaymentEventData[]): Promise<number> {
     return expense.insertPaymentEvents(events);
+  }
+
+  async upsertMonthlySettlement(
+    data: MonthlySettlementData,
+    details: MonthlySettlementDetailData[],
+    links: MonthlySettlementLinkData[],
+  ): Promise<number | undefined> {
+    return expenseMonthlySettlement.upsertMonthlySettlement(data, details, links);
   }
 
   async replaceAttachments(parentType: string, parentId: number, attachments: AttachmentData[]): Promise<void> {

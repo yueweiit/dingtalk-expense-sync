@@ -189,7 +189,7 @@ export interface PurchasePaymentData {
 export interface PaymentEventData {
   businessId: string;
   processInstanceId?: string | null;
-  expenseKind: 'operation' | 'purchase';
+  expenseKind: 'operation' | 'purchase' | 'monthly_settlement';
   paidAt: string;
   amount: number;
   baseCurrencyAmount?: number | null;
@@ -270,6 +270,9 @@ import type {
   approvalExpensePaymentEvents,
   approvalExpenseAttachments,
   approvalExpenseDeptSplit,
+  approvalExpenseMonthlySettlement,
+  approvalExpenseMonthlySettlementDetails,
+  approvalExpenseMonthlySettlementLinks,
 } from './schema/index.ts';
 
 export type ApprovalInstance = typeof approvalInstances.$inferSelect;
@@ -283,3 +286,45 @@ export type PurchasePayment = typeof approvalExpensePurchasePayments.$inferSelec
 export type PaymentEvent = typeof approvalExpensePaymentEvents.$inferSelect;
 export type Attachment = typeof approvalExpenseAttachments.$inferSelect;
 export type DeptSplit = typeof approvalExpenseDeptSplit.$inferSelect;
+export type MonthlySettlement = typeof approvalExpenseMonthlySettlement.$inferSelect;
+export type MonthlySettlementDetail = typeof approvalExpenseMonthlySettlementDetails.$inferSelect;
+export type MonthlySettlementLink = typeof approvalExpenseMonthlySettlementLinks.$inferSelect;
+
+export interface MonthlySettlementData {
+  businessId: string;
+  processInstanceId?: string | null;
+  requestDate?: string | null;
+  formName?: string | null;
+  totalAmount?: number | null;
+  baseCurrencyAmount?: number | null;
+  currency?: string | null;
+  approvalCompletedAt?: string | null;
+  approvalStatus?: string | null;
+  approvalResult?: string | null;
+  approvalNo?: string | null;
+  creatorName?: string | null;
+  applicantDepartment?: string | null;
+  applicantDepartmentId?: string | null;
+  applicantDepartmentSource?: string | null;
+  applicantDepartmentPathIds?: string[] | null;
+  applicantDepartmentPathNames?: string[] | null;
+  sourceCreatedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  rawData?: Record<string, unknown> | null;
+}
+
+export interface MonthlySettlementDetailData {
+  rowNo: number;
+  paymentDate?: string | null;
+  amount: number;
+  baseCurrencyAmount?: number | null;
+  currency?: string | null;
+  paymentReason?: string | null;
+  rawData?: Record<string, unknown> | null;
+}
+
+export interface MonthlySettlementLinkData {
+  linkedBusinessId: string;
+  linkedProcessInstanceId?: string | null;
+  rawData?: Record<string, unknown> | null;
+}

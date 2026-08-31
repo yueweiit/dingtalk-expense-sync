@@ -1,14 +1,15 @@
 # 钉钉审批数据同步服务
 
-定时获取钉钉运营&采购支出审批数据并存储到 PostgreSQL，提供 HTTP API 查询。
+定时获取钉钉运营、采购支出和月结付款审批数据并存储到 PostgreSQL，提供 HTTP API 查询。
 
 ## 功能特性
 
-- **定时同步**：自动拉取钉钉审批实例（运营支出、采购支出）
+- **定时同步**：自动拉取钉钉审批实例（运营支出、采购支出、月结付款）
 - **增量同步**：基于游标的增量拉取，支持断点续传
 - **补偿机制**：按 OA `updated_at`（更新时间）增量同步，并以 2 小时重叠窗口和每日 7 天核对兜底晚到、状态变化或漏入库的审批
 - **汇率转换**：自动同步汇率并转换为人民币基準货币
 - **结构化存储**：将审批表单数据解析为结构化字段
+- **月结付款**：独立保存月结付款主单、付款明细和关联审批单；只按指定用户的合规付款评论及其 UTC 评论时间参与统计
 - **工资分部门**：支持工资中国按部门拆分存储
 - **IT运维费用分部门**：支持管理费用中的 IT 运维费用明细按部门拆分存储，使用独立的 `it_operation` 类型
 
@@ -56,6 +57,7 @@ psql -f sql/ensure_fx_rates_daily.sql
 # 添加工资、社保、办公场地、IT运维分部门字段（如需要）
 psql -f sql/add_salary_by_department.sql
 psql -f sql/add_dept_split_columns.sql
+# 月结付款三张表已包含在 ensure_approval_expense_schema.sql 中
 ```
 
 ### 5. 启动服务
@@ -99,6 +101,9 @@ config.json
         "PROC-6E11B527-2F82-439C-817D-C868DE086C97",
         "PROC-481342D0-27B4-461C-A543-4AB0A96D2EDF",
         "PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F"
+      ],
+      "monthly_settlement": [
+        "PROC-EE85EDD4-5CF2-4C08-B948-1690A6ACC51C"
       ]
     }
   },
@@ -114,7 +119,7 @@ config.json
 }
 ```
 
-`processTypeMap` 是唯一流程配置来源。十四个现有流程码必须全部在正确分组中；缺失、错分、重复或继续配置旧 `processCodes` 都会导致项目拒绝启动。
+`processTypeMap` 是唯一流程配置来源。现有运营、采购流程码以及月结付款流程码必须全部在正确分组中；缺失、错分、重复或继续配置旧 `processCodes` 都会导致项目拒绝启动。
 
 ### 定时任务配置
 
@@ -134,6 +139,7 @@ config.json
 - 最终结果优先读取 OA 原始数据的 `result`；仅当它为空时，才兼容回退到旧的 `flowResult`、`flow_result` 字段。
 - 实际支出归属月份使用 `approval_completed_at` 的 UTC（世界协调时间）月份；预算申请金额仍沿用原提交时间和原有效状态口径。
 - 不再根据出纳节点、付款节点、`activityId`（节点 ID）、`bizAction`（业务动作）或历史任务中曾经出现的驳回判断实际支出。
+- 月结付款不写入普通运营/采购表，也不以关联审批单决定部门、金额、类型、状态或去重。关联审批单只作审计信息保存。月结付款只在指定用户留下单一合规“已支付”或“部分支付”评论时生成付款事件，按评论 UTC 时间和评论金额统计；只有“已支付”未写金额时才以月结表单合计金额兜底，“部分支付”未写金额、未授权用户评论或无合规评论均不入账。
 - 每半小时增量同步按 OA 更新时间回看最近 2 小时；每日补偿任务先核对最近 7 天 OA 更新时间窗口，再刷新已进入审批支出库的待处理记录。两类任务互斥执行。
 
 ## API 接口
@@ -150,7 +156,7 @@ GET /health
 POST /api/sync/manual
 ```
 
-触发一次运营/采购支出增量同步，并默认执行状态补偿，用于刷新已入库后又被拒绝、撤回或状态变化的审批。
+触发一次运营、采购和月结付款增量同步，并默认执行状态补偿，用于刷新已入库后又被拒绝、撤回或状态变化的审批。
 
 ```
 POST /api/sync/operation-splits
@@ -241,6 +247,7 @@ src/
 │   ├── types.ts          # 数据库接口定义
 │   ├── approval.ts       # 审批实例操作
 │   ├── expense.ts        # 支出数据操作
+│   ├── monthly-settlement.ts # 月结付款主单、明细和关联原单
 │   └── fx.ts             # 汇率数据操作
 ├── dingtalk.ts           # 钉钉 API 封装
 ├── processor.ts          # 数据解析处理
@@ -266,6 +273,9 @@ src/
 | `approval_expense_purchase_payments` | 采购付款信息 |
 | `approval_expense_attachments` | 审批附件（运营/采购共用） |
 | `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model，包含工资/社保/办公场地/个税/IT运维） |
+| `approval_expense_monthly_settlement` | 月结付款主单（独立于运营/采购主表） |
+| `approval_expense_monthly_settlement_details` | 月结付款明细（付款日期、金额、付款事由） |
+| `approval_expense_monthly_settlement_links` | 月结付款关联的运营/采购原审批单 |
 
 ## License
 

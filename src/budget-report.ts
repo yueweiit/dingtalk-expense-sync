@@ -133,6 +133,36 @@ function buildPurchaseBreakdownSql(dateFilter: string): string {
   `;
 }
 
+function buildMonthlySettlementBreakdownSql(dateFilter: string): string {
+  const paymentDateFilter = dateFilter
+    .replace(/\bsource_created_at\b/g, 'event.paid_at')
+    .replace(/\brequest_date\b/g, 'event.paid_at')
+    .replace(/\bapproval_completed_at\b/g, 'event.paid_at');
+  return `
+    SELECT
+      COALESCE(NULLIF(TRIM(monthly.applicant_department), ''), 'Unknown') AS dept,
+      NULLIF(BTRIM(monthly.applicant_department_id), '') AS dept_id,
+      monthly.applicant_department_path_ids AS department_path_ids,
+      monthly.applicant_department_path_names AS department_path_names,
+      TO_CHAR(event.paid_at AT TIME ZONE 'UTC', 'YYYY-MM') AS source_month,
+      COALESCE(event.base_currency_amount, 0) AS amount
+    FROM approval_expense_payment_events event
+    JOIN approval_expense_monthly_settlement monthly ON monthly.business_id = event.business_id
+    WHERE 1=1
+      ${paymentDateFilter}
+      AND event.expense_kind = 'monthly_settlement'
+      ${PAYMENT_EVENT_FILTER}
+  `;
+}
+
+async function monthlySettlementTablesAvailable(client: { query: (text: string) => Promise<{ rows: Array<Record<string, unknown>> }> }): Promise<boolean> {
+  const result = await client.query(`
+    SELECT to_regclass('public.approval_expense_monthly_settlement') AS monthly_table,
+           to_regclass('public.approval_expense_payment_events') AS payment_event_table
+  `);
+  return Boolean(result.rows[0]?.monthly_table) && Boolean(result.rows[0]?.payment_event_table);
+}
+
 // ─── Date helpers ───
 
 function buildUtcDateFilter(startDate: string, endDate: string, timeColumn = TIME_COLUMN): string {
@@ -224,9 +254,13 @@ export async function getWeeklyExpenses(startDate: string, endDate: string): Pro
 
   const client = await pool.connect();
   try {
-    const [opResult, purResult] = await Promise.all([
+    const hasMonthlySettlementTables = await monthlySettlementTablesAvailable(client);
+    const [opResult, purResult, monthlyResult] = await Promise.all([
       client.query(buildOperationBreakdownSql(dateFilter)),
       client.query(buildPurchaseBreakdownSql(dateFilter)),
+      hasMonthlySettlementTables
+        ? client.query(buildMonthlySettlementBreakdownSql(dateFilter))
+        : Promise.resolve({ rows: [] }),
     ]);
 
     const merged = new Map<string, ReportDepartmentTotal>();
@@ -234,6 +268,9 @@ export async function getWeeklyExpenses(startDate: string, endDate: string): Pro
       addDepartmentAmount(merged, row, reportMonth);
     }
     for (const row of purResult.rows as DeptExpense[]) {
+      addDepartmentAmount(merged, row, reportMonth);
+    }
+    for (const row of monthlyResult.rows as DeptExpense[]) {
       addDepartmentAmount(merged, row, reportMonth);
     }
     return merged;
@@ -280,10 +317,14 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, Budg
     const spentOpSql = buildOperationBreakdownSql(monthDateFilter);
     const spentPurSql = buildPurchaseBreakdownSql(monthDateFilter);
 
-    const [budgetResult, spentOpResult, spentPurResult] = await Promise.all([
+    const hasMonthlySettlementTables = await monthlySettlementTablesAvailable(client);
+    const [budgetResult, spentOpResult, spentPurResult, spentMonthlyResult] = await Promise.all([
       client.query(budgetSql),
       client.query(spentOpSql),
       client.query(spentPurSql),
+      hasMonthlySettlementTables
+        ? client.query(buildMonthlySettlementBreakdownSql(monthDateFilter))
+        : Promise.resolve({ rows: [] }),
     ]);
 
     // Merge budget data
@@ -317,6 +358,19 @@ async function getMonthlyBudgetProgress(month: string): Promise<Map<string, Budg
 
     // Merge actual spending from purchase table
     for (const row of spentPurResult.rows as DeptExpense[]) {
+      const department = resolveReportDepartment(row, month);
+      const existing = map.get(department.key) || {
+        departmentId: department.departmentId,
+        departmentName: department.departmentName,
+        total: 0,
+        budget: null,
+        spent: null,
+      };
+      existing.spent = (existing.spent || 0) + Number(row.total);
+      map.set(department.key, existing);
+    }
+
+    for (const row of spentMonthlyResult.rows as DeptExpense[]) {
       const department = resolveReportDepartment(row, month);
       const existing = map.get(department.key) || {
         departmentId: department.departmentId,

@@ -40,6 +40,7 @@ function expectedProcessTypeMap() {
       forms.MOLD_PRINT_PURCHASE_FORM_CODE,
       forms.YUEWEI_MX_PURCHASE_FORM_CODE,
     ],
+    monthly_settlement: [forms.MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE],
   };
 }
 
@@ -56,6 +57,7 @@ test('strict process mapping keeps all known process codes in their required gro
     [
       ...processTypeMap.operation,
       ...processTypeMap.purchase,
+      ...processTypeMap.monthly_settlement,
     ]
   );
 });
@@ -105,6 +107,16 @@ test('strict process mapping rejects duplicate codes within one group', () => {
   );
 });
 
+test('process mapping accepts the camelCase monthly settlement alias', () => {
+  const processConfig = getProcessConfigModule();
+  const processTypeMap = expectedProcessTypeMap();
+  const { monthly_settlement: monthlySettlement, ...legacyMap } = processTypeMap;
+
+  const aliasedMap = { ...legacyMap, monthlySettlement };
+  assert.equal(processConfig.getProcessKind(monthlySettlement[0], { processTypeMap: aliasedMap }), 'monthly_settlement');
+  assert.deepEqual(processConfig.validateProcessTypeMap(aliasedMap), processTypeMap);
+});
+
 test('process kind only comes from the explicit process type map', () => {
   const processConfig = getProcessConfigModule();
   const processTypeMap = expectedProcessTypeMap();
@@ -149,6 +161,7 @@ test('strict process mapping keeps the combined Lingxiang/Xingming codes active 
   assert.equal(forms.LINGXIANG_XINGMING_PURCHASE_FORM_CODE, 'PROC-E69FCD3E-E374-4C54-9D8F-6E1F55AD741F');
   assert.equal(forms.RETIRED_LINGXIANG_GUANGZHOU_OPERATION_FORM_CODE, 'PROC-14972EC1-2E3B-47DA-8346-9B1DBFE578C5');
   assert.equal(forms.RETIRED_LINGXIANG_GUANGZHOU_PURCHASE_FORM_CODE, 'PROC-866867B6-1F7B-4F70-AB8F-3500D6560785');
+  assert.equal(forms.MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE, 'PROC-EE85EDD4-5CF2-4C08-B948-1690A6ACC51C');
   assert.equal(processConfig.getProcessKind(forms.LINGXIANG_XINGMING_OPERATION_FORM_CODE, { processTypeMap }), 'operation');
   assert.equal(processConfig.getProcessKind('PROC-A4AA23BD-8980-4098-87E8-6898667371CC', { processTypeMap }), 'other');
   assert.equal(processConfig.getProcessKind(forms.LINGXIANG_XINGMING_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');

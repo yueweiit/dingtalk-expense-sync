@@ -236,6 +236,7 @@ const resolvedProcessTypeMap = validateProcessTypeMap(rawProcessTypeMap);
 const allProcessCodes = [
   ...resolvedProcessTypeMap.operation,
   ...resolvedProcessTypeMap.purchase,
+  ...resolvedProcessTypeMap.monthly_settlement,
 ];
 const configuredPaymentEventUserIds = parseUserIds(
   process.env.DINGTALK_PAYMENT_EVENT_USER_IDS,

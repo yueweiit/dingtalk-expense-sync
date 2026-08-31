@@ -13,20 +13,22 @@ import {
   YW_INTELLIGENT_PURCHASE_FORM_CODE,
   YUEWEI_MX_OPERATION_FORM_CODE,
   YUEWEI_MX_PURCHASE_FORM_CODE,
+  MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE,
 } from './form-source.ts';
 
-export type ProcessKind = 'operation' | 'purchase' | 'other';
+export type ProcessKind = 'operation' | 'purchase' | 'monthly_settlement' | 'other';
 
 export interface ProcessTypeMap {
   operation?: string[];
   purchase?: string[];
+  monthly_settlement?: string[];
 }
 
 interface ProcessConfigShape {
   processTypeMap?: ProcessTypeMap | null | undefined;
 }
 
-const KNOWN_PROCESS_KINDS: Array<Exclude<ProcessKind, 'other'>> = ['operation', 'purchase'];
+const KNOWN_PROCESS_KINDS: Array<Exclude<ProcessKind, 'other'>> = ['operation', 'purchase', 'monthly_settlement'];
 const PROCESS_CODE_PATTERN = /^PROC-[A-F0-9-]+$/i;
 
 const REQUIRED_PROCESS_CODES: Required<ProcessTypeMap> = {
@@ -48,6 +50,7 @@ const REQUIRED_PROCESS_CODES: Required<ProcessTypeMap> = {
     MOLD_PRINT_PURCHASE_FORM_CODE,
     YUEWEI_MX_PURCHASE_FORM_CODE,
   ],
+  monthly_settlement: [MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE],
 };
 
 function normalizeCodeList(value: unknown): string[] {
@@ -72,6 +75,7 @@ export function normalizeProcessTypeMap(value: unknown): Required<ProcessTypeMap
   return {
     operation: uniqueCodes(normalizeCodeList(raw.operation)),
     purchase: uniqueCodes(normalizeCodeList(raw.purchase)),
+    monthly_settlement: uniqueCodes(normalizeCodeList(raw.monthly_settlement ?? raw.monthlySettlement)),
   };
 }
 
@@ -82,17 +86,21 @@ export function validateProcessTypeMap(value: unknown): Required<ProcessTypeMap>
   const errors: string[] = [];
 
   if (!raw) {
-    throw new Error('DINGTALK_PROCESS_TYPE_MAP 必须是包含 operation 和 purchase 的 JSON 对象');
+    throw new Error('DINGTALK_PROCESS_TYPE_MAP 必须是包含 operation、purchase 和 monthly_settlement 的 JSON 对象');
   }
 
   const rawCodesByKind = {
     operation: normalizeCodeList(raw.operation),
     purchase: normalizeCodeList(raw.purchase),
+    monthly_settlement: normalizeCodeList(raw.monthly_settlement ?? raw.monthlySettlement),
   };
 
   for (const kind of KNOWN_PROCESS_KINDS) {
     const codes = rawCodesByKind[kind];
-    if (!Array.isArray(raw[kind])) {
+    const rawValue = kind === 'monthly_settlement'
+      ? raw.monthly_settlement ?? raw.monthlySettlement
+      : raw[kind];
+    if (!Array.isArray(rawValue)) {
       errors.push(`${kind} 必须是流程码数组`);
       continue;
     }
@@ -107,16 +115,25 @@ export function validateProcessTypeMap(value: unknown): Required<ProcessTypeMap>
   }
 
   const normalized = normalizeProcessTypeMap(raw);
-  const duplicatedAcrossKinds = normalized.operation.filter((code) => normalized.purchase.includes(code));
-  if (duplicatedAcrossKinds.length > 0) {
-    errors.push(`流程码不能同时属于 operation 和 purchase: ${duplicatedAcrossKinds.join(', ')}`);
+  const kindsByCode = new Map<string, Array<Exclude<ProcessKind, 'other'>>>();
+  for (const kind of KNOWN_PROCESS_KINDS) {
+    for (const code of normalized[kind]) {
+      const kinds = kindsByCode.get(code) || [];
+      kinds.push(kind);
+      kindsByCode.set(code, kinds);
+    }
+  }
+  for (const [code, kinds] of kindsByCode) {
+    if (kinds.length > 1) {
+      errors.push(`流程码不能同时属于多个分类: ${code} (${kinds.join(', ')})`);
+    }
   }
 
   for (const kind of KNOWN_PROCESS_KINDS) {
-    const otherKind = kind === 'operation' ? 'purchase' : 'operation';
     for (const code of REQUIRED_PROCESS_CODES[kind]) {
       if (normalized[kind].includes(code)) continue;
-      if (normalized[otherKind].includes(code)) {
+      const otherKind = KNOWN_PROCESS_KINDS.find((candidate) => candidate !== kind && normalized[candidate].includes(code));
+      if (otherKind) {
         errors.push(`${code} 必须属于 ${kind}，不能归入 ${otherKind}`);
       } else {
         errors.push(`缺少 ${kind} 流程码 ${code}`);
@@ -136,6 +153,7 @@ export function getConfiguredProcessCodes(config: ProcessConfigShape): string[] 
   return [
     ...processTypeMap.operation,
     ...processTypeMap.purchase,
+    ...processTypeMap.monthly_settlement,
   ];
 }
 
@@ -152,12 +170,16 @@ export function getProcessKind(processCode: string | null | undefined, config: P
   if (processTypeMap.purchase.includes(value)) {
     return 'purchase';
   }
+  if (processTypeMap.monthly_settlement.includes(value)) {
+    return 'monthly_settlement';
+  }
   return 'other';
 }
 
 export function getProcessTypeLabelByKind(kind: ProcessKind): string {
   if (kind === 'operation') return '运营支出';
   if (kind === 'purchase') return '采购支出';
+  if (kind === 'monthly_settlement') return '月结付款';
   return '其他';
 }
 

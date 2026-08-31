@@ -2,7 +2,8 @@ import database from './database.ts';
 import logger from './logger.ts';
 import { convertAmountToCny } from './fxToCny.ts';
 import config from './config.ts';
-import { resolveFixedApplicantDepartment, resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
+import { resolveFixedApplicantDepartment, resolveMonthlySettlementFormName, resolveOperationFormName, resolvePurchaseFormName } from './form-source.ts';
+import { getProcessKind } from './process-config.ts';
 import { collectOperationDeptSplits } from './operation-dept-splits.ts';
 import approvalSource from './oa-source.ts';
 import { normalizePurchaseMultiSelect, parsePurchaseDetails } from './purchase-details.ts';
@@ -15,7 +16,7 @@ import {
 } from './service-entity-department.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 import { extractExplicitPaymentComments, PAYMENT_EVENT_RULE_VERSION, type ApprovalOperationRecord } from './payment-events.ts';
-import type { PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
+import type { MonthlySettlementDetailData, MonthlySettlementLinkData, PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
 
 export interface FormComponentValue {
   name?: string;
@@ -90,7 +91,7 @@ function findLegacyApplicantDepartmentField(formComponentValues?: FormComponentV
 
 export async function recordExplicitPaymentEvents(
   instance: ApprovalInstance,
-  expenseKind: 'operation' | 'purchase',
+  expenseKind: 'operation' | 'purchase' | 'monthly_settlement',
   formCurrency: unknown,
   hasDepartmentSplits = false,
   formAmount?: unknown,
@@ -254,6 +255,58 @@ interface DeptSplitTypeConfig {
   moneyFieldId: string;
   textFieldId: string | null;
   dbColumn: string;
+}
+
+const MONTHLY_SETTLEMENT_COMPONENT_IDS = Object.freeze({
+  details: 'TableField-K1UBPVJT',
+  paymentDate: 'DDDateField-K1UBWYQI',
+  amount: 'MoneyField_1T807NIET4000',
+  reason: '付款事由',
+  total: 'CalculateField-K1UBWYQJ',
+  currency: 'DDMultiSelectField_YJUAL2OSMIO0',
+  related: 'RelateField_6UB3EQG7DY80',
+});
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  if (!text) return value;
+  if (!text.startsWith('{') && !text.startsWith('[')) return value;
+  try { return JSON.parse(text); } catch { return value; }
+}
+
+function scalarValue(value: unknown): unknown {
+  const parsed = parseJsonValue(value);
+  if (Array.isArray(parsed)) return scalarValue(parsed.find((item) => item != null && String(item).trim() !== '') ?? null);
+  if (parsed && typeof parsed === 'object') {
+    const record = parsed as Record<string, unknown>;
+    return scalarValue(record.value ?? record.label ?? record.name ?? record.text ?? null);
+  }
+  return parsed;
+}
+
+function relatedApprovalLinks(field: FormComponentValue | null): MonthlySettlementLinkData[] {
+  if (!field) return [];
+  const parsed = parseJsonValue(field.extValue ?? field.extendValue ?? field.value);
+  const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
+  const list = Array.isArray(record.list) ? record.list : Array.isArray(parsed) ? parsed : [];
+  return list.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const value = item as Record<string, unknown>;
+    const linkedBusinessId = String(scalarValue(
+      value.businessId ?? value.business_id ?? value.approvalNo ?? value.formNo ?? value.form_no ?? value.id ?? ''
+    ) || '').trim();
+    if (!linkedBusinessId) return [];
+    return [{
+      linkedBusinessId,
+      linkedProcessInstanceId: String(scalarValue(
+        value.procInstId ?? value.processInstanceId ?? value.process_instance_id ?? value.instanceId ?? ''
+      ) || '').trim() || null,
+      rawData: value,
+    }];
+  });
 }
 
 type DepartmentSnapshotLookup = Pick<typeof approvalSource, 'getDepartmentSnapshots'> & Partial<ServiceEntityDepartmentLookup>;
@@ -814,6 +867,80 @@ export class ApprovalProcessor {
     };
   }
 
+  parseMonthlySettlementData(
+    formComponentValues?: FormComponentValue[],
+    instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName'>,
+  ): {
+    totalAmount: number | null;
+    currency: string | null;
+    details: MonthlySettlementDetailData[];
+    links: MonthlySettlementLinkData[];
+    applicantDepartment: string | null;
+    applicantDepartmentId: string | null;
+    applicantDepartmentSource: ApplicantDepartmentIdentity['departmentSource'];
+    applicantDepartmentPathIds: string[] | null;
+    applicantDepartmentPathNames: string[] | null;
+  } {
+    const fc = Array.isArray(formComponentValues) ? formComponentValues : [];
+    const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(fc, instance);
+    const findField = (id: string, name: string) => fc.find((field) =>
+      field.id === id || String(field.name || '').trim() === name
+    ) || null;
+    const totalAmount = this.normalizeNumber(scalarValue(findField(MONTHLY_SETTLEMENT_COMPONENT_IDS.total, '合计总额（元）')?.value));
+    const currency = scalarValue(findField(MONTHLY_SETTLEMENT_COMPONENT_IDS.currency, '币种')?.value);
+    const detailField = findField(MONTHLY_SETTLEMENT_COMPONENT_IDS.details, '申请付款明细');
+    const detailValue = parseJsonValue(detailField?.value);
+    const rows = detailField?.details || (Array.isArray(detailValue) ? detailValue : []);
+    const details: MonthlySettlementDetailData[] = [];
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const rawRow = rows[index];
+      const cells = Array.isArray(rawRow)
+        ? rawRow
+        : rawRow && typeof rawRow === 'object' && Array.isArray((rawRow as Record<string, unknown>).rowValue)
+          ? (rawRow as Record<string, unknown>).rowValue as unknown[]
+          : [];
+      let paymentDate: string | null = null;
+      let amount: number | null = null;
+      let paymentReason: string | null = null;
+      for (const rawCell of cells) {
+        if (!rawCell || typeof rawCell !== 'object') continue;
+        const cell = rawCell as Record<string, unknown>;
+        const key = String(cell.id ?? cell.key ?? '').trim();
+        const label = String(cell.name ?? cell.label ?? '').trim();
+        if (key === MONTHLY_SETTLEMENT_COMPONENT_IDS.paymentDate || label === '付款日期') {
+          paymentDate = String(scalarValue(cell.value) || '').trim() || null;
+        } else if (key === MONTHLY_SETTLEMENT_COMPONENT_IDS.amount || label === '金额（元）') {
+          amount = this.normalizeNumber(scalarValue(cell.value));
+        } else if (key === MONTHLY_SETTLEMENT_COMPONENT_IDS.reason || label === '付款事由' || label === '付款说明') {
+          paymentReason = String(scalarValue(cell.value) || '').trim() || null;
+        }
+      }
+      if (amount != null && amount > 0) {
+        details.push({
+          rowNo: index + 1,
+          paymentDate,
+          amount,
+          currency: currency == null ? null : String(currency),
+          paymentReason,
+          rawData: rawRow && typeof rawRow === 'object' ? rawRow as Record<string, unknown> : { value: rawRow },
+        });
+      }
+    }
+
+    return {
+      totalAmount,
+      currency: currency == null ? null : String(currency),
+      details,
+      links: relatedApprovalLinks(findField(MONTHLY_SETTLEMENT_COMPONENT_IDS.related, '关联审批单')),
+      applicantDepartment: applicantDepartmentIdentity.department,
+      applicantDepartmentId: applicantDepartmentIdentity.departmentId,
+      applicantDepartmentSource: applicantDepartmentIdentity.departmentSource,
+      applicantDepartmentPathIds: null,
+      applicantDepartmentPathNames: null,
+    };
+  }
+
   // The OA record's final result is authoritative. Task history may include
   // earlier rejected rounds after a requester resubmits the same approval.
   deriveFlowResult(finalResult?: unknown): string {
@@ -867,7 +994,9 @@ export class ApprovalProcessor {
       const processType = instance.processType || data.processType || '';
       const fixedApplicantDepartment = resolveFixedApplicantDepartment(instance.processCode);
 
-      if (String(processType).includes('运营') || String(processType).includes('杩愯惀')) {
+      const processKind = getProcessKind(instance.processCode, config.dingtalk);
+
+      if (processKind === 'operation') {
         const opData = this.parseOperationExpenseData(instance.formComponentValues, instance);
         const operationRouteStatus = await routeByServiceEntity(opData, this.serviceEntityDepartmentLookup());
         if (operationRouteStatus === 'unresolved') {
@@ -906,7 +1035,7 @@ export class ApprovalProcessor {
           await database.replaceAttachments('operation', opId, attachments);
         }
         await recordExplicitPaymentEvents(instance, 'operation', opCurrency, deptSplits.length > 0, opAmount);
-      } else if (String(processType).includes('采购') || String(processType).includes('閲囪喘')) {
+      } else if (processKind === 'purchase') {
         const pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
         const purchaseRouteStatus = await routeByServiceEntity(pData, this.serviceEntityDepartmentLookup());
         if (purchaseRouteStatus === 'unresolved') {
@@ -959,6 +1088,54 @@ export class ApprovalProcessor {
           await database.replacePurchasePayments(purchaseId, payments);
         }
         await recordExplicitPaymentEvents(instance, 'purchase', purchaseCurrency, false, purchaseAmount);
+      } else if (processKind === 'monthly_settlement') {
+        const monthly = this.parseMonthlySettlementData(instance.formComponentValues, instance);
+        await this.enrichOperationDepartmentPaths(monthly as unknown as Record<string, unknown>);
+        const monthlyBaseCurrencyAmount = await convertAmountToCny({
+          amount: monthly.totalAmount,
+          currencyLabel: monthly.currency,
+          createTime: String(data.createTime || ''),
+        });
+        const details = [];
+        for (const detail of monthly.details) {
+          const baseCurrencyAmount = await convertAmountToCny({
+            amount: detail.amount,
+            currencyLabel: detail.currency || monthly.currency,
+            createTime: detail.paymentDate || String(data.createTime || ''),
+          });
+          details.push({ ...detail, baseCurrencyAmount });
+        }
+        await database.upsertMonthlySettlement({
+          businessId,
+          processInstanceId: data.processInstanceId as string,
+          requestDate: String(data.createTime || '').slice(0, 10) || null,
+          formName: resolveMonthlySettlementFormName(instance.processCode),
+          totalAmount: monthly.totalAmount,
+          baseCurrencyAmount: monthlyBaseCurrencyAmount,
+          currency: monthly.currency,
+          approvalCompletedAt: meta.approvalCompletedAt,
+          approvalStatus: meta.approvalStatus,
+          approvalResult: data.flowResult as string,
+          approvalNo: meta.approvalNo,
+          creatorName: meta.creatorName,
+          applicantDepartment: monthly.applicantDepartment,
+          applicantDepartmentId: monthly.applicantDepartmentId,
+          applicantDepartmentSource: monthly.applicantDepartmentSource,
+          applicantDepartmentPathIds: monthly.applicantDepartmentPathIds,
+          applicantDepartmentPathNames: monthly.applicantDepartmentPathNames,
+          sourceCreatedAt: meta.sourceCreatedAt,
+          sourceUpdatedAt: meta.sourceUpdatedAt,
+          rawData: instance as unknown as Record<string, unknown>,
+        }, details, monthly.links);
+        const monthlyFormAmount = monthly.totalAmount
+          ?? details.reduce((sum, detail) => sum + Number(detail.amount || 0), 0);
+        await recordExplicitPaymentEvents(
+          instance,
+          'monthly_settlement',
+          monthly.currency,
+          false,
+          monthlyFormAmount,
+        );
       } else {
         return { skipped: true, reason: `unsupported process type: ${processType || 'unknown'}` };
       }

@@ -23,6 +23,7 @@ const processTypeMap = {
     forms.MOLD_PRINT_PURCHASE_FORM_CODE,
     forms.YUEWEI_MX_PURCHASE_FORM_CODE,
   ],
+  monthly_settlement: [forms.MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE],
 };
 
 test('maps LEMOS, mold-print, and YUEWEI MX forms to their correct process types', () => {
@@ -33,6 +34,7 @@ test('maps LEMOS, mold-print, and YUEWEI MX forms to their correct process types
   assert.equal(processConfig.getProcessKind(forms.LEMOS_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');
   assert.equal(processConfig.getProcessKind(forms.MOLD_PRINT_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');
   assert.equal(processConfig.getProcessKind(forms.YUEWEI_MX_PURCHASE_FORM_CODE, { processTypeMap }), 'purchase');
+  assert.equal(processConfig.getProcessKind(forms.MONTHLY_SETTLEMENT_PAYMENT_FORM_CODE, { processTypeMap }), 'monthly_settlement');
 });
 
 test('maps the six new process codes to stable form names', () => {
