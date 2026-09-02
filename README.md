@@ -272,7 +272,7 @@ src/
 | `approval_expense_purchase_processors` | 采购加工商信息 |
 | `approval_expense_purchase_payments` | 采购付款信息 |
 | `approval_expense_attachments` | 审批附件（运营/采购共用） |
-| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model，包含工资/社保/办公场地/个税/IT运维） |
+| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model，包含工资/社保/办公场地/个税/IT运维/人工公司分摊） |
 | `approval_expense_monthly_settlement` | 月结付款主单（独立于运营/采购主表） |
 | `approval_expense_monthly_settlement_details` | 月结付款明细（付款日期、金额、付款事由） |
 | `approval_expense_monthly_settlement_links` | 月结付款关联的运营/采购原审批单 |
@@ -280,6 +280,13 @@ src/
 ## License
 
 Private
+
+## Manual company allocation
+
+`manual_company_allocation` is reserved for an explicitly reviewed company
+allocation that is not present in the DingTalk form's automatic department
+split JSON. Ordinary resyncs preserve these rows while replacing automatic
+split rows. Amounts use the base currency (CNY) used by reporting queries.
 
 ## Actual Payment Event Ingestion
 

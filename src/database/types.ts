@@ -221,7 +221,7 @@ export interface DepartmentSplitValue {
 }
 
 export interface DeptSplitRow extends DepartmentSplitValue {
-  splitType: 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax' | 'it_operation';
+  splitType: 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax' | 'it_operation' | 'manual_company_allocation';
 }
 
 export interface FxRateRow {

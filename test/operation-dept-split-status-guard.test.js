@@ -143,6 +143,64 @@ test('审批中运营单据保留部门拆分', async () => {
   }
 });
 
+test('普通运营单据重同步时保留人工公司分摊', async () => {
+  const businessId = `test-manual-company-allocation-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await pool.query(
+      `INSERT INTO approval_expense_operation (business_id, approval_status, raw_data, base_currency_amount)
+       VALUES ($1, 'COMPLETED', '{"result":"agree"}'::jsonb, 100)`,
+      [businessId]
+    );
+    await pool.query(
+      `INSERT INTO approval_expense_dept_split
+        (business_id, split_type, department, department_id, department_source, amount)
+       VALUES ($1, 'manual_company_allocation', '人工部门', 'manual-dept', 'id', 100)`,
+      [businessId]
+    );
+
+    const expenseModule = loadModule(path.join('database', 'expense'));
+    await expenseModule.replaceDeptSplitsForBusiness(businessId, []);
+    const result = await pool.query(
+      `SELECT split_type, department, department_id, amount::text AS amount
+       FROM approval_expense_dept_split WHERE business_id = $1`,
+      [businessId]
+    );
+    assert.deepEqual(result.rows, [{
+      split_type: 'manual_company_allocation',
+      department: '人工部门',
+      department_id: 'manual-dept',
+      amount: '100.00',
+    }]);
+  } finally {
+    await clean(businessId);
+  }
+});
+
+test('终态运营单据会清理人工公司分摊', async () => {
+  const businessId = `test-manual-company-allocation-terminal-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await pool.query(
+      `INSERT INTO approval_expense_operation (business_id, approval_status, raw_data, base_currency_amount)
+       VALUES ($1, 'COMPLETED', '{"result":"agree"}'::jsonb, 100)`,
+      [businessId]
+    );
+    await pool.query(
+      `INSERT INTO approval_expense_dept_split
+        (business_id, split_type, department, department_id, department_source, amount)
+       VALUES ($1, 'manual_company_allocation', '人工部门', 'manual-dept', 'id', 100)`,
+      [businessId]
+    );
+
+    const expenseModule = loadModule(path.join('database', 'expense'));
+    await expenseModule.replaceDeptSplitsForBusiness(businessId, [], undefined, false);
+    assert.equal(await splitCount(businessId), 0);
+  } finally {
+    await clean(businessId);
+  }
+});
+
 test('悦为智能运营支出只在没有真实部门时使用固定部门兜底', async () => {
   const businessId = `test-yw-intelligent-operation-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();

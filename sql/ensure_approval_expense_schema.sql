@@ -786,7 +786,7 @@ DROP CONSTRAINT IF EXISTS approval_expense_dept_split_split_type_check;
 
 ALTER TABLE approval_expense_dept_split
 ADD CONSTRAINT approval_expense_dept_split_split_type_check
-CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax', 'it_operation'));
+CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax', 'it_operation', 'manual_company_allocation'));
 
 ALTER TABLE approval_expense_dept_split
 ADD COLUMN IF NOT EXISTS department_id VARCHAR(64);
@@ -837,7 +837,7 @@ $$;
 
 COMMENT ON TABLE approval_expense_dept_split IS '运营支出分部门拆分表（CQRS read model）';
 COMMENT ON COLUMN approval_expense_dept_split.business_id IS '关联审批 business_id';
-COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space/individual_income_tax/it_operation';
+COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space/individual_income_tax/it_operation/manual_company_allocation';
 COMMENT ON COLUMN approval_expense_dept_split.department IS '部门名称';
 COMMENT ON COLUMN approval_expense_dept_split.department_id IS '钉钉部门ID；历史载荷缺失时为空';
 COMMENT ON COLUMN approval_expense_dept_split.department_source IS '部门归属来源：id/name_only';

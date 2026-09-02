@@ -553,15 +553,48 @@ function aggregateDeptSplits(splits: DeptSplitRow[]): DeptSplitRow[] {
 export async function replaceDeptSplitsForBusiness(
   businessId: string,
   splits: DeptSplitRow[],
-  tx?: Parameters<Parameters<typeof db.transaction>[0]>[0]
+  tx?: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  preserveManualSplits = true,
 ): Promise<void> {
   const executor = tx || db;
   const normalizedSplits = aggregateDeptSplits(splits);
+  // Manual company allocations are kept outside the DingTalk JSONB payload.
+  const manualSplits = preserveManualSplits ? await executor.select({
+    splitType: approvalExpenseDeptSplit.splitType,
+    department: approvalExpenseDeptSplit.department,
+    departmentId: approvalExpenseDeptSplit.departmentId,
+    departmentSource: approvalExpenseDeptSplit.departmentSource,
+    departmentPathIds: approvalExpenseDeptSplit.departmentPathIds,
+    departmentPathNames: approvalExpenseDeptSplit.departmentPathNames,
+    amount: approvalExpenseDeptSplit.amount,
+    note: approvalExpenseDeptSplit.note,
+  }).from(approvalExpenseDeptSplit)
+    .where(and(
+      eq(approvalExpenseDeptSplit.businessId, businessId),
+      eq(approvalExpenseDeptSplit.splitType, 'manual_company_allocation'),
+    )) : [];
+  const normalizedManualSplits: DeptSplitRow[] = manualSplits.map((split) => ({
+    splitType: 'manual_company_allocation',
+    department: split.department,
+    departmentId: split.departmentId,
+    departmentSource: split.departmentSource === 'id' || split.departmentSource === 'name_only'
+      ? split.departmentSource
+      : undefined,
+    departmentPathIds: Array.isArray(split.departmentPathIds)
+      ? split.departmentPathIds.map((value) => String(value))
+      : null,
+    departmentPathNames: Array.isArray(split.departmentPathNames)
+      ? split.departmentPathNames.map((value) => String(value))
+      : null,
+    amount: Number(split.amount) || 0,
+    note: split.note || undefined,
+  }));
+  const allSplits = aggregateDeptSplits([...normalizedSplits, ...normalizedManualSplits]);
   await executor.delete(approvalExpenseDeptSplit)
     .where(eq(approvalExpenseDeptSplit.businessId, businessId));
-  if (normalizedSplits.length > 0) {
+  if (allSplits.length > 0) {
     await executor.insert(approvalExpenseDeptSplit).values(
-      normalizedSplits.map(s => ({
+      allSplits.map(s => ({
         businessId,
         splitType: s.splitType,
         department: s.department,
@@ -759,8 +792,9 @@ export async function upsertOperationExpenseWithSplits(
     if (!opId) return undefined;
 
     // 2. 同事务写入 split
-    const effectiveSplits = shouldKeepDeptSplits(data) ? splits : [];
-    await replaceDeptSplitsForBusiness(data.businessId, effectiveSplits, tx);
+    const preserveManualSplits = shouldKeepDeptSplits(data);
+    const effectiveSplits = preserveManualSplits ? splits : [];
+    await replaceDeptSplitsForBusiness(data.businessId, effectiveSplits, tx, preserveManualSplits);
     return opId;
   });
 }
@@ -783,8 +817,9 @@ export async function rebuildDeptSplits(businessId: string): Promise<number> {
     .limit(1);
   if (!rows.length) return 0;
 
-  const splits = shouldKeepDeptSplits(rows[0]) ? parseSplitsFromJsonb(rows[0]) : [];
-  await replaceDeptSplitsForBusiness(businessId, splits);
+  const preserveManualSplits = shouldKeepDeptSplits(rows[0]);
+  const splits = preserveManualSplits ? parseSplitsFromJsonb(rows[0]) : [];
+  await replaceDeptSplitsForBusiness(businessId, splits, undefined, preserveManualSplits);
   return splits.length;
 }
 
@@ -814,8 +849,9 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
   await db.transaction(async (tx) => {
     for (const op of ops) {
       if (!op.businessId) continue;
-      const splits = shouldKeepDeptSplits(op) ? parseSplitsFromJsonb(op) : [];
-      await replaceDeptSplitsForBusiness(op.businessId, splits, tx);
+      const preserveManualSplits = shouldKeepDeptSplits(op);
+      const splits = preserveManualSplits ? parseSplitsFromJsonb(op) : [];
+      await replaceDeptSplitsForBusiness(op.businessId, splits, tx, preserveManualSplits);
       if (splits.length > 0) rebuilt++;
     }
   });
@@ -866,8 +902,9 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
   await db.transaction(async (tx) => {
     for (const op of ops) {
       if (!op.businessId) continue;
-      const splits = shouldKeepDeptSplits(op) ? parseSplitsFromJsonb(op) : [];
-      await replaceDeptSplitsForBusiness(op.businessId, splits, tx);
+      const preserveManualSplits = shouldKeepDeptSplits(op);
+      const splits = preserveManualSplits ? parseSplitsFromJsonb(op) : [];
+      await replaceDeptSplitsForBusiness(op.businessId, splits, tx, preserveManualSplits);
       if (splits.length > 0) rebuilt++;
     }
   });
