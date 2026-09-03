@@ -65,6 +65,24 @@ async function insertPaymentEvent(businessId, expenseKind, amount, paidAt, sourc
   );
 }
 
+async function insertManualPaymentEvent(businessId, expenseKind, amount, paidAt) {
+  await pool.query(
+    `INSERT INTO approval_expense_payment_events (
+      business_id, process_instance_id, expense_kind, paid_at, amount, base_currency_amount,
+      currency, source_type, rule_version, source_hash, evidence_text, status
+    ) VALUES ($1, $2, $3, $4, $5, $5, 'CNY', 'manual_confirmed', 'manual-confirmed-v1', $6, $7, 'confirmed')`,
+    [
+      businessId,
+      `pid-${businessId}`,
+      expenseKind,
+      paidAt,
+      amount,
+      `${businessId}`.padEnd(64, '0').slice(0, 64),
+      '已支付（人工确认）',
+    ],
+  );
+}
+
 test.before(async () => {
   await database.ensureApprovalExpenseSchema();
 
@@ -126,4 +144,14 @@ test('payment-event API counts only formal-user comments without double-counting
     testFacts.map((item) => item.accounting_source).sort(),
     ['completed_approval_fallback', 'completed_department_split', 'payment_event'],
   );
+});
+
+test('payment-event API includes explicitly reviewed manual confirmations', async () => {
+  const businessId = `${businessPrefix}-manual-confirmed`;
+  await insertExpense('approval_expense_operation', businessId, 'RUNNING');
+  await insertManualPaymentEvent(businessId, 'operation', 25, '2026-08-14T10:00:00+08:00');
+
+  const response = await fetch(`${baseUrl}/api/approvals/approved/operation?departmentId=${departmentId}&month=2026-08`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { total: '225.00', count: 4 });
 });

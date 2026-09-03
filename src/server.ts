@@ -16,6 +16,15 @@ const PORT = config.server.port;
 const AUTHORIZED_PAYMENT_EVENT_USER_SQL = config.dingtalk.paymentEventUserIds
   .map((userId) => `'${userId}'`)
   .join(', ');
+const ELIGIBLE_PAYMENT_EVENT_SOURCE_SQL = `(
+  (event.rule_version = 'authorized-comment-v1'
+    AND event.source_type = 'comment_explicit_amount'
+    AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL}))
+  OR (
+    event.rule_version = 'manual-confirmed-v1'
+    AND event.source_type = 'manual_confirmed'
+  )
+)`;
 
 app.use(cors());
 app.use(express.json());
@@ -218,9 +227,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
       .replace(/\braw_data\b/g, 'o.raw_data');
     const paymentEventWhere = `
       AND event.status = 'confirmed'
-      AND event.rule_version = 'authorized-comment-v1'
-      AND event.source_type = 'comment_explicit_amount'
-      AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL})
+      AND ${ELIGIBLE_PAYMENT_EVENT_SOURCE_SQL}
     `;
     let factsSql: string;
 
@@ -469,9 +476,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const splitTimeFilter = timeFilter.replace(/\bapproval_completed_at\b/g, 'o.approval_completed_at');
     const paymentEventWhere = `
       AND event.status = 'confirmed'
-      AND event.rule_version = 'authorized-comment-v1'
-      AND event.source_type = 'comment_explicit_amount'
-      AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL})
+      AND ${ELIGIBLE_PAYMENT_EVENT_SOURCE_SQL}
     `;
     const factsSql = isOperation
       ? `
