@@ -219,7 +219,7 @@ async function queryApproved(req: Request, res: Response, processKind: string): 
     const paymentEventWhere = `
       AND event.status = 'confirmed'
       AND event.rule_version = 'authorized-comment-v1'
-      AND event.source_type = 'comment_explicit_amount'
+      AND event.source_type IN ('comment_explicit_amount', 'fully_deducted')
       AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL})
     `;
     let factsSql: string;
@@ -470,7 +470,7 @@ async function queryApprovedAll(req: Request, res: Response, processKind: string
     const paymentEventWhere = `
       AND event.status = 'confirmed'
       AND event.rule_version = 'authorized-comment-v1'
-      AND event.source_type = 'comment_explicit_amount'
+      AND event.source_type IN ('comment_explicit_amount', 'fully_deducted')
       AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL})
     `;
     const factsSql = isOperation

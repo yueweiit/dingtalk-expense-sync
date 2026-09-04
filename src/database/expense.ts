@@ -441,7 +441,8 @@ export async function insertPaymentEvents(events: PaymentEventData[]): Promise<n
     let inserted = 0;
     for (const event of events) {
       const amount = decimalValue(event.amount);
-      if (amount == null || Number(amount) <= 0) continue;
+      const isFullyDeducted = event.sourceType === 'fully_deducted';
+      if (amount == null || Number(amount) < 0 || (!isFullyDeducted && Number(amount) <= 0)) continue;
 
       const rows = await tx.insert(approvalExpensePaymentEvents).values({
         businessId: event.businessId.substring(0, 64),
@@ -449,7 +450,7 @@ export async function insertPaymentEvents(events: PaymentEventData[]): Promise<n
         expenseKind: event.expenseKind,
         paidAt: event.paidAt,
         amount,
-        baseCurrencyAmount: decimalValue(event.baseCurrencyAmount),
+        baseCurrencyAmount: decimalValue(isFullyDeducted ? 0 : event.baseCurrencyAmount),
         currency: event.currency?.substring(0, 32) || null,
         sourceType: event.sourceType,
         ruleVersion: event.ruleVersion.substring(0, 64),

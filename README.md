@@ -279,6 +279,10 @@ src/
 
 ## License
 
+### Full Deduction Comments
+
+An authorized user comment containing only `已全额抵扣` creates a `fully_deducted` payment event with `amount = 0` and `base_currency_amount = 0`. The approval is treated as processed for accounting, but it contributes no actual expense and blocks the completed-approval amount fallback. Mixed comments containing both the deduction phrase and payment amounts remain review-only.
+
 Private
 
 ## Manual company allocation

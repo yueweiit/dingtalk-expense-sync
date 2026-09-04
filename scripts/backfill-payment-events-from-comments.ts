@@ -85,8 +85,8 @@ interface PaymentCandidateDetail {
   currency: string;
   paidAt: string;
   amount: number;
-  amountSource: 'comment' | 'form_amount_fallback';
-  phrase: 'paid' | 'partial';
+  amountSource: 'comment' | 'form_amount_fallback' | 'fully_deducted';
+  phrase: 'paid' | 'partial' | 'fully_deducted';
   sourceUserId: string | null;
   evidenceText: string;
   sourceHash: string;
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
     SELECT business_id, paid_at, source_hash
     FROM approval_expense_payment_events
     WHERE status = 'confirmed'
-      AND source_type = 'comment_explicit_amount'
+      AND source_type IN ('comment_explicit_amount', 'fully_deducted')
       AND rule_version = $1
   `, [PAYMENT_EVENT_RULE_VERSION]);
   const recordedKeys = new Set(existingEvents.rows.map((event) =>
@@ -232,11 +232,13 @@ async function main(): Promise<void> {
         continue;
       }
       const currency = comment.currency || row.currency || 'CNY';
-      const baseCurrencyAmount = await convertAmountToCny({
-        amount: comment.amount,
-        currencyLabel: currency,
-        createTime: comment.paidAt,
-      });
+      const baseCurrencyAmount = comment.sourceType === 'fully_deducted'
+        ? 0
+        : await convertAmountToCny({
+          amount: comment.amount,
+          currencyLabel: currency,
+          createTime: comment.paidAt,
+        });
       events.push({
         businessId: row.business_id,
         processInstanceId: row.process_instance_id,
@@ -245,7 +247,7 @@ async function main(): Promise<void> {
         amount: comment.amount,
         baseCurrencyAmount,
         currency,
-        sourceType: 'comment_explicit_amount' as const,
+        sourceType: comment.sourceType,
         ruleVersion: PAYMENT_EVENT_RULE_VERSION,
         sourceUserId: comment.sourceUserId,
         sourceHash: comment.sourceHash,

@@ -14,17 +14,19 @@ export interface ApprovalOperationRecord {
 export interface ExplicitPaymentComment {
   paidAt: string;
   amount: number;
-  amountSource: 'comment' | 'form_amount_fallback';
+  amountSource: 'comment' | 'form_amount_fallback' | 'fully_deducted';
+  sourceType: 'comment_explicit_amount' | 'fully_deducted';
   currency: string | null;
   sourceUserId: string | null;
   sourceHash: string;
   evidenceText: string;
   rawData: Record<string, unknown>;
-  phrase: 'paid' | 'partial';
+  phrase: 'paid' | 'partial' | 'fully_deducted';
 }
 
 const PAYMENT_WITH_AMOUNT = /(?:\u5df2\u652f\u4ed8|\u90e8\u5206\u652f\u4ed8)\s*[:\uff1a=]?\s*(?:(?:\u4eba\u6c11\u5e01|RMB|CNY|\uffe5|\u00a5)\s*)?(\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:\u5143|\u4eba\u6c11\u5e01|RMB|CNY)?/giu;
 const PAYMENT_PHRASE = /(?:\u5df2\u652f\u4ed8|\u90e8\u5206\u652f\u4ed8)/giu;
+const FULLY_DEDUCTED_PHRASE = /\u5df2\u5168\u989d\u62b5\u6263/giu;
 const PAYMENT_AMOUNT_HINT = /(?:\u91d1\u989d|\u4eba\u6c11\u5e01|RMB|CNY|\uffe5|\u00a5)\s*\d+(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:,\d{3})*(?:\.\d{1,2})?\s*\u5143/giu;
 
 function normalizeComment(value: string): string {
@@ -78,8 +80,29 @@ export function extractExplicitPaymentComments(
 
     PAYMENT_WITH_AMOUNT.lastIndex = 0;
     PAYMENT_PHRASE.lastIndex = 0;
+    FULLY_DEDUCTED_PHRASE.lastIndex = 0;
     const matches = [...evidenceText.matchAll(PAYMENT_WITH_AMOUNT)];
     const phrases = [...evidenceText.matchAll(PAYMENT_PHRASE)];
+    const fullyDeductedPhrases = [...evidenceText.matchAll(FULLY_DEDUCTED_PHRASE)];
+    PAYMENT_AMOUNT_HINT.lastIndex = 0;
+    const hasAmountHint = [...evidenceText.matchAll(PAYMENT_AMOUNT_HINT)].length > 0;
+    if (fullyDeductedPhrases.length === 1 && phrases.length === 0 && matches.length === 0 && !hasAmountHint) {
+      const normalized = normalizeComment(evidenceText);
+      events.push({
+        paidAt,
+        amount: 0,
+        amountSource: 'fully_deducted',
+        sourceType: 'fully_deducted',
+        currency: null,
+        sourceUserId,
+        sourceHash: createHash('sha256').update(`${sourceUserId}\u0000${paidAt}\u0000${normalized}`).digest('hex'),
+        evidenceText,
+        rawData: record as Record<string, unknown>,
+        phrase: 'fully_deducted',
+      });
+      continue;
+    }
+    if (fullyDeductedPhrases.length > 0) continue;
     if (phrases.length !== 1 || matches.length > 1) continue;
 
     const phrase = phrases[0][0].includes('\u90e8\u5206\u652f\u4ed8') ? 'partial' : 'paid';
@@ -100,6 +123,7 @@ export function extractExplicitPaymentComments(
       paidAt,
       amount,
       amountSource,
+      sourceType: 'comment_explicit_amount',
       currency: null,
       sourceUserId,
       sourceHash: createHash('sha256').update(`${sourceUserId}\u0000${paidAt}\u0000${normalized}`).digest('hex'),

@@ -356,10 +356,10 @@ CREATE TABLE IF NOT EXISTS approval_expense_payment_events (
     process_instance_id VARCHAR(128),
     expense_kind VARCHAR(16) NOT NULL CHECK (expense_kind IN ('operation', 'purchase', 'monthly_settlement')),
     paid_at TIMESTAMPTZ NOT NULL,
-    amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
+    amount NUMERIC(18, 2) NOT NULL,
     base_currency_amount NUMERIC(18, 2),
     currency VARCHAR(32),
-    source_type VARCHAR(32) NOT NULL CHECK (source_type IN ('comment_explicit_amount', 'manual_confirmed')),
+    source_type VARCHAR(32) NOT NULL,
     rule_version VARCHAR(64),
     source_user_id VARCHAR(128),
     source_hash VARCHAR(64) NOT NULL,
@@ -367,7 +367,11 @@ CREATE TABLE IF NOT EXISTS approval_expense_payment_events (
     raw_data JSONB,
     status VARCHAR(32) NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'void')),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT approval_expense_payment_events_amount_check
+      CHECK (amount > 0 OR source_type = 'fully_deducted'),
+    CONSTRAINT approval_expense_payment_events_source_type_check
+      CHECK (source_type IN ('comment_explicit_amount', 'fully_deducted', 'manual_confirmed'))
 );
 
 ALTER TABLE approval_expense_payment_events
@@ -520,6 +524,34 @@ BEGIN
   ALTER TABLE approval_expense_payment_events
     ADD CONSTRAINT approval_expense_payment_events_expense_kind_check
     CHECK (expense_kind IN ('operation', 'purchase', 'monthly_settlement'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$$;
+
+-- Allow only the explicit zero-amount settlement marker. Ordinary payment
+-- events and manual confirmations must still carry a positive amount.
+DO $$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  FOR constraint_name IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'approval_expense_payment_events'::regclass
+      AND contype = 'c'
+      AND (
+        pg_get_constraintdef(oid) ILIKE '%amount%'
+        OR pg_get_constraintdef(oid) ILIKE '%source_type%'
+      )
+  LOOP
+    EXECUTE format('ALTER TABLE approval_expense_payment_events DROP CONSTRAINT %I', constraint_name);
+  END LOOP;
+  ALTER TABLE approval_expense_payment_events
+    ADD CONSTRAINT approval_expense_payment_events_amount_check
+    CHECK (amount > 0 OR source_type = 'fully_deducted');
+  ALTER TABLE approval_expense_payment_events
+    ADD CONSTRAINT approval_expense_payment_events_source_type_check
+    CHECK (source_type IN ('comment_explicit_amount', 'fully_deducted', 'manual_confirmed'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END;
 $$;
