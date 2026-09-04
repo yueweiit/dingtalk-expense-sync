@@ -18,7 +18,6 @@ function createSchedulerFixture({ failingProcessCode = null } = {}) {
     path.join(fixtureSrc, 'scheduler.ts'),
     fs.readFileSync(path.join(__dirname, '..', 'src', 'scheduler.ts'), 'utf8')
   );
-
   writeFile(
     path.join(fixtureSrc, 'oa-source.ts'),
     `

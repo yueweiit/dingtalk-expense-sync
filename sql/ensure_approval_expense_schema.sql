@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS approval_expense_operation (
     creator_department VARCHAR(500),
 
     salary_by_department JSONB,
+    bonus_by_department JSONB,
     social_insurance_by_department JSONB,
     office_space_by_department JSONB,
     individual_income_tax_by_department JSONB,
@@ -158,6 +159,8 @@ BEGIN
 END $$;
 
 COMMENT ON COLUMN approval_expense_operation.salary_by_department IS '工资中国分部门明细 — JSON array of {department, amount, note}';
+ALTER TABLE approval_expense_operation ADD COLUMN IF NOT EXISTS bonus_by_department JSONB;
+COMMENT ON COLUMN approval_expense_operation.bonus_by_department IS '奖金分部门明细 — JSON array of {department, amount, note}';
 COMMENT ON COLUMN approval_expense_operation.social_insurance_by_department IS '社保中国分部门明细 — JSON array of {department, amount}';
 COMMENT ON COLUMN approval_expense_operation.office_space_by_department IS '办公场地总费用分部门明细 — JSON array of {department, amount}';
 COMMENT ON COLUMN approval_expense_operation.individual_income_tax_by_department IS '个税分部门明细 — JSON array of {department, amount, note}';
@@ -786,7 +789,7 @@ DROP CONSTRAINT IF EXISTS approval_expense_dept_split_split_type_check;
 
 ALTER TABLE approval_expense_dept_split
 ADD CONSTRAINT approval_expense_dept_split_split_type_check
-CHECK (split_type IN ('salary', 'social_insurance', 'office_space', 'individual_income_tax', 'it_operation', 'manual_company_allocation'));
+CHECK (split_type IN ('salary', 'bonus', 'social_insurance', 'office_space', 'individual_income_tax', 'it_operation', 'manual_company_allocation'));
 
 ALTER TABLE approval_expense_dept_split
 ADD COLUMN IF NOT EXISTS department_id VARCHAR(64);
@@ -837,7 +840,7 @@ $$;
 
 COMMENT ON TABLE approval_expense_dept_split IS '运营支出分部门拆分表（CQRS read model）';
 COMMENT ON COLUMN approval_expense_dept_split.business_id IS '关联审批 business_id';
-COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/social_insurance/office_space/individual_income_tax/it_operation/manual_company_allocation';
+COMMENT ON COLUMN approval_expense_dept_split.split_type IS '拆分类型：salary/bonus/social_insurance/office_space/individual_income_tax/it_operation/manual_company_allocation';
 COMMENT ON COLUMN approval_expense_dept_split.department IS '部门名称';
 COMMENT ON COLUMN approval_expense_dept_split.department_id IS '钉钉部门ID；历史载荷缺失时为空';
 COMMENT ON COLUMN approval_expense_dept_split.department_source IS '部门归属来源：id/name_only';

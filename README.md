@@ -11,7 +11,8 @@
 - **结构化存储**：将审批表单数据解析为结构化字段
 - **月结付款**：独立保存月结付款主单、付款明细和关联审批单；只按指定用户的合规付款评论及其 UTC 评论时间参与统计
 - **工资分部门**：支持工资中国按部门拆分存储
-- **IT运维费用分部门**：支持管理费用中的 IT 运维费用明细按部门拆分存储，使用独立的 `it_operation` 类型
+- **IT运维费用**：从新规则起，选择 IT 运维费用按普通表单处理，不再读取或生成 IT 运维费用明细拆分；历史 `it_operation` 数据仍保留并可读取
+- **指定奖金拆分**：仅流程 `PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B` 在同一个“管理支出/Gastos de operación”组件选择“奖金/Bonificaciones”，且审批已完成并通过后，读取“奖金明细/Bonificaciones”表格的部门和金额；数据结构、触发时机和工资拆分一致，其他流程的奖金按普通表单处理
 
 ## 快速开始
 
@@ -54,9 +55,11 @@ DINGTALK_APPSECRET=your_appsecret
 psql -f sql/ensure_approval_expense_schema.sql
 psql -f sql/ensure_fx_rates_daily.sql
 
-# 添加工资、社保、办公场地、IT运维分部门字段（如需要）
+# 添加工资、社保、办公场地分部门字段（如需要）
 psql -f sql/add_salary_by_department.sql
 psql -f sql/add_dept_split_columns.sql
+# 仅补充奖金分部门字段时可单独执行（幂等）
+psql -f sql/add_bonus_by_department.sql
 # 月结付款三张表已包含在 ensure_approval_expense_schema.sql 中
 ```
 
@@ -162,7 +165,7 @@ POST /api/sync/manual
 POST /api/sync/operation-splits
 ```
 
-按 `startTime` / `endTime` 时间窗口同步运营支出部门拆分数据：工资中国、社保公积金、办公场地总费用。
+按 `startTime` / `endTime` 时间窗口同步运营支出部门拆分数据：工资中国、社保公积金、办公场地总费用和指定流程的奖金明细。
 
 ### 查询审批数据
 
@@ -272,7 +275,7 @@ src/
 | `approval_expense_purchase_processors` | 采购加工商信息 |
 | `approval_expense_purchase_payments` | 采购付款信息 |
 | `approval_expense_attachments` | 审批附件（运营/采购共用） |
-| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model，包含工资/社保/办公场地/个税/IT运维/人工公司分摊） |
+| `approval_expense_dept_split` | 运营支出分部门拆分（CQRS read model，包含工资/社保/办公场地/个税/历史 IT 运维/人工公司分摊） |
 | `approval_expense_monthly_settlement` | 月结付款主单（独立于运营/采购主表） |
 | `approval_expense_monthly_settlement_details` | 月结付款明细（付款日期、金额、付款事由） |
 | `approval_expense_monthly_settlement_links` | 月结付款关联的运营/采购原审批单 |
@@ -342,3 +345,12 @@ The write command must be run against the intended database only after the
 dry-run output is reviewed. It does not alter form rows, status, department
 splits, attachments, or schema; inserts are idempotent by the payment-event
 source key.
+
+## IT Operation and Bonus Compatibility
+
+- The retired IT operation detail is no longer parsed for new forms.
+- Existing IT operation JSON and split rows remain stored for auditability and refresh compatibility.
+- The budget project folds historical IT rows into ordinary operation expense and does not display a separate IT detail section.
+- The designated Lingxiang-Xingming operation form stores bonus department rows using the existing salary split shape; the budget project presents them as bonus and includes them once in the classified expense total.
+- The bonus rule uses the same `管理支出/Gastos de operación` selection component as salary: only the `奖金/Bonificaciones` value, the designated process code, and a completed-and-approved instance allow the `TableField` named `奖金明细` or `Bonificaciones` to be parsed. Both DingTalk `details` rows and legacy JSON-encoded `value` rows are supported; a department ID is retained when supplied.
+- A same-named table in another operation process, a pending/rejected instance, or a form where the bonus table exists without the bonus selection is intentionally ignored.

@@ -16,10 +16,12 @@ import {
 } from './service-entity-department.ts';
 import { normalizeNumber as normalizeNumberShared } from './utils.ts';
 import { extractExplicitPaymentComments, PAYMENT_EVENT_RULE_VERSION, type ApprovalOperationRecord } from './payment-events.ts';
+import { COMPLETED_APPROVAL_RESULTS, completedApprovalResult } from './completed-expense-policy.ts';
 import type { MonthlySettlementDetailData, MonthlySettlementLinkData, PurchaseItemData, PurchaseProcessorData } from './database/types.ts';
 
 export interface FormComponentValue {
   name?: string;
+  key?: string;
   value?: unknown;
   componentType?: string;
   id?: string;
@@ -96,9 +98,9 @@ export async function recordExplicitPaymentEvents(
   hasDepartmentSplits = false,
   formAmount?: unknown,
 ): Promise<void> {
-  // Salary, social insurance, office-space, and individual-income-tax forms
-  // must wait for completion so their stored department splits drive reporting.
-  if (expenseKind === 'operation' && hasDepartmentSplits) return;
+  // Split operation forms, including the designated bonus form, must wait for
+  // completion so their department splits drive reporting.
+  if (expenseKind === 'operation' && (hasDepartmentSplits || isBonusSplitSelection(instance))) return;
 
   const comments = extractExplicitPaymentComments(
     instance.operationRecords,
@@ -250,6 +252,8 @@ interface DeptSplitTypeConfig {
   label: string;
   labelEs?: string;
   matchAdministrativeExpense?: boolean;
+  processCode?: string;
+  requiresCompletedApproved?: boolean;
   tableFieldId: string;
   tableFieldName?: string;
   moneyFieldId: string;
@@ -267,6 +271,8 @@ const MONTHLY_SETTLEMENT_COMPONENT_IDS = Object.freeze({
   related: 'RelateField_6UB3EQG7DY80',
 });
 
+const BONUS_SPLIT_PROCESS_CODE = 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B';
+
 function parseJsonValue(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const text = value.trim();
@@ -283,6 +289,16 @@ function scalarValue(value: unknown): unknown {
     return scalarValue(record.value ?? record.label ?? record.name ?? record.text ?? null);
   }
   return parsed;
+}
+
+function isBonusSplitSelection(instance: Pick<ApprovalInstance, 'processCode' | 'formComponentValues'>): boolean {
+  if (String(instance.processCode || '').trim() !== BONUS_SPLIT_PROCESS_CODE) return false;
+  const field = (instance.formComponentValues || []).find((item) => {
+    const name = String(item?.name || '');
+    return name.includes('管理支出') || name.includes('Gastos de operación');
+  });
+  const value = scalarValue(field?.value);
+  return /奖金|Bonificaciones/i.test(String(value || ''));
 }
 
 function relatedApprovalLinks(field: FormComponentValue | null): MonthlySettlementLinkData[] {
@@ -321,6 +337,17 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     dbColumn: 'salaryByDepartment',
   },
   {
+    label: '奖金',
+    labelEs: 'Bonificaciones',
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    requiresCompletedApproved: true,
+    tableFieldId: '',
+    tableFieldName: '奖金明细',
+    moneyFieldId: '',
+    textFieldId: null,
+    dbColumn: 'bonusByDepartment',
+  },
+  {
     label: '社保公积金',
     tableFieldId: 'TableField_G2ELEALN0S80',
     moneyFieldId: 'MoneyField_X5KBWAODJ1S0',
@@ -334,17 +361,14 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     textFieldId: null,
     dbColumn: 'officeSpaceByDepartment',
   },
-  {
-    label: 'IT运维费用',
-    labelEs: 'Gastos de operación de TI',
-    matchAdministrativeExpense: true,
-    tableFieldId: '',
-    tableFieldName: 'IT运维费用明细',
-    moneyFieldId: '',
-    textFieldId: null,
-    dbColumn: 'itOperationByDepartment',
-  },
 ];
+
+function isCompletedApprovedInstance(
+  instance?: Pick<ApprovalInstance, 'status' | 'result'>,
+): boolean {
+  return String(instance?.status || '').trim().toUpperCase() === 'COMPLETED'
+    && COMPLETED_APPROVAL_RESULTS.includes(completedApprovalResult(instance));
+}
 
 export class ApprovalProcessor {
   constructor(private readonly departmentSnapshotLookup: DepartmentSnapshotLookup = approvalSource) {}
@@ -435,7 +459,6 @@ export class ApprovalProcessor {
       return null;
     }
 
-    // 解析每一行数据
     const rows: Array<{
       department: string;
       departmentId: string | null;
@@ -444,29 +467,69 @@ export class ApprovalProcessor {
       note: string;
     }> = [];
 
-    // 优先使用 details 字段（新版钉钉 API 格式）
-    if (tableField.details && Array.isArray(tableField.details)) {
-      for (const row of tableField.details) {
-        if (!Array.isArray(row)) continue;
+    const isDepartmentCell = (cell: FormComponentValue, cellId: string): boolean => {
+      const componentType = String(cell.componentType || '').toLowerCase();
+      const name = String(cell.name || '').toLowerCase();
+      return cellId.startsWith('DepartmentField_')
+        || componentType.includes('departmentfield')
+        || /部门|department|departamento/.test(name);
+    };
+    const isMoneyCell = (cell: FormComponentValue, cellId: string): boolean => {
+      if (moneyFieldId) return cellId === moneyFieldId;
+      const componentType = String(cell.componentType || '').toLowerCase();
+      const name = String(cell.name || '').toLowerCase();
+      return cellId.startsWith('MoneyField_')
+        || componentType.includes('moneyfield')
+        || (componentType.includes('numberfield') && /金额|amount|importe|monto|total|奖金|bonific/.test(name))
+        || /金额|amount|importe|monto/.test(name);
+    };
+    const isNoteCell = (cell: FormComponentValue, cellId: string): boolean => {
+      if (textFieldId) return cellId === textFieldId;
+      const componentType = String(cell.componentType || '').toLowerCase();
+      const name = String(cell.name || '').toLowerCase();
+      return cellId.startsWith('TextField_')
+        || componentType.includes('textfield')
+        || /说明|备注|note|description|concepto/.test(name);
+    };
+
+    const parseRows = (rawRows: unknown): void => {
+      if (!Array.isArray(rawRows)) return;
+      for (const rawRow of rawRows as unknown[]) {
+        const row: unknown[] | null = Array.isArray(rawRow)
+          ? rawRow
+          : rawRow && typeof rawRow === 'object' && Array.isArray(
+              (rawRow as Record<string, unknown>).rowValue
+                ?? (rawRow as Record<string, unknown>).values
+                ?? (rawRow as Record<string, unknown>).value
+            )
+            ? (
+                (rawRow as Record<string, unknown>).rowValue
+                  ?? (rawRow as Record<string, unknown>).values
+                  ?? (rawRow as Record<string, unknown>).value
+              ) as unknown[]
+            : null;
+        if (!row) continue;
 
         let department = '';
         let departmentId: string | null = null;
         let amount = 0;
         let note = '';
 
-        for (const cell of row) {
-          const cellId = String(cell.id || '');
-          if (cellId.startsWith('DepartmentField_')) {
-            department = String(cell.value || '').trim();
-            departmentId = extractDepartmentId(cell.extendValue ?? cell.extValue);
-          } else if (cellId === moneyFieldId || (!moneyFieldId && cellId.startsWith('MoneyField_'))) {
-            amount = this.normalizeNumber(cell.value) || 0;
-          } else if ((textFieldId && cellId === textFieldId) || (!textFieldId && cellId.startsWith('TextField_'))) {
-            note = String(cell.value || '').trim();
+        for (const rawCell of row) {
+          if (!rawCell || typeof rawCell !== 'object') continue;
+          const cell = rawCell as FormComponentValue;
+          const cellId = String(cell.id ?? cell.key ?? '');
+          const cellValue = scalarValue(cell.value);
+          if (isDepartmentCell(cell, cellId)) {
+            department = String(cellValue || '').trim();
+            departmentId = extractDepartmentId(cell.extendValue ?? cell.extValue ?? cell.value);
+          } else if (isMoneyCell(cell, cellId)) {
+            amount = this.normalizeNumber(cellValue) || 0;
+          } else if (isNoteCell(cell, cellId)) {
+            note = String(cellValue || '').trim();
           }
         }
 
-        // 只添加有部门和金额的有效行
         if (department && amount > 0) {
           rows.push({
             department,
@@ -477,50 +540,12 @@ export class ApprovalProcessor {
           });
         }
       }
-    }
-    // 如果 details 不存在，尝试解析 value 字段（旧版钉钉 API 格式）
-    else if (tableField.value && typeof tableField.value === 'string') {
-      try {
-        const parsed = JSON.parse(tableField.value);
-        if (Array.isArray(parsed)) {
-          for (const row of parsed) {
-            if (!row || !Array.isArray(row.rowValue)) continue;
+    };
 
-            let department = '';
-            let departmentId: string | null = null;
-            let amount = 0;
-            let note = '';
-
-            for (const cell of row.rowValue) {
-              const cellKey = String(cell.key || '');
-              if (cellKey.startsWith('DepartmentField_')) {
-                department = String(cell.value || '').trim();
-                departmentId = extractDepartmentId(cell.extendValue ?? cell.extValue);
-              } else if (cellKey === moneyFieldId || (!moneyFieldId && cellKey.startsWith('MoneyField_'))) {
-                amount = this.normalizeNumber(cell.value) || 0;
-              } else if ((textFieldId && cellKey === textFieldId) || (!textFieldId && cellKey.startsWith('TextField_'))) {
-                note = String(cell.value || '').trim();
-              }
-            }
-
-            // 只添加有部门和金额的有效行
-            if (department && amount > 0) {
-              rows.push({
-                department,
-                departmentId,
-                departmentSource: departmentId ? 'id' : 'name_only',
-                amount,
-                note,
-              });
-            }
-          }
-        }
-      } catch (e) {
-        // JSON 解析失败，返回 null
-        logger.warn(`Failed to parse TableField value: ${e}`);
-        return null;
-      }
-    }
+    // 钉钉新接口通常给 details，旧接口把行数组 JSON 编码在 value 中。
+    parseRows(Array.isArray(tableField.details) && tableField.details.length > 0
+      ? tableField.details
+      : parseJsonValue(tableField.value));
 
     return rows.length > 0 ? rows : null;
   }
@@ -528,6 +553,7 @@ export class ApprovalProcessor {
   async enrichOperationDepartmentPaths(data: Record<string, unknown>): Promise<void> {
     const splitFields = [
       'salaryByDepartment',
+      'bonusByDepartment',
       'socialInsuranceByDepartment',
       'officeSpaceByDepartment',
       'individualIncomeTaxByDepartment',
@@ -709,7 +735,8 @@ export class ApprovalProcessor {
   // 解析运营支出全部字段（写入 approval_expense_operation）
   parseOperationExpenseData(
     formComponentValues?: FormComponentValue[],
-    instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName'>
+    instance?: Pick<ApprovalInstance, 'originatorDeptId' | 'originatorDeptName' | 'status' | 'result'>
+      & { processCode?: string },
   ): Record<string, unknown> {
     const fc = formComponentValues;
     const applicantDepartmentIdentity = parseApplicantDepartmentIdentity(fc, instance);
@@ -731,7 +758,9 @@ export class ApprovalProcessor {
       const matchesAdministrativeExpense = cfg.matchAdministrativeExpense && (
         administrativeExpenseStr.includes(cfg.label) || (cfg.labelEs ? administrativeExpenseStr.includes(cfg.labelEs) : false)
       );
-      const matches = matchesOperationExpense || matchesAdministrativeExpense;
+      const matchesProcess = !cfg.processCode || cfg.processCode === String(instance?.processCode || '').trim();
+      const matchesApproval = !cfg.requiresCompletedApproved || isCompletedApprovedInstance(instance);
+      const matches = (matchesOperationExpense || matchesAdministrativeExpense) && matchesProcess && matchesApproval;
       if (matches && (cfg.tableFieldId || cfg.tableFieldName)) {
         deptSplitResults[cfg.dbColumn] = this.extractTableFieldData(
           fc, cfg.tableFieldId, cfg.moneyFieldId, cfg.textFieldId, cfg.tableFieldName
@@ -797,6 +826,7 @@ export class ApprovalProcessor {
       serviceEntityExpected: hasServiceEntityField(fc),
       correspondingDepartment: extractCorrespondingDepartment(fc),
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
+      bonusByDepartment: deptSplitResults.bonusByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
       individualIncomeTaxByDepartment,
@@ -997,7 +1027,7 @@ export class ApprovalProcessor {
       const processKind = getProcessKind(instance.processCode, config.dingtalk);
 
       if (processKind === 'operation') {
-        const opData = this.parseOperationExpenseData(instance.formComponentValues, instance);
+        let opData = this.parseOperationExpenseData(instance.formComponentValues, instance);
         const operationRouteStatus = await routeByServiceEntity(opData, this.serviceEntityDepartmentLookup());
         if (operationRouteStatus === 'unresolved') {
           logger.warn(`服务主体无法唯一归属，保留待确认: businessId=${businessId}, serviceEntity=${String(opData.serviceEntity || '')}, correspondingDepartment=${String(opData.correspondingDepartment || '')}`);
@@ -1036,7 +1066,7 @@ export class ApprovalProcessor {
         }
         await recordExplicitPaymentEvents(instance, 'operation', opCurrency, deptSplits.length > 0, opAmount);
       } else if (processKind === 'purchase') {
-        const pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
+        let pData = this.parsePurchaseExpenseData(instance.formComponentValues, instance);
         const purchaseRouteStatus = await routeByServiceEntity(pData, this.serviceEntityDepartmentLookup());
         if (purchaseRouteStatus === 'unresolved') {
           logger.warn(`服务主体无法唯一归属，保留待确认: businessId=${businessId}, serviceEntity=${String(pData.serviceEntity || '')}, correspondingDepartment=${String(pData.correspondingDepartment || '')}`);

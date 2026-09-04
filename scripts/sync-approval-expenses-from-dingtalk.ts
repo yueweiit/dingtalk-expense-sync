@@ -309,7 +309,10 @@ async function main(): Promise<void> {
             (instance as unknown as ApprovalInstance).formComponentValues,
             instance as unknown as ApprovalInstance,
           )
-          : processor.parseOperationExpenseData((instance as unknown as ApprovalInstance).formComponentValues);
+          : processor.parseOperationExpenseData(
+            (instance as unknown as ApprovalInstance).formComponentValues,
+            instance as unknown as ApprovalInstance,
+          );
       const departmentText = getDepartmentText(instance, previewData).toLowerCase();
       if (departmentFilter && !departmentText.includes(departmentFilter)) {
         skipped++;

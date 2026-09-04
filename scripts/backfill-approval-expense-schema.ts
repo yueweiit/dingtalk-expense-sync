@@ -245,9 +245,17 @@ async function parseRow(row: Record<string, unknown>): Promise<Record<string, un
 
   const typeText = norm(row.process_type);
   const isPurchase = typeText.includes(norm('采购')) || typeText.includes('purchase');
+  // 数据库回填时以 approval_instances.process_code 为流程码权威来源。
+  // raw_data 可能是旧载荷，不能仅依赖其中是否保存了 processCode。
+  const parserInstance = {
+    ...raw,
+    processCode: compact(row.process_code, 64) || compact(raw.processCode, 64) || undefined,
+    originatorDeptId: raw.originatorDeptId || row.originator_dept_id || undefined,
+    originatorDeptName: raw.originatorDeptName || row.originator_dept_name || undefined,
+  };
   const parsedFormData = isPurchase
-    ? processor.parsePurchaseExpenseData(components as any, raw as any)
-    : processor.parseOperationExpenseData(components as any, raw as any);
+    ? processor.parsePurchaseExpenseData(components as any, parserInstance as any)
+    : processor.parseOperationExpenseData(components as any, parserInstance as any);
 
   // 通用字段
   const common: Record<string, unknown> = {

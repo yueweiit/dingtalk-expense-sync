@@ -20,7 +20,7 @@ interface InstanceIdWithMeta {
   processCode: string;
 }
 
-type OperationSplitType = 'salary' | 'social_insurance' | 'office_space' | 'individual_income_tax' | 'it_operation';
+type OperationSplitType = 'salary' | 'bonus' | 'social_insurance' | 'office_space' | 'individual_income_tax';
 
 interface OperationSplitSyncOptions {
   startTime: string | number;
@@ -50,6 +50,11 @@ const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelE
     labelEs: 'Salario en China',
     dbColumn: 'salaryByDepartment',
   },
+  bonus: {
+    label: '奖金',
+    labelEs: 'Bonificaciones',
+    dbColumn: 'bonusByDepartment',
+  },
   social_insurance: {
     label: '社保公积金',
     dbColumn: 'socialInsuranceByDepartment',
@@ -63,11 +68,6 @@ const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelE
     labelEs: 'Impuesto sobre la renta',
     dbColumn: 'individualIncomeTaxByDepartment',
     sourceField: 'taxExpense',
-  },
-  it_operation: {
-    label: 'IT运维费用',
-    labelEs: 'Gastos de operación de TI',
-    dbColumn: 'itOperationByDepartment',
   },
 };
 
@@ -146,7 +146,7 @@ class Scheduler {
   normalizeSplitTypes(splitTypes?: OperationSplitType[]): OperationSplitType[] {
     const requested = Array.isArray(splitTypes) && splitTypes.length > 0
       ? splitTypes
-      : (['salary', 'social_insurance', 'office_space', 'individual_income_tax', 'it_operation'] as OperationSplitType[]);
+      : (['salary', 'bonus', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
     const validTypes = new Set(Object.keys(OPERATION_SPLIT_CONFIG));
     for (const type of requested) {
       if (!validTypes.has(type)) {
@@ -156,12 +156,21 @@ class Scheduler {
     return [...new Set(requested)];
   }
 
-  findMatchedSplitTypes(parsedData: Record<string, unknown>, splitTypes: OperationSplitType[]): OperationSplitType[] {
+  findMatchedSplitTypes(
+    parsedData: Record<string, unknown>,
+    splitTypes: OperationSplitType[],
+    processCode?: string,
+  ): OperationSplitType[] {
     return splitTypes.filter((type) => {
       const configItem = OPERATION_SPLIT_CONFIG[type];
       const text = String(parsedData[configItem.sourceField || 'operationExpense'] || '');
-      return text.includes(configItem.label) ||
+      const matchesLabel = text.includes(configItem.label) ||
         Boolean(configItem.labelEs && text.includes(configItem.labelEs));
+      if (type !== 'bonus') return matchesLabel;
+      return matchesLabel
+        && Array.isArray(parsedData.bonusByDepartment)
+        && parsedData.bonusByDepartment.length > 0
+        && String(processCode || '').trim() === 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B';
     });
   }
 
@@ -533,10 +542,10 @@ class Scheduler {
       failed: 0,
       splitCounts: {
         salary: 0,
+        bonus: 0,
         social_insurance: 0,
         office_space: 0,
         individual_income_tax: 0,
-        it_operation: 0,
       },
       failures: [],
     };
@@ -572,9 +581,10 @@ class Scheduler {
             instance.processType = instance.processType || this.getProcessType(item.processCode);
 
             const parsedData = processor.parseOperationExpenseData(
-              (instance as unknown as import('./processor.js').ApprovalInstance).formComponentValues
+              (instance as unknown as import('./processor.js').ApprovalInstance).formComponentValues,
+              instance as unknown as import('./processor.js').ApprovalInstance,
             );
-            const matchedTypes = this.findMatchedSplitTypes(parsedData, splitTypes);
+            const matchedTypes = this.findMatchedSplitTypes(parsedData, splitTypes, String(instance.processCode || ''));
             if (matchedTypes.length === 0) {
               summary.skipped++;
               await approvalSource.sleep(120);

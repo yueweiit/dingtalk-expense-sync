@@ -86,6 +86,28 @@ function runningSalaryOperation(businessId) {
   };
 }
 
+function runningBonusOperation(businessId) {
+  return {
+    ...runningOperation(businessId),
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    formComponentValues: [
+      { componentType: 'DepartmentField', value: '测试部门' },
+      { name: '管理支出Gastos de operación', value: '奖金 Bonificaciones' },
+      { name: '金额importe', value: '100' },
+      { name: '币种Moneda', value: '人民币RMB' },
+      {
+        componentType: 'TableField',
+        id: 'TableField_bonus',
+        name: '奖金明细 Bonificaciones',
+        details: [[
+          { id: 'DepartmentField_ROW1', value: '测试部门' },
+          { id: 'NumberField_bonus', name: '奖金金额 Importe', value: '100' },
+        ]],
+      },
+    ],
+  };
+}
+
 test('records an authorized payment event once and does not create another on completion', async () => {
   const businessId = `test-payment-event-processor-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();
@@ -140,6 +162,23 @@ test('does not create a pending payment event for an operation with department s
   await database.ensureApprovalExpenseSchema();
   try {
     await processor.processInstance(runningSalaryOperation(businessId));
+    const result = await pool.query(
+      'select count(*)::int as count from approval_expense_payment_events where business_id = $1',
+      [businessId]
+    );
+    assert.equal(result.rows[0].count, 0);
+  } finally {
+    await pool.query('delete from approval_expense_payment_events where business_id = $1', [businessId]);
+    await pool.query('delete from approval_expense_dept_split where business_id = $1', [businessId]);
+    await pool.query('delete from approval_expense_operation where business_id = $1', [businessId]);
+  }
+});
+
+test('does not create a pending payment event for the designated bonus form', async () => {
+  const businessId = `test-payment-event-bonus-${Date.now()}`;
+  await database.ensureApprovalExpenseSchema();
+  try {
+    await processor.processInstance(runningBonusOperation(businessId));
     const result = await pool.query(
       'select count(*)::int as count from approval_expense_payment_events where business_id = $1',
       [businessId]

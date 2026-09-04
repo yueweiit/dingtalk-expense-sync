@@ -57,7 +57,7 @@ test('does not parse the tax detail table for other tax types', () => {
   assert.equal(parsed.individualIncomeTaxByDepartment, null);
 });
 
-test('parses IT operation detail rows by table name and dynamic row fields', () => {
+test('treats the retired IT operation detail as an ordinary expense', () => {
   const parsed = processor.parseOperationExpenseData([
     { name: '管理支出', value: 'IT运维费用' },
     {
@@ -71,16 +71,11 @@ test('parses IT operation detail rows by table name and dynamic row fields', () 
     },
   ]);
 
-  assert.deepEqual(parsed.itOperationByDepartment, [{
-    department: '信息技术部',
-    departmentId: null,
-    departmentSource: 'name_only',
-    amount: 876.5,
-    note: '服务器维护',
-  }]);
+  assert.equal(parsed.itOperationByDepartment, null);
+  assert.deepEqual(collectOperationDeptSplits(parsed), []);
 });
 
-test('parses IT operation rows when the form uses the management-expense child field', () => {
+test('does not parse the retired IT operation detail from the management-expense child field', () => {
   const parsed = processor.parseOperationExpenseData([
     { name: '管理支出Gastos de operación', value: '管理费用Gastos administrativos' },
     { name: '管理费用Gastos administrativos', value: 'IT运维费用' },
@@ -113,20 +108,6 @@ test('parses IT operation rows when the form uses the management-expense child f
   ]);
 
   assert.equal(parsed.administrativeExpense, 'IT运维费用');
-  assert.deepEqual(parsed.itOperationByDepartment, [
-    {
-      department: '产品&开发Departamento de Producto y Desarrollo',
-      departmentId: '1089533879',
-      departmentSource: 'id',
-      amount: 123,
-      note: '',
-    },
-    {
-      department: 'HR人力资源中心Centro de Recursos Humanos (RRHH)',
-      departmentId: '1089765983',
-      departmentSource: 'id',
-      amount: 321,
-      note: '',
-    },
-  ]);
+  assert.equal(parsed.itOperationByDepartment, null);
+  assert.deepEqual(collectOperationDeptSplits(parsed), []);
 });
