@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     SELECT business_id, paid_at, source_hash
     FROM approval_expense_payment_events
     WHERE status = 'confirmed'
-      AND source_type = 'comment_explicit_amount'
+      AND source_type IN ('comment_explicit_amount', 'fully_deducted')
       AND rule_version = $1
   `, [PAYMENT_EVENT_RULE_VERSION]);
   const existingKeys = new Set(existingResult.rows.map((event) =>
@@ -123,7 +123,7 @@ async function main(): Promise<void> {
       amount: review.amount,
       baseCurrencyAmount,
       currency,
-      sourceType: 'comment_explicit_amount' as const,
+      sourceType: comment.sourceType,
       ruleVersion: PAYMENT_EVENT_RULE_VERSION,
       sourceUserId: comment.sourceUserId,
       sourceHash: review.sourceHash,

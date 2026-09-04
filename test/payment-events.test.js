@@ -88,6 +88,36 @@ test('uses the form amount for an authorized paid comment without an amount', ()
   assert.equal(events[0].amountSource, 'form_amount_fallback');
 });
 
+test('treats an authorized fully deducted comment as a zero-amount terminal fact', () => {
+  const events = extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: authorizedUserIds[0],
+    remark: '已全额抵扣',
+  }], 200);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].amount, 0);
+  assert.equal(events[0].amountSource, 'fully_deducted');
+  assert.equal(events[0].sourceType, 'fully_deducted');
+  assert.equal(events[0].phrase, 'fully_deducted');
+});
+
+test('does not treat a fully deducted phrase from an unauthorized commenter as a fact', () => {
+  assert.deepEqual(extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: 'not-authorized',
+    remark: '已全额抵扣',
+  }], 200), []);
+});
+
+test('does not mix fully deducted and ordinary payment language', () => {
+  assert.deepEqual(extract([{
+    date: '2026-08-05T09:00:00+08:00',
+    userId: authorizedUserIds[0],
+    remark: '已全额抵扣，已支付100元',
+  }], 200), []);
+});
+
 test('does not use the form amount for a partial payment without an amount', () => {
   assert.deepEqual(extract([{
     date: '2026-08-05T09:00:00+08:00',

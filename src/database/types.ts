@@ -195,7 +195,7 @@ export interface PaymentEventData {
   amount: number;
   baseCurrencyAmount?: number | null;
   currency?: string | null;
-  sourceType: 'comment_explicit_amount' | 'manual_confirmed';
+  sourceType: 'comment_explicit_amount' | 'fully_deducted' | 'manual_confirmed';
   ruleVersion: string;
   sourceUserId?: string | null;
   sourceHash: string;

@@ -20,7 +20,7 @@ const PAYMENT_EVENT_FILTER = `
   AND event.status = 'confirmed'
   AND (
     (event.rule_version = 'authorized-comment-v1'
-      AND event.source_type = 'comment_explicit_amount'
+      AND event.source_type IN ('comment_explicit_amount', 'fully_deducted')
       AND event.source_user_id IN (${AUTHORIZED_PAYMENT_EVENT_USER_SQL}))
     OR (
       event.rule_version = 'manual-confirmed-v1'

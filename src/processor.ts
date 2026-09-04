@@ -112,11 +112,13 @@ export async function recordExplicitPaymentEvents(
   const events = [];
   for (const comment of comments) {
     const currency = comment.currency || (formCurrency == null ? null : String(formCurrency));
-    const baseCurrencyAmount = await convertAmountToCny({
-      amount: comment.amount,
-      currencyLabel: currency,
-      createTime: comment.paidAt,
-    });
+    const baseCurrencyAmount = comment.sourceType === 'fully_deducted'
+      ? 0
+      : await convertAmountToCny({
+        amount: comment.amount,
+        currencyLabel: currency,
+        createTime: comment.paidAt,
+      });
     events.push({
       businessId: instance.businessId,
       processInstanceId: instance.processInstanceId == null ? null : String(instance.processInstanceId),
@@ -125,7 +127,7 @@ export async function recordExplicitPaymentEvents(
       amount: comment.amount,
       baseCurrencyAmount,
       currency,
-      sourceType: 'comment_explicit_amount' as const,
+      sourceType: comment.sourceType,
       ruleVersion: PAYMENT_EVENT_RULE_VERSION,
       sourceUserId: comment.sourceUserId,
       sourceHash: comment.sourceHash,
