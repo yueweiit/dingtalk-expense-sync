@@ -58,6 +58,7 @@ export const approvalExpenseOperation = pgTable('approval_expense_operation', {
   creatorDepartment: varchar('creator_department', { length: 500 }),
   salaryByDepartment: jsonb('salary_by_department'),
   bonusByDepartment: jsonb('bonus_by_department'),
+  officeEquipmentByDepartment: jsonb('office_equipment_by_department'),
   socialInsuranceByDepartment: jsonb('social_insurance_by_department'),
   officeSpaceByDepartment: jsonb('office_space_by_department'),
   individualIncomeTaxByDepartment: jsonb('individual_income_tax_by_department'),

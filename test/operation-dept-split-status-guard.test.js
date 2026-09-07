@@ -30,11 +30,13 @@ test('collectOperationDeptSplits converts configured split arrays and ignores em
   assert.deepEqual(
     collectOperationDeptSplits({
       salaryByDepartment: [{ department: '设计部', amount: 100, note: '工资' }],
+      officeEquipmentByDepartment: [{ department: '行政部', amount: 150, note: '办公设备' }],
       socialInsuranceByDepartment: [{ department: '人事部', amount: 200 }],
       officeSpaceByDepartment: [{ department: '行政部', amount: 300 }],
     }),
     [
       { splitType: 'salary', department: '设计部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 100, note: '工资' },
+      { splitType: 'office_equipment', department: '行政部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 150, note: '办公设备' },
       { splitType: 'social_insurance', department: '人事部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 200, note: undefined },
       { splitType: 'office_space', department: '行政部', departmentId: null, departmentSource: 'name_only', departmentPathIds: null, departmentPathNames: null, amount: 300, note: undefined },
     ]
@@ -43,6 +45,7 @@ test('collectOperationDeptSplits converts configured split arrays and ignores em
   assert.deepEqual(
     collectOperationDeptSplits({
       salaryByDepartment: null,
+      officeEquipmentByDepartment: null,
       socialInsuranceByDepartment: null,
       officeSpaceByDepartment: null,
     }),

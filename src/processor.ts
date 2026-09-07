@@ -341,6 +341,21 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     dbColumn: 'salaryByDepartment',
   },
   {
+    label: '办公设备的购置、维修或租赁费',
+    labelEs: 'Gastos de adquisición, reparación o alquiler de equipos de oficina',
+    labelAliases: ['Gastos de adquisicion, reparacion o alquiler de equipos de oficina'],
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    requiresCompletedApproved: true,
+    matchAdministrativeExpense: true,
+    // The office-equipment allocation uses the dedicated rental-detail table.
+    // Its nested IDs are independent from the China-salary table.
+    tableFieldId: '',
+    tableFieldNames: ['租赁明细'],
+    moneyFieldId: '',
+    textFieldId: null,
+    dbColumn: 'officeEquipmentByDepartment',
+  },
+  {
     label: '备用金',
     labelAliases: ['奖金', 'Bonificaciones'],
     processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
@@ -558,6 +573,7 @@ export class ApprovalProcessor {
     const splitFields = [
       'salaryByDepartment',
       'bonusByDepartment',
+      'officeEquipmentByDepartment',
       'socialInsuranceByDepartment',
       'officeSpaceByDepartment',
       'individualIncomeTaxByDepartment',
@@ -835,6 +851,7 @@ export class ApprovalProcessor {
       correspondingDepartment: extractCorrespondingDepartment(fc),
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
       bonusByDepartment: deptSplitResults.bonusByDepartment ?? null,
+      officeEquipmentByDepartment: deptSplitResults.officeEquipmentByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,
       individualIncomeTaxByDepartment,

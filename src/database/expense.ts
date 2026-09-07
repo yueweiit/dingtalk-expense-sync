@@ -166,6 +166,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
     creatorDepartment: data.creatorDepartment?.substring(0, 500) || null,
     salaryByDepartment: data.salaryByDepartment ?? null,
     bonusByDepartment: data.bonusByDepartment ?? null,
+    officeEquipmentByDepartment: data.officeEquipmentByDepartment ?? null,
     socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
     officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
     individualIncomeTaxByDepartment: data.individualIncomeTaxByDepartment ?? null,
@@ -228,6 +229,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
       creatorDepartment: sql`EXCLUDED.creator_department`,
       salaryByDepartment: sql`EXCLUDED.salary_by_department`,
       bonusByDepartment: sql`EXCLUDED.bonus_by_department`,
+      officeEquipmentByDepartment: sql`EXCLUDED.office_equipment_by_department`,
       socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
       officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
       individualIncomeTaxByDepartment: sql`EXCLUDED.individual_income_tax_by_department`,
@@ -653,6 +655,7 @@ export async function replaceDeptSplitsForBusiness(
 function parseSplitsFromJsonb(row: {
   salaryByDepartment: unknown;
   bonusByDepartment: unknown;
+  officeEquipmentByDepartment: unknown;
   socialInsuranceByDepartment: unknown;
   officeSpaceByDepartment: unknown;
   individualIncomeTaxByDepartment: unknown;
@@ -662,6 +665,7 @@ function parseSplitsFromJsonb(row: {
   const mapping: Array<{ key: keyof typeof row; type: DeptSplitRow['splitType'] }> = [
     { key: 'salaryByDepartment', type: 'salary' },
     { key: 'bonusByDepartment', type: 'bonus' },
+    { key: 'officeEquipmentByDepartment', type: 'office_equipment' },
     { key: 'socialInsuranceByDepartment', type: 'social_insurance' },
     { key: 'officeSpaceByDepartment', type: 'office_space' },
     { key: 'individualIncomeTaxByDepartment', type: 'individual_income_tax' },
@@ -761,6 +765,7 @@ export async function upsertOperationExpenseWithSplits(
       creatorDepartment: data.creatorDepartment?.substring(0, 500) || null,
       salaryByDepartment: data.salaryByDepartment ?? null,
       bonusByDepartment: data.bonusByDepartment ?? null,
+      officeEquipmentByDepartment: data.officeEquipmentByDepartment ?? null,
       socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
       individualIncomeTaxByDepartment: data.individualIncomeTaxByDepartment ?? null,
@@ -824,6 +829,7 @@ export async function upsertOperationExpenseWithSplits(
         creatorDepartment: sql`EXCLUDED.creator_department`,
         salaryByDepartment: sql`EXCLUDED.salary_by_department`,
         bonusByDepartment: sql`EXCLUDED.bonus_by_department`,
+        officeEquipmentByDepartment: sql`EXCLUDED.office_equipment_by_department`,
         socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
         officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
         individualIncomeTaxByDepartment: sql`EXCLUDED.individual_income_tax_by_department`,
@@ -854,6 +860,7 @@ export async function rebuildDeptSplits(businessId: string): Promise<number> {
     rawData: approvalExpenseOperation.rawData,
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     bonusByDepartment: approvalExpenseOperation.bonusByDepartment,
+    officeEquipmentByDepartment: approvalExpenseOperation.officeEquipmentByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
     individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
@@ -877,6 +884,7 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
     rawData: approvalExpenseOperation.rawData,
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     bonusByDepartment: approvalExpenseOperation.bonusByDepartment,
+    officeEquipmentByDepartment: approvalExpenseOperation.officeEquipmentByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
     individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
@@ -884,6 +892,7 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
   }).from(approvalExpenseOperation)
     .where(sql`(${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.bonusByDepartment} IS NOT NULL
+              OR ${approvalExpenseOperation.officeEquipmentByDepartment} IS NOT NULL
             OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.individualIncomeTaxByDepartment} IS NOT NULL
@@ -914,6 +923,7 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
     rawData: approvalExpenseOperation.rawData,
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     bonusByDepartment: approvalExpenseOperation.bonusByDepartment,
+    officeEquipmentByDepartment: approvalExpenseOperation.officeEquipmentByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
     individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
@@ -922,6 +932,7 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
     .where(sql`(
               (${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.bonusByDepartment} IS NOT NULL
+             OR ${approvalExpenseOperation.officeEquipmentByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.individualIncomeTaxByDepartment} IS NOT NULL

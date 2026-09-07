@@ -86,6 +86,7 @@ export interface OperationExpenseData {
   creatorDepartment?: string | null;
   salaryByDepartment?: DepartmentSplitValue[] | null;
   bonusByDepartment?: DepartmentSplitValue[] | null;
+  officeEquipmentByDepartment?: DepartmentSplitValue[] | null;
   socialInsuranceByDepartment?: DepartmentSplitValue[] | null;
   officeSpaceByDepartment?: DepartmentSplitValue[] | null;
   individualIncomeTaxByDepartment?: DepartmentSplitValue[] | null;
@@ -222,7 +223,7 @@ export interface DepartmentSplitValue {
 }
 
 export interface DeptSplitRow extends DepartmentSplitValue {
-  splitType: 'salary' | 'bonus' | 'social_insurance' | 'office_space' | 'individual_income_tax' | 'it_operation' | 'manual_company_allocation';
+  splitType: 'salary' | 'bonus' | 'office_equipment' | 'social_insurance' | 'office_space' | 'individual_income_tax' | 'it_operation' | 'manual_company_allocation';
 }
 
 export interface FxRateRow {

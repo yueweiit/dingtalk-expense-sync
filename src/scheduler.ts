@@ -20,7 +20,7 @@ interface InstanceIdWithMeta {
   processCode: string;
 }
 
-type OperationSplitType = 'salary' | 'bonus' | 'social_insurance' | 'office_space' | 'individual_income_tax';
+type OperationSplitType = 'salary' | 'bonus' | 'office_equipment' | 'social_insurance' | 'office_space' | 'individual_income_tax';
 
 interface OperationSplitSyncOptions {
   startTime: string | number;
@@ -54,6 +54,12 @@ const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelE
     label: '备用金',
     labelAliases: ['奖金', 'Bonificaciones'],
     dbColumn: 'bonusByDepartment',
+  },
+  office_equipment: {
+    label: '办公设备的购置、维修或租赁费',
+    labelEs: 'Gastos de adquisición, reparación o alquiler de equipos de oficina',
+    dbColumn: 'officeEquipmentByDepartment',
+    sourceField: 'administrativeExpense',
   },
   social_insurance: {
     label: '社保公积金',
@@ -146,7 +152,7 @@ class Scheduler {
   normalizeSplitTypes(splitTypes?: OperationSplitType[]): OperationSplitType[] {
     const requested = Array.isArray(splitTypes) && splitTypes.length > 0
       ? splitTypes
-      : (['salary', 'bonus', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
+      : (['salary', 'bonus', 'office_equipment', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
     const validTypes = new Set(Object.keys(OPERATION_SPLIT_CONFIG));
     for (const type of requested) {
       if (!validTypes.has(type)) {
@@ -166,10 +172,11 @@ class Scheduler {
       const text = String(parsedData[configItem.sourceField || 'operationExpense'] || '');
       const labels = [configItem.label, configItem.labelEs, ...(configItem.labelAliases || [])].filter(Boolean) as string[];
       const matchesLabel = labels.some((label) => text.includes(label));
-      if (type !== 'bonus') return matchesLabel;
+      if (type !== 'bonus' && type !== 'office_equipment') return matchesLabel;
+      const rows = parsedData[configItem.dbColumn];
       return matchesLabel
-        && Array.isArray(parsedData.bonusByDepartment)
-        && parsedData.bonusByDepartment.length > 0
+        && Array.isArray(rows)
+        && rows.length > 0
         && String(processCode || '').trim() === 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B';
     });
   }
@@ -543,6 +550,7 @@ class Scheduler {
       splitCounts: {
         salary: 0,
         bonus: 0,
+        office_equipment: 0,
         social_insurance: 0,
         office_space: 0,
         individual_income_tax: 0,

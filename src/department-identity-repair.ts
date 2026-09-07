@@ -126,6 +126,7 @@ export type SplitIdentityPatch = {
 export function collectSplitIdentityPatches(data: Record<string, unknown>): SplitIdentityPatch[] {
   const splitTypes: Array<[string, string]> = [
     ['salaryByDepartment', 'salary'],
+    ['officeEquipmentByDepartment', 'office_equipment'],
     ['socialInsuranceByDepartment', 'social_insurance'],
     ['officeSpaceByDepartment', 'office_space'],
     ['individualIncomeTaxByDepartment', 'individual_income_tax'],

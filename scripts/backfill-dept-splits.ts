@@ -30,6 +30,8 @@ async function main() {
     try {
       const whereClause = isBackfill
         ? `WHERE (salary_by_department IS NOT NULL
+                OR bonus_by_department IS NOT NULL
+                OR office_equipment_by_department IS NOT NULL
                 OR social_insurance_by_department IS NOT NULL
                 OR office_space_by_department IS NOT NULL
                 OR individual_income_tax_by_department IS NOT NULL
@@ -39,6 +41,8 @@ async function main() {
              WHERE ds.business_id = approval_expense_operation.business_id
            )`
         : `WHERE salary_by_department IS NOT NULL
+              OR bonus_by_department IS NOT NULL
+              OR office_equipment_by_department IS NOT NULL
               OR social_insurance_by_department IS NOT NULL
               OR office_space_by_department IS NOT NULL
               OR individual_income_tax_by_department IS NOT NULL

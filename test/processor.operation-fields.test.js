@@ -204,6 +204,59 @@ test('parses reserve-fund department details only for the designated completed f
   ]);
 });
 
+test('parses office equipment details only for the designated completed form', () => {
+  const processor = getProcessor();
+  const components = [
+    {
+      name: '\u7ba1\u7406\u8d39\u7528Gastos administrativos',
+      value: '\u529e\u516c\u8bbe\u5907\u7684\u8d2d\u7f6e\u3001\u7ef4\u4fee\u6216\u79df\u8d41\u8d39',
+    },
+    {
+      componentType: 'TableField',
+      id: 'TableField_rental_details',
+      name: '\u79df\u8d41\u660e\u7ec6',
+      details: [[
+        { id: 'DepartmentField_office_equipment', value: '\u6d4b\u8bd5\u90e8\u95e8' },
+        { id: 'MoneyField_rental_amount', name: '\u91d1\u989d\uff08\u5143\uff09 Monto (yuan)', value: '456.78' },
+        { id: 'TextField_rental_note', name: '\u5907\u6ce8Nota', value: '\u529e\u516c\u8bbe\u5907\u62c6\u5206' },
+      ]],
+    },
+    {
+      componentType: 'TableField',
+      id: 'TableField_13B0RI3JBQXS0',
+      name: '\u5de5\u8d44\u4e2d\u56fd',
+      details: [[
+        { id: 'DepartmentField_salary', value: '\u4e0d\u5e94\u8bfb\u53d6\u90e8\u95e8' },
+        { id: 'MoneyField_T2TFVV7BXN40', value: '999.99' },
+      ]],
+    },
+  ];
+  const completed = {
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    status: 'COMPLETED',
+    result: 'AGREE',
+  };
+
+  const result = processor.parseOperationExpenseData(components, completed);
+  assert.equal(result.salaryByDepartment, null);
+  assert.deepEqual(result.officeEquipmentByDepartment, [{
+    department: '\u6d4b\u8bd5\u90e8\u95e8',
+    departmentId: null,
+    departmentSource: 'name_only',
+    amount: 456.78,
+    note: '\u529e\u516c\u8bbe\u5907\u62c6\u5206',
+  }]);
+
+  assert.equal(
+    processor.parseOperationExpenseData(components, { ...completed, status: 'RUNNING' }).officeEquipmentByDepartment,
+    null,
+  );
+  assert.equal(
+    processor.parseOperationExpenseData(components, { ...completed, processCode: 'PROC-OTHER' }).officeEquipmentByDepartment,
+    null,
+  );
+});
+
 test('resolveOperationFormName maps old and new operation process codes to stable form names', () => {
   const formSourceModule = getFormSourceModule();
   const resolveOperationFormName =

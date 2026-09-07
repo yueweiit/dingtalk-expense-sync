@@ -13,6 +13,7 @@
 - **工资分部门**：支持工资中国按部门拆分存储
 - **IT运维费用**：从新规则起，选择 IT 运维费用按普通表单处理，不再读取或生成 IT 运维费用明细拆分；历史 `it_operation` 数据仍保留并可读取
 - **指定备用金拆分**：仅流程 `PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B` 在同一个“管理支出/Gastos de operación”组件选择“备用金”，且审批已完成并通过后，读取“备用金明细”表格的部门和金额；数据结构、触发时机和工资拆分一致，其他流程的备用金按普通表单处理。为保留历史数据兼容性，重同步仍兼容旧的“奖金/Bonificaciones + 奖金明细”数据，内部继续使用既有 `bonus_by_department` 列和 `bonus` 拆分类型，不需要数据库迁移
+- **办公设备分部门拆分**：仅流程 `PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B` 在“管理费用/Gastos administrativos”选择“办公设备的购置、维修或租赁费/Gastos de adquisición, reparación o alquiler de equipos de oficina”，且审批已完成并通过后，读取“租赁明细”表格中每行的部门、金额和备注进行拆分。数据以独立的 `office_equipment_by_department` 和 `office_equipment` 类型保存，不与工资或备用金混合。
 
 ## 快速开始
 
@@ -60,6 +61,8 @@ psql -f sql/add_salary_by_department.sql
 psql -f sql/add_dept_split_columns.sql
 # 仅补充备用金兼容分部门字段时可单独执行（幂等；沿用历史 bonus 列）
 psql -f sql/add_bonus_by_department.sql
+# 办公设备分部门字段与拆分类型（幂等）
+psql -f sql/add_office_equipment_by_department.sql
 # 月结付款三张表已包含在 ensure_approval_expense_schema.sql 中
 ```
 

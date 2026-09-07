@@ -13,6 +13,7 @@ type ParsedDeptSplit = {
 type OperationDeptSplitSource = {
   salaryByDepartment?: ParsedDeptSplit[] | null;
   bonusByDepartment?: ParsedDeptSplit[] | null;
+  officeEquipmentByDepartment?: ParsedDeptSplit[] | null;
   socialInsuranceByDepartment?: ParsedDeptSplit[] | null;
   officeSpaceByDepartment?: ParsedDeptSplit[] | null;
   individualIncomeTaxByDepartment?: ParsedDeptSplit[] | null;
@@ -21,6 +22,7 @@ type OperationDeptSplitSource = {
 const SPLIT_SOURCES = [
   { key: 'salaryByDepartment', splitType: 'salary' },
   { key: 'bonusByDepartment', splitType: 'bonus' },
+  { key: 'officeEquipmentByDepartment', splitType: 'office_equipment' },
   { key: 'socialInsuranceByDepartment', splitType: 'social_insurance' },
   { key: 'officeSpaceByDepartment', splitType: 'office_space' },
   { key: 'individualIncomeTaxByDepartment', splitType: 'individual_income_tax' },
