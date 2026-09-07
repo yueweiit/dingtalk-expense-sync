@@ -44,15 +44,15 @@ interface OperationSplitSyncResult {
   failures: Array<{ processInstanceId: string; message: string }>;
 }
 
-const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelEs?: string; dbColumn: string; sourceField?: string }> = {
+const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelEs?: string; labelAliases?: string[]; dbColumn: string; sourceField?: string }> = {
   salary: {
     label: '工资中国',
     labelEs: 'Salario en China',
     dbColumn: 'salaryByDepartment',
   },
   bonus: {
-    label: '奖金',
-    labelEs: 'Bonificaciones',
+    label: '备用金',
+    labelAliases: ['奖金', 'Bonificaciones'],
     dbColumn: 'bonusByDepartment',
   },
   social_insurance: {
@@ -164,8 +164,8 @@ class Scheduler {
     return splitTypes.filter((type) => {
       const configItem = OPERATION_SPLIT_CONFIG[type];
       const text = String(parsedData[configItem.sourceField || 'operationExpense'] || '');
-      const matchesLabel = text.includes(configItem.label) ||
-        Boolean(configItem.labelEs && text.includes(configItem.labelEs));
+      const labels = [configItem.label, configItem.labelEs, ...(configItem.labelAliases || [])].filter(Boolean) as string[];
+      const matchesLabel = labels.some((label) => text.includes(label));
       if (type !== 'bonus') return matchesLabel;
       return matchesLabel
         && Array.isArray(parsedData.bonusByDepartment)

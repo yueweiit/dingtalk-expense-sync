@@ -98,9 +98,9 @@ export async function recordExplicitPaymentEvents(
   hasDepartmentSplits = false,
   formAmount?: unknown,
 ): Promise<void> {
-  // Split operation forms, including the designated bonus form, must wait for
+  // Split operation forms, including the designated reserve-fund form, must wait for
   // completion so their department splits drive reporting.
-  if (expenseKind === 'operation' && (hasDepartmentSplits || isBonusSplitSelection(instance))) return;
+  if (expenseKind === 'operation' && (hasDepartmentSplits || isReserveFundSplitSelection(instance))) return;
 
   const comments = extractExplicitPaymentComments(
     instance.operationRecords,
@@ -253,11 +253,12 @@ interface BatchProcessResult {
 interface DeptSplitTypeConfig {
   label: string;
   labelEs?: string;
+  labelAliases?: string[];
   matchAdministrativeExpense?: boolean;
   processCode?: string;
   requiresCompletedApproved?: boolean;
   tableFieldId: string;
-  tableFieldName?: string;
+  tableFieldNames?: string[];
   moneyFieldId: string;
   textFieldId: string | null;
   dbColumn: string;
@@ -273,7 +274,7 @@ const MONTHLY_SETTLEMENT_COMPONENT_IDS = Object.freeze({
   related: 'RelateField_6UB3EQG7DY80',
 });
 
-const BONUS_SPLIT_PROCESS_CODE = 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B';
+const RESERVE_FUND_SPLIT_PROCESS_CODE = 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B';
 
 function parseJsonValue(value: unknown): unknown {
   if (typeof value !== 'string') return value;
@@ -293,14 +294,15 @@ function scalarValue(value: unknown): unknown {
   return parsed;
 }
 
-function isBonusSplitSelection(instance: Pick<ApprovalInstance, 'processCode' | 'formComponentValues'>): boolean {
-  if (String(instance.processCode || '').trim() !== BONUS_SPLIT_PROCESS_CODE) return false;
+function isReserveFundSplitSelection(instance: Pick<ApprovalInstance, 'processCode' | 'formComponentValues'>): boolean {
+  if (String(instance.processCode || '').trim() !== RESERVE_FUND_SPLIT_PROCESS_CODE) return false;
   const field = (instance.formComponentValues || []).find((item) => {
     const name = String(item?.name || '');
     return name.includes('管理支出') || name.includes('Gastos de operación');
   });
   const value = scalarValue(field?.value);
-  return /奖金|Bonificaciones/i.test(String(value || ''));
+  // Legacy bonus values remain readable during historical re-sync; new forms use reserve fund.
+  return /备用金|奖金|Bonificaciones/i.test(String(value || ''));
 }
 
 function relatedApprovalLinks(field: FormComponentValue | null): MonthlySettlementLinkData[] {
@@ -339,12 +341,12 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     dbColumn: 'salaryByDepartment',
   },
   {
-    label: '奖金',
-    labelEs: 'Bonificaciones',
+    label: '备用金',
+    labelAliases: ['奖金', 'Bonificaciones'],
     processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
     requiresCompletedApproved: true,
     tableFieldId: '',
-    tableFieldName: '奖金明细',
+    tableFieldNames: ['备用金明细', '奖金明细'],
     moneyFieldId: '',
     textFieldId: null,
     dbColumn: 'bonusByDepartment',
@@ -482,7 +484,7 @@ export class ApprovalProcessor {
       const name = String(cell.name || '').toLowerCase();
       return cellId.startsWith('MoneyField_')
         || componentType.includes('moneyfield')
-        || (componentType.includes('numberfield') && /金额|amount|importe|monto|total|奖金|bonific/.test(name))
+        || (componentType.includes('numberfield') && /金额|amount|importe|monto|total|备用金|奖金|bonific/.test(name))
         || /金额|amount|importe|monto/.test(name);
     };
     const isNoteCell = (cell: FormComponentValue, cellId: string): boolean => {
@@ -756,16 +758,19 @@ export class ApprovalProcessor {
       note: string;
     }> | null> = {};
     for (const cfg of DEPT_SPLIT_TYPES) {
-      const matchesOperationExpense = opExpenseStr.includes(cfg.label) || (cfg.labelEs ? opExpenseStr.includes(cfg.labelEs) : false);
-      const matchesAdministrativeExpense = cfg.matchAdministrativeExpense && (
-        administrativeExpenseStr.includes(cfg.label) || (cfg.labelEs ? administrativeExpenseStr.includes(cfg.labelEs) : false)
-      );
+      const labels = [cfg.label, cfg.labelEs, ...(cfg.labelAliases || [])].filter(Boolean) as string[];
+      const matchesLabel = (text: string): boolean => labels.some((label) => text.includes(label));
+      const matchesOperationExpense = matchesLabel(opExpenseStr);
+      const matchesAdministrativeExpense = cfg.matchAdministrativeExpense && matchesLabel(administrativeExpenseStr);
       const matchesProcess = !cfg.processCode || cfg.processCode === String(instance?.processCode || '').trim();
       const matchesApproval = !cfg.requiresCompletedApproved || isCompletedApprovedInstance(instance);
       const matches = (matchesOperationExpense || matchesAdministrativeExpense) && matchesProcess && matchesApproval;
-      if (matches && (cfg.tableFieldId || cfg.tableFieldName)) {
+      const tableFieldName = cfg.tableFieldNames?.find((name) => fc?.some(
+        (item) => item.componentType === 'TableField' && String(item.name || '').includes(name)
+      )) || null;
+      if (matches && (cfg.tableFieldId || tableFieldName)) {
         deptSplitResults[cfg.dbColumn] = this.extractTableFieldData(
-          fc, cfg.tableFieldId, cfg.moneyFieldId, cfg.textFieldId, cfg.tableFieldName
+          fc, cfg.tableFieldId, cfg.moneyFieldId, cfg.textFieldId, tableFieldName
         );
       }
     }
@@ -799,7 +804,8 @@ export class ApprovalProcessor {
       executionRegion: this.extractFormValue(fc, '执行地区Región de ejecución') || this.extractFormValue(fc, '执行地区'),
       operationExpense: this.extractFormValue(fc, '管理支出Gastos de operación') || this.extractFormValue(fc, '管理支出'),
       employeeBenefitsExpense: this.extractFormValue(fc, '职工福利费Gastos de beneficios') || this.extractFormValue(fc, '职工福利费'),
-      bonusExpense: this.extractFormValue(fc, '奖金Bonificaciones') || this.extractFormValue(fc, '奖金'),
+      // Keep the legacy database column for compatibility; its value now comes from the reserve-fund option.
+      bonusExpense: this.extractFormValue(fc, '备用金') || this.extractFormValue(fc, '奖金Bonificaciones') || this.extractFormValue(fc, '奖金'),
       salaryExpense: this.extractFormValue(fc, '工资salario') || this.extractFormValue(fc, '工资'),
       administrativeExpense,
       vehicleUsageExpense: this.extractFormValue(fc, '车辆使用费gastos de uso') || this.extractFormValue(fc, '车辆使用费'),

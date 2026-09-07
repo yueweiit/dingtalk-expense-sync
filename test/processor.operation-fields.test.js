@@ -180,6 +180,30 @@ test('parseOperationExpenseData keeps retired bilingual platform fields empty', 
   assert.equal(result.monthlyBudgetRemainingAmount, 0);
 });
 
+test('parses reserve-fund department details only for the designated completed form', () => {
+  const processor = getProcessor();
+  const result = processor.parseOperationExpenseData([
+    { name: '管理支出Gastos de operación', value: '备用金' },
+    {
+      componentType: 'TableField',
+      id: 'TableField_reserve_fund',
+      name: '备用金明细',
+      details: [[
+        { id: 'DepartmentField_ROW1', value: '测试部门' },
+        { id: 'NumberField_reserve_fund', name: '备用金金额', value: '100' },
+      ]],
+    },
+  ], {
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    status: 'COMPLETED',
+    result: 'AGREE',
+  });
+
+  assert.deepEqual(result.bonusByDepartment, [
+    { department: '测试部门', departmentId: null, departmentSource: 'name_only', amount: 100, note: '' },
+  ]);
+});
+
 test('resolveOperationFormName maps old and new operation process codes to stable form names', () => {
   const formSourceModule = getFormSourceModule();
   const resolveOperationFormName =

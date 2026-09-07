@@ -86,22 +86,22 @@ function runningSalaryOperation(businessId) {
   };
 }
 
-function runningBonusOperation(businessId) {
+function runningReserveFundOperation(businessId) {
   return {
     ...runningOperation(businessId),
     processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
     formComponentValues: [
       { componentType: 'DepartmentField', value: '测试部门' },
-      { name: '管理支出Gastos de operación', value: '奖金 Bonificaciones' },
+      { name: '管理支出Gastos de operación', value: '备用金' },
       { name: '金额importe', value: '100' },
       { name: '币种Moneda', value: '人民币RMB' },
       {
         componentType: 'TableField',
-        id: 'TableField_bonus',
-        name: '奖金明细 Bonificaciones',
+        id: 'TableField_reserve_fund',
+        name: '备用金明细',
         details: [[
           { id: 'DepartmentField_ROW1', value: '测试部门' },
-          { id: 'NumberField_bonus', name: '奖金金额 Importe', value: '100' },
+          { id: 'NumberField_reserve_fund', name: '备用金金额', value: '100' },
         ]],
       },
     ],
@@ -174,11 +174,11 @@ test('does not create a pending payment event for an operation with department s
   }
 });
 
-test('does not create a pending payment event for the designated bonus form', async () => {
-  const businessId = `test-payment-event-bonus-${Date.now()}`;
+test('does not create a pending payment event for the designated reserve-fund form', async () => {
+  const businessId = `test-payment-event-reserve-fund-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();
   try {
-    await processor.processInstance(runningBonusOperation(businessId));
+    await processor.processInstance(runningReserveFundOperation(businessId));
     const result = await pool.query(
       'select count(*)::int as count from approval_expense_payment_events where business_id = $1',
       [businessId]
