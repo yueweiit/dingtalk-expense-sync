@@ -341,21 +341,6 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     dbColumn: 'salaryByDepartment',
   },
   {
-    label: '办公设备的购置、维修或租赁费',
-    labelEs: 'Gastos de adquisición, reparación o alquiler de equipos de oficina',
-    labelAliases: ['Gastos de adquisicion, reparacion o alquiler de equipos de oficina'],
-    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
-    requiresCompletedApproved: true,
-    matchAdministrativeExpense: true,
-    // The office-equipment allocation uses the dedicated rental-detail table.
-    // Its nested IDs are independent from the China-salary table.
-    tableFieldId: '',
-    tableFieldNames: ['租赁明细'],
-    moneyFieldId: '',
-    textFieldId: null,
-    dbColumn: 'officeEquipmentByDepartment',
-  },
-  {
     label: '备用金',
     labelAliases: ['奖金', 'Bonificaciones'],
     processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
@@ -569,11 +554,55 @@ export class ApprovalProcessor {
     return rows.length > 0 ? rows : null;
   }
 
+  private administrativeCategoryName(value: unknown): string | null {
+    const text = String(scalarValue(value) || '').trim();
+    if (!text) return null;
+    const chinesePrefix = text.match(/^[\u4e00-\u9fff0-9&()（）、，\s-]+/u)?.[0].trim();
+    return (chinesePrefix || text).slice(0, 500) || null;
+  }
+
+  private extractAdministrativeDepartmentDetails(
+    fc: FormComponentValue[] | undefined | null,
+    instance: Pick<ApprovalInstance, 'processCode' | 'status' | 'result'> | undefined,
+    operationExpense: unknown,
+    administrativeExpense: unknown,
+  ): Array<{
+    department: string;
+    departmentId: string | null;
+    departmentSource: 'id' | 'name_only';
+    amount: number;
+    note: string;
+    categoryKey: string;
+    categoryName: string;
+  }> | null {
+    const isTargetProcess = String(instance?.processCode || '').trim() === RESERVE_FUND_SPLIT_PROCESS_CODE;
+    const isAdministrative = /管理费用|gastos administrativos/i.test(String(scalarValue(operationExpense) || ''));
+    const categoryName = this.administrativeCategoryName(administrativeExpense);
+    if (!isTargetProcess || !isAdministrative || !categoryName || !isCompletedApprovedInstance(instance)) return null;
+
+    const excludedNames = ['工资中国', '薪酬税费总支出', '社保公积金', '办公场地总费用', '备用金明细', '奖金明细'];
+    const candidates = (fc || [])
+      .filter((item) => item?.componentType === 'TableField')
+      .filter((item) => !excludedNames.some((name) => String(item.name || '').includes(name)));
+    const namedCandidates = candidates.filter((item) => /管理费用|gastos administrativos|租赁明细/i.test(String(item.name || '')));
+    const parseCandidates = namedCandidates.length > 0 ? namedCandidates : candidates;
+    const parsed = parseCandidates
+      .map((table) => this.extractTableFieldData([table], String(table.id || ''), '', null, String(table.name || '') || null))
+      .filter((rows): rows is NonNullable<typeof rows> => Array.isArray(rows) && rows.length > 0);
+
+    // Only accept an unambiguous populated table. This prevents an unrelated
+    // conditional table from being silently classified as an administrative split.
+    if (parsed.length !== 1) return null;
+    const categoryKey = categoryName.replace(/\s+/g, '').toLowerCase().slice(0, 255);
+    return parsed[0].map((row) => ({ ...row, categoryKey, categoryName }));
+  }
+
   async enrichOperationDepartmentPaths(data: Record<string, unknown>): Promise<void> {
     const splitFields = [
       'salaryByDepartment',
       'bonusByDepartment',
       'officeEquipmentByDepartment',
+      'administrativeByDepartment',
       'socialInsuranceByDepartment',
       'officeSpaceByDepartment',
       'individualIncomeTaxByDepartment',
@@ -796,6 +825,12 @@ export class ApprovalProcessor {
     const individualIncomeTaxByDepartment = isIndividualIncomeTax
       ? this.extractTableFieldData(fc, '', '', null, '薪酬税费总支出')
       : null;
+    const administrativeByDepartment = this.extractAdministrativeDepartmentDetails(
+      fc,
+      instance,
+      operationExpense,
+      administrativeExpense,
+    );
 
     const monthlyBudgetRemainingAmount = this.normalizeNumber(
       this.extractFormValueExact(fc, '本月预算剩余金额')
@@ -851,6 +886,9 @@ export class ApprovalProcessor {
       correspondingDepartment: extractCorrespondingDepartment(fc),
       salaryByDepartment: deptSplitResults.salaryByDepartment ?? null,
       bonusByDepartment: deptSplitResults.bonusByDepartment ?? null,
+      // New management-fee categories share one row shape and are distinguished
+      // by categoryKey/categoryName instead of introducing a new database column.
+      administrativeByDepartment,
       officeEquipmentByDepartment: deptSplitResults.officeEquipmentByDepartment ?? null,
       socialInsuranceByDepartment: deptSplitResults.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: deptSplitResults.officeSpaceByDepartment ?? null,

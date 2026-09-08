@@ -127,6 +127,7 @@ export function collectSplitIdentityPatches(data: Record<string, unknown>): Spli
   const splitTypes: Array<[string, string]> = [
     ['salaryByDepartment', 'salary'],
     ['officeEquipmentByDepartment', 'office_equipment'],
+    ['administrativeByDepartment', 'administrative'],
     ['socialInsuranceByDepartment', 'social_insurance'],
     ['officeSpaceByDepartment', 'office_space'],
     ['individualIncomeTaxByDepartment', 'individual_income_tax'],

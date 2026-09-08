@@ -11,8 +11,8 @@ const schema = fs.readFileSync(
 test('department split identity index is only replaced when the existing definition is outdated', () => {
   assert.doesNotMatch(schema, /^DROP INDEX IF EXISTS uk_dept_split_biz_type_dept;/m);
   assert.match(schema, /FROM pg_indexes[\s\S]*indexname = 'uk_dept_split_biz_type_dept'/);
-  assert.match(schema, /index_definition NOT LIKE '%\(business_id, split_type, department_id, department\)%'/);
-  assert.match(schema, /CREATE UNIQUE INDEX IF NOT EXISTS uk_dept_split_biz_type_dept[\s\S]*department_id, department/);
+  assert.match(schema, /index_definition NOT LIKE '%\(business_id, split_type, category_key, department_id, department\)%'/);
+  assert.match(schema, /CREATE UNIQUE INDEX IF NOT EXISTS uk_dept_split_biz_type_dept[\s\S]*category_key, department_id, department/);
 });
 
 test('expense lookup tables index the applicant department ID used by connector queries', () => {

@@ -4,6 +4,8 @@ export const approvalExpenseDeptSplit = pgTable('approval_expense_dept_split', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   businessId: varchar('business_id', { length: 64 }).notNull(),
   splitType: varchar('split_type', { length: 32 }).notNull(),
+  categoryKey: varchar('category_key', { length: 255 }),
+  categoryName: varchar('category_name', { length: 500 }),
   department: varchar('department', { length: 500 }).notNull(),
   departmentId: varchar('department_id', { length: 64 }),
   departmentSource: varchar('department_source', { length: 32 }),
@@ -15,7 +17,7 @@ export const approvalExpenseDeptSplit = pgTable('approval_expense_dept_split', {
   updatedAt: timestamp('updated_at', { mode: 'string', withTimezone: true }).defaultNow(),
 }, (table) => [
   uniqueIndex('uk_dept_split_biz_type_dept').on(
-    table.businessId, table.splitType, table.departmentId, table.department
+    table.businessId, table.splitType, table.categoryKey, table.departmentId, table.department
   ),
   index('idx_dept_split_biz').on(table.businessId),
   index('idx_dept_split_type_dept').on(table.splitType, table.department),

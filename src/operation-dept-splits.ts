@@ -8,12 +8,15 @@ type ParsedDeptSplit = {
   departmentPathNames?: unknown;
   amount?: unknown;
   note?: unknown;
+  categoryKey?: unknown;
+  categoryName?: unknown;
 };
 
 type OperationDeptSplitSource = {
   salaryByDepartment?: ParsedDeptSplit[] | null;
   bonusByDepartment?: ParsedDeptSplit[] | null;
   officeEquipmentByDepartment?: ParsedDeptSplit[] | null;
+  administrativeByDepartment?: ParsedDeptSplit[] | null;
   socialInsuranceByDepartment?: ParsedDeptSplit[] | null;
   officeSpaceByDepartment?: ParsedDeptSplit[] | null;
   individualIncomeTaxByDepartment?: ParsedDeptSplit[] | null;
@@ -23,6 +26,7 @@ const SPLIT_SOURCES = [
   { key: 'salaryByDepartment', splitType: 'salary' },
   { key: 'bonusByDepartment', splitType: 'bonus' },
   { key: 'officeEquipmentByDepartment', splitType: 'office_equipment' },
+  { key: 'administrativeByDepartment', splitType: 'administrative' },
   { key: 'socialInsuranceByDepartment', splitType: 'social_insurance' },
   { key: 'officeSpaceByDepartment', splitType: 'office_space' },
   { key: 'individualIncomeTaxByDepartment', splitType: 'individual_income_tax' },
@@ -48,6 +52,8 @@ export function collectOperationDeptSplits(data: OperationDeptSplitSource): Dept
       const departmentPathNames = Array.isArray(row?.departmentPathNames)
         ? row.departmentPathNames.map((value) => String(value))
         : null;
+      const categoryKey = String(row?.categoryKey || '').trim() || null;
+      const categoryName = String(row?.categoryName || '').trim() || null;
       splits.push({
         splitType: source.splitType,
         department,
@@ -57,6 +63,8 @@ export function collectOperationDeptSplits(data: OperationDeptSplitSource): Dept
         departmentPathNames,
         amount,
         note,
+        ...(categoryKey ? { categoryKey } : {}),
+        ...(categoryName ? { categoryName } : {}),
       });
     }
   }

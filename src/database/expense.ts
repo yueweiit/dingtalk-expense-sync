@@ -167,6 +167,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
     salaryByDepartment: data.salaryByDepartment ?? null,
     bonusByDepartment: data.bonusByDepartment ?? null,
     officeEquipmentByDepartment: data.officeEquipmentByDepartment ?? null,
+    administrativeByDepartment: data.administrativeByDepartment ?? null,
     socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
     officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
     individualIncomeTaxByDepartment: data.individualIncomeTaxByDepartment ?? null,
@@ -230,6 +231,7 @@ export async function upsertOperationExpense(data: OperationExpenseData): Promis
       salaryByDepartment: sql`EXCLUDED.salary_by_department`,
       bonusByDepartment: sql`EXCLUDED.bonus_by_department`,
       officeEquipmentByDepartment: sql`EXCLUDED.office_equipment_by_department`,
+      administrativeByDepartment: sql`EXCLUDED.administrative_by_department`,
       socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
       officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
       individualIncomeTaxByDepartment: sql`EXCLUDED.individual_income_tax_by_department`,
@@ -539,7 +541,8 @@ function aggregateDeptSplits(splits: DeptSplitRow[]): DeptSplitRow[] {
   for (const split of splits) {
     const departmentId = String(split.departmentId || '').trim();
     const identity = departmentId ? `id:${departmentId}` : `name:${split.department}`;
-    const key = `${split.splitType}\u0000${identity}`;
+    const categoryKey = String(split.categoryKey || '').trim();
+    const key = `${split.splitType}\u0000${categoryKey}\u0000${identity}`;
     const existing = grouped.get(key);
     if (existing) {
       existing.amount += Number(split.amount) || 0;
@@ -567,6 +570,8 @@ export async function replaceDeptSplitsForBusiness(
   // Manual company allocations are kept outside the DingTalk JSONB payload.
   const manualSplits = preserveManualSplits ? await executor.select({
     splitType: approvalExpenseDeptSplit.splitType,
+    categoryKey: approvalExpenseDeptSplit.categoryKey,
+    categoryName: approvalExpenseDeptSplit.categoryName,
     department: approvalExpenseDeptSplit.department,
     departmentId: approvalExpenseDeptSplit.departmentId,
     departmentSource: approvalExpenseDeptSplit.departmentSource,
@@ -581,6 +586,8 @@ export async function replaceDeptSplitsForBusiness(
     )) : [];
   const normalizedManualSplits: DeptSplitRow[] = manualSplits.map((split) => ({
     splitType: 'manual_company_allocation',
+    categoryKey: split.categoryKey,
+    categoryName: split.categoryName,
     department: split.department,
     departmentId: split.departmentId,
     departmentSource: split.departmentSource === 'id' || split.departmentSource === 'name_only'
@@ -599,6 +606,8 @@ export async function replaceDeptSplitsForBusiness(
   // 重同步时保留已有 IT 行，避免 delete + insert 覆盖模型误删历史金额。
   const legacyItSplits = preserveManualSplits ? await executor.select({
     splitType: approvalExpenseDeptSplit.splitType,
+    categoryKey: approvalExpenseDeptSplit.categoryKey,
+    categoryName: approvalExpenseDeptSplit.categoryName,
     department: approvalExpenseDeptSplit.department,
     departmentId: approvalExpenseDeptSplit.departmentId,
     departmentSource: approvalExpenseDeptSplit.departmentSource,
@@ -613,6 +622,8 @@ export async function replaceDeptSplitsForBusiness(
     )) : [];
   const normalizedLegacyItSplits: DeptSplitRow[] = legacyItSplits.map((split) => ({
     splitType: 'it_operation',
+    categoryKey: split.categoryKey,
+    categoryName: split.categoryName,
     department: split.department,
     departmentId: split.departmentId,
     departmentSource: split.departmentSource === 'id' || split.departmentSource === 'name_only'
@@ -639,6 +650,8 @@ export async function replaceDeptSplitsForBusiness(
       allSplits.map(s => ({
         businessId,
         splitType: s.splitType,
+        categoryKey: s.categoryKey || null,
+        categoryName: s.categoryName || null,
         department: s.department,
         departmentId: s.departmentId || null,
         departmentSource: s.departmentSource || (s.departmentId ? 'id' : 'name_only'),
@@ -656,6 +669,7 @@ function parseSplitsFromJsonb(row: {
   salaryByDepartment: unknown;
   bonusByDepartment: unknown;
   officeEquipmentByDepartment: unknown;
+  administrativeByDepartment: unknown;
   socialInsuranceByDepartment: unknown;
   officeSpaceByDepartment: unknown;
   individualIncomeTaxByDepartment: unknown;
@@ -666,6 +680,7 @@ function parseSplitsFromJsonb(row: {
     { key: 'salaryByDepartment', type: 'salary' },
     { key: 'bonusByDepartment', type: 'bonus' },
     { key: 'officeEquipmentByDepartment', type: 'office_equipment' },
+    { key: 'administrativeByDepartment', type: 'administrative' },
     { key: 'socialInsuranceByDepartment', type: 'social_insurance' },
     { key: 'officeSpaceByDepartment', type: 'office_space' },
     { key: 'individualIncomeTaxByDepartment', type: 'individual_income_tax' },
@@ -690,6 +705,8 @@ function parseSplitsFromJsonb(row: {
               : null,
             amount,
             note: item.note ? String(item.note) : undefined,
+            categoryKey: item.categoryKey ? String(item.categoryKey) : null,
+            categoryName: item.categoryName ? String(item.categoryName) : null,
           });
         }
       }
@@ -766,6 +783,7 @@ export async function upsertOperationExpenseWithSplits(
       salaryByDepartment: data.salaryByDepartment ?? null,
       bonusByDepartment: data.bonusByDepartment ?? null,
       officeEquipmentByDepartment: data.officeEquipmentByDepartment ?? null,
+      administrativeByDepartment: data.administrativeByDepartment ?? null,
       socialInsuranceByDepartment: data.socialInsuranceByDepartment ?? null,
       officeSpaceByDepartment: data.officeSpaceByDepartment ?? null,
       individualIncomeTaxByDepartment: data.individualIncomeTaxByDepartment ?? null,
@@ -830,6 +848,7 @@ export async function upsertOperationExpenseWithSplits(
         salaryByDepartment: sql`EXCLUDED.salary_by_department`,
         bonusByDepartment: sql`EXCLUDED.bonus_by_department`,
         officeEquipmentByDepartment: sql`EXCLUDED.office_equipment_by_department`,
+        administrativeByDepartment: sql`EXCLUDED.administrative_by_department`,
         socialInsuranceByDepartment: sql`EXCLUDED.social_insurance_by_department`,
         officeSpaceByDepartment: sql`EXCLUDED.office_space_by_department`,
         individualIncomeTaxByDepartment: sql`EXCLUDED.individual_income_tax_by_department`,
@@ -861,6 +880,7 @@ export async function rebuildDeptSplits(businessId: string): Promise<number> {
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     bonusByDepartment: approvalExpenseOperation.bonusByDepartment,
     officeEquipmentByDepartment: approvalExpenseOperation.officeEquipmentByDepartment,
+    administrativeByDepartment: approvalExpenseOperation.administrativeByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
     individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
@@ -885,6 +905,7 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     bonusByDepartment: approvalExpenseOperation.bonusByDepartment,
     officeEquipmentByDepartment: approvalExpenseOperation.officeEquipmentByDepartment,
+    administrativeByDepartment: approvalExpenseOperation.administrativeByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
     individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
@@ -893,6 +914,7 @@ export async function rebuildAllDeptSplits(): Promise<{ total: number; rebuilt: 
     .where(sql`(${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.bonusByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.officeEquipmentByDepartment} IS NOT NULL
+              OR ${approvalExpenseOperation.administrativeByDepartment} IS NOT NULL
             OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL
               OR ${approvalExpenseOperation.individualIncomeTaxByDepartment} IS NOT NULL
@@ -924,6 +946,7 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
     salaryByDepartment: approvalExpenseOperation.salaryByDepartment,
     bonusByDepartment: approvalExpenseOperation.bonusByDepartment,
     officeEquipmentByDepartment: approvalExpenseOperation.officeEquipmentByDepartment,
+    administrativeByDepartment: approvalExpenseOperation.administrativeByDepartment,
     socialInsuranceByDepartment: approvalExpenseOperation.socialInsuranceByDepartment,
     officeSpaceByDepartment: approvalExpenseOperation.officeSpaceByDepartment,
     individualIncomeTaxByDepartment: approvalExpenseOperation.individualIncomeTaxByDepartment,
@@ -933,6 +956,7 @@ export async function backfillDeptSplits(): Promise<{ total: number; rebuilt: nu
               (${approvalExpenseOperation.salaryByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.bonusByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.officeEquipmentByDepartment} IS NOT NULL
+             OR ${approvalExpenseOperation.administrativeByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.socialInsuranceByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.officeSpaceByDepartment} IS NOT NULL
              OR ${approvalExpenseOperation.individualIncomeTaxByDepartment} IS NOT NULL
