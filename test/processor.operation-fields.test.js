@@ -204,9 +204,13 @@ test('parses reserve-fund department details only for the designated completed f
   ]);
 });
 
-test('parses office equipment details only for the designated completed form', () => {
+test('parses a management-fee detail table as a dynamic category only for the designated completed form', () => {
   const processor = getProcessor();
   const components = [
+    {
+      name: '\u7ba1\u7406\u652f\u51faGastos de operaci\u00f3n',
+      value: '\u7ba1\u7406\u8d39\u7528Gastos administrativos',
+    },
     {
       name: '\u7ba1\u7406\u8d39\u7528Gastos administrativos',
       value: '\u529e\u516c\u8bbe\u5907\u7684\u8d2d\u7f6e\u3001\u7ef4\u4fee\u6216\u79df\u8d41\u8d39',
@@ -239,20 +243,23 @@ test('parses office equipment details only for the designated completed form', (
 
   const result = processor.parseOperationExpenseData(components, completed);
   assert.equal(result.salaryByDepartment, null);
-  assert.deepEqual(result.officeEquipmentByDepartment, [{
+  assert.equal(result.officeEquipmentByDepartment, null);
+  assert.deepEqual(result.administrativeByDepartment, [{
     department: '\u6d4b\u8bd5\u90e8\u95e8',
     departmentId: null,
     departmentSource: 'name_only',
     amount: 456.78,
     note: '\u529e\u516c\u8bbe\u5907\u62c6\u5206',
+    categoryKey: '\u529e\u516c\u8bbe\u5907\u7684\u8d2d\u7f6e\u3001\u7ef4\u4fee\u6216\u79df\u8d41\u8d39',
+    categoryName: '\u529e\u516c\u8bbe\u5907\u7684\u8d2d\u7f6e\u3001\u7ef4\u4fee\u6216\u79df\u8d41\u8d39',
   }]);
 
   assert.equal(
-    processor.parseOperationExpenseData(components, { ...completed, status: 'RUNNING' }).officeEquipmentByDepartment,
+    processor.parseOperationExpenseData(components, { ...completed, status: 'RUNNING' }).administrativeByDepartment,
     null,
   );
   assert.equal(
-    processor.parseOperationExpenseData(components, { ...completed, processCode: 'PROC-OTHER' }).officeEquipmentByDepartment,
+    processor.parseOperationExpenseData(components, { ...completed, processCode: 'PROC-OTHER' }).administrativeByDepartment,
     null,
   );
 });

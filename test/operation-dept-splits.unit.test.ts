@@ -30,3 +30,51 @@ test('preserves office-equipment rows as an independent department-split type', 
     },
   ]);
 });
+
+test('keeps administrative categories separate for the same department', () => {
+  assert.deepEqual(collectOperationDeptSplits({
+    administrativeByDepartment: [
+      {
+        department: '测试部门',
+        departmentId: 'dept-test',
+        amount: 100,
+        note: '个税',
+        categoryKey: 'individual-income-tax',
+        categoryName: '个税',
+      },
+      {
+        department: '测试部门',
+        departmentId: 'dept-test',
+        amount: 200,
+        note: '办公设备',
+        categoryKey: 'office-equipment',
+        categoryName: '办公设备购置费',
+      },
+    ],
+  }), [
+    {
+      splitType: 'administrative',
+      department: '测试部门',
+      departmentId: 'dept-test',
+      departmentSource: 'id',
+      departmentPathIds: null,
+      departmentPathNames: null,
+      amount: 100,
+      note: '个税',
+      categoryKey: 'individual-income-tax',
+      categoryName: '个税',
+    },
+    {
+      splitType: 'administrative',
+      department: '测试部门',
+      departmentId: 'dept-test',
+      departmentSource: 'id',
+      departmentPathIds: null,
+      departmentPathNames: null,
+      amount: 200,
+      note: '办公设备',
+      categoryKey: 'office-equipment',
+      categoryName: '办公设备购置费',
+    },
+  ]);
+});
