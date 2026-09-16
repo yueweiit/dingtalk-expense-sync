@@ -22,6 +22,7 @@ import {
   DeptSplitRow,
 } from './types.ts';
 import {
+  COMPLETED_APPROVAL_RESULTS,
   completedApprovalResult,
   completedApprovedApprovalStateSql,
   completedApprovedExpenseSql,
@@ -521,19 +522,15 @@ export function shouldKeepDeptSplits(source: DeptSplitStatusSource): boolean {
   const rawData = asRecord(source.rawData);
   const approvalStatus = normalizedStatus(source.approvalStatus || rawData.status);
   const bizAction = normalizedStatus(rawData.bizAction || rawData.biz_action);
-  const finalResult = normalizedStatus(completedApprovalResult(rawData));
+  const finalResult = completedApprovalResult(rawData);
   const terminalStatuses = new Set(['TERMINATED', 'CANCELED', 'CANCELLED']);
   const terminalActions = new Set(['REVOKE', 'DELETE', 'TERMINATE', 'CANCEL', 'CANCELED', 'CANCELLED']);
 
-  if (terminalStatuses.has(approvalStatus) || terminalActions.has(bizAction)) {
-    return false;
-  }
-  if (finalResult === 'REFUSE' || finalResult === 'REJECT') {
-    return false;
-  }
+  if (terminalStatuses.has(approvalStatus) || terminalActions.has(bizAction)) return false;
 
-  // Historical task outcomes do not determine the final approval outcome.
-  return true;
+  // A department-detail form becomes an accounting fact only after the whole
+  // approval is completed and agreed. This also clears stale RUNNING splits.
+  return approvalStatus === 'COMPLETED' && COMPLETED_APPROVAL_RESULTS.includes(finalResult);
 }
 
 function aggregateDeptSplits(splits: DeptSplitRow[]): DeptSplitRow[] {

@@ -33,7 +33,7 @@ test('operation department splits retain the selected department id from detail 
         { id: 'TextField_SZ57CIDK9J40', value: '工资' },
       ]],
     },
-  ]);
+  ], { status: 'COMPLETED', result: 'AGREE' });
 
   assert.deepEqual(result.salaryByDepartment, [{
     department: 'FC CN财务中心 Centro de finanzas',
@@ -56,7 +56,7 @@ test('operation department splits mark old rows without an id as name-only', () 
         { id: 'MoneyField_T2TFVV7BXN40', value: '1000' },
       ]],
     },
-  ]);
+  ], { status: 'COMPLETED', result: 'AGREE' });
 
   assert.deepEqual(result.salaryByDepartment, [{
     department: '历史部门',

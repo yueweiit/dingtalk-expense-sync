@@ -19,7 +19,9 @@ test('parses individual income tax department rows only when tax type is individ
     },
   ];
 
-  const parsed = processor.parseOperationExpenseData(formComponentValues);
+  const parsed = processor.parseOperationExpenseData(formComponentValues, {
+    status: 'COMPLETED', result: 'AGREE',
+  });
 
   assert.deepEqual(parsed.individualIncomeTaxByDepartment, [{
     department: 'SG 销售小组Grupo de ventas',

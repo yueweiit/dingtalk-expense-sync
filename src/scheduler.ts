@@ -20,7 +20,7 @@ interface InstanceIdWithMeta {
   processCode: string;
 }
 
-type OperationSplitType = 'salary' | 'bonus' | 'office_equipment' | 'social_insurance' | 'office_space' | 'individual_income_tax';
+type OperationSplitType = 'salary' | 'bonus' | 'office_equipment' | 'administrative' | 'social_insurance' | 'office_space' | 'individual_income_tax';
 
 interface OperationSplitSyncOptions {
   startTime: string | number;
@@ -60,6 +60,11 @@ const OPERATION_SPLIT_CONFIG: Record<OperationSplitType, { label: string; labelE
     labelEs: 'Gastos de adquisición, reparación o alquiler de equipos de oficina',
     dbColumn: 'officeEquipmentByDepartment',
     sourceField: 'administrativeExpense',
+  },
+  administrative: {
+    label: '职工福利费',
+    labelEs: 'Gastos de beneficios laborales',
+    dbColumn: 'administrativeByDepartment',
   },
   social_insurance: {
     label: '社保公积金',
@@ -152,7 +157,7 @@ class Scheduler {
   normalizeSplitTypes(splitTypes?: OperationSplitType[]): OperationSplitType[] {
     const requested = Array.isArray(splitTypes) && splitTypes.length > 0
       ? splitTypes
-      : (['salary', 'bonus', 'office_equipment', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
+      : (['salary', 'bonus', 'office_equipment', 'administrative', 'social_insurance', 'office_space', 'individual_income_tax'] as OperationSplitType[]);
     const validTypes = new Set(Object.keys(OPERATION_SPLIT_CONFIG));
     for (const type of requested) {
       if (!validTypes.has(type)) {
@@ -551,6 +556,7 @@ class Scheduler {
         salary: 0,
         bonus: 0,
         office_equipment: 0,
+        administrative: 0,
         social_insurance: 0,
         office_space: 0,
         individual_income_tax: 0,

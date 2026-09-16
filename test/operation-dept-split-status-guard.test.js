@@ -100,7 +100,8 @@ function individualIncomeTaxInstance(businessId) {
     processInstanceId: `pid-${businessId}`,
     processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
     processType: '运营支出',
-    status: 'RUNNING',
+    status: 'COMPLETED',
+    result: 'AGREE',
     createTime: '2026-07-16T10:00:00+08:00',
     formComponentValues: [
       { componentType: 'DepartmentField', value: '测试部门' },
@@ -135,12 +136,12 @@ async function clean(businessId) {
   await pool.query('DELETE FROM approval_expense_operation WHERE business_id = $1', [businessId]);
 }
 
-test('审批中运营单据保留部门拆分', async () => {
+test('审批中运营单据不保留部门拆分', async () => {
   const businessId = `test-split-running-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();
   try {
     await processor.processInstance(operationInstance(businessId, 'RUNNING'));
-    assert.equal(await splitCount(businessId), 1);
+    assert.equal(await splitCount(businessId), 0);
   } finally {
     await clean(businessId);
   }
@@ -258,7 +259,7 @@ test('运营单据变为已撤回后清理历史部门拆分', async () => {
   const businessId = `test-split-terminated-${Date.now()}`;
   await database.ensureApprovalExpenseSchema();
   try {
-    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    await processor.processInstance({ ...operationInstance(businessId, 'COMPLETED'), result: 'AGREE' });
     assert.equal(await splitCount(businessId), 1);
 
     await processor.processInstance(operationInstance(businessId, 'TERMINATED'));
@@ -273,7 +274,7 @@ test('最终完成单据保留部门拆分，即使任务历史包含驳回', as
   await database.ensureApprovalExpenseSchema();
   try {
     await processor.processInstance(operationInstance(businessId, 'RUNNING'));
-    assert.equal(await splitCount(businessId), 1);
+    assert.equal(await splitCount(businessId), 0);
 
     await processor.processInstance({
       ...operationInstance(businessId, 'COMPLETED', [{ userId: 'approver-1', result: 'REFUSE' }]),
@@ -290,7 +291,7 @@ test('最终驳回单据清理历史部门拆分', async () => {
   await database.ensureApprovalExpenseSchema();
   try {
     await processor.processInstance(operationInstance(businessId, 'RUNNING'));
-    assert.equal(await splitCount(businessId), 1);
+    assert.equal(await splitCount(businessId), 0);
 
     await processor.processInstance({
       ...operationInstance(businessId, 'COMPLETED'),
@@ -308,7 +309,7 @@ test('部门拆分回填会清理已撤回单据的历史拆分', async () => {
   const backfillDeptSplits = expenseModule.backfillDeptSplits || expenseModule.default?.backfillDeptSplits;
   await database.ensureApprovalExpenseSchema();
   try {
-    await processor.processInstance(operationInstance(businessId, 'RUNNING'));
+    await processor.processInstance({ ...operationInstance(businessId, 'COMPLETED'), result: 'AGREE' });
     assert.equal(await splitCount(businessId), 1);
 
     await pool.query(

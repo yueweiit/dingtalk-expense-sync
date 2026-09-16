@@ -98,9 +98,9 @@ export async function recordExplicitPaymentEvents(
   hasDepartmentSplits = false,
   formAmount?: unknown,
 ): Promise<void> {
-  // Split operation forms, including the designated reserve-fund form, must wait for
-  // completion so their department splits drive reporting.
-  if (expenseKind === 'operation' && (hasDepartmentSplits || isReserveFundSplitSelection(instance))) return;
+  // Department-detail forms are accounted from their completed approval and
+  // their detail rows. Never create comment-based whole-form payment events.
+  if (expenseKind === 'operation' && (hasDepartmentSplits || hasDepartmentSplitInput(instance))) return;
 
   const comments = extractExplicitPaymentComments(
     instance.operationRecords,
@@ -264,6 +264,11 @@ interface DeptSplitTypeConfig {
   dbColumn: string;
 }
 
+// Newer operation forms reuse one generic department-detail table for salary
+// and employee benefits. The row schema matches the legacy salary table.
+const GENERIC_DEPARTMENT_DETAIL_TABLE_ID = 'TableField_1T6MS9XEQUE80';
+const GENERIC_DEPARTMENT_DETAIL_TABLE_NAME = '明细detalle';
+
 const MONTHLY_SETTLEMENT_COMPONENT_IDS = Object.freeze({
   details: 'TableField-K1UBPVJT',
   paymentDate: 'DDDateField-K1UBWYQI',
@@ -305,6 +310,56 @@ function isReserveFundSplitSelection(instance: Pick<ApprovalInstance, 'processCo
   return /备用金|奖金|Bonificaciones/i.test(String(value || ''));
 }
 
+function hasTableField(
+  formComponentValues: FormComponentValue[] | undefined,
+  tableFieldId: string,
+  tableFieldName?: string,
+): boolean {
+  return Boolean(formComponentValues?.some((item) =>
+    item?.componentType === 'TableField'
+    && ((Boolean(tableFieldId) && String(item.id || '') === tableFieldId)
+      || Boolean(tableFieldName && String(item.name || '').includes(tableFieldName)))
+  ));
+}
+
+/**
+ * The configured department-detail categories are accounted only from detail
+ * rows after completion. This guard also protects pending forms from comment
+ * payment recognition before their split rows exist.
+ */
+function hasDepartmentSplitInput(instance: Pick<ApprovalInstance, 'processCode' | 'formComponentValues'>): boolean {
+  const fc = instance.formComponentValues || [];
+  const valueOf = (name: string) => scalarValue(fc.find((item) => String(item?.name || '').includes(name))?.value);
+  const operationExpense = String(valueOf('管理支出Gastos de operación') ?? valueOf('管理支出') ?? '');
+  const administrativeExpense = String(valueOf('管理费用Gastos administrativos') ?? valueOf('管理费用') ?? '');
+  const processCode = String(instance.processCode || '').trim();
+
+  if (isReserveFundSplitSelection(instance)) return true;
+  if (
+    processCode === RESERVE_FUND_SPLIT_PROCESS_CODE
+    && isGenericDepartmentDetailCategory(operationExpense)
+    && hasTableField(fc, GENERIC_DEPARTMENT_DETAIL_TABLE_ID, GENERIC_DEPARTMENT_DETAIL_TABLE_NAME)
+  ) return true;
+  if (
+    processCode === RESERVE_FUND_SPLIT_PROCESS_CODE
+    && /管理费用|gastos administrativos/i.test(operationExpense)
+    && administrativeExpense
+    && fc.some((item) => item?.componentType === 'TableField')
+  ) return true;
+
+  for (const cfg of DEPT_SPLIT_TYPES) {
+    const labels = [cfg.label, cfg.labelEs, ...(cfg.labelAliases || [])].filter(Boolean) as string[];
+    const source = cfg.matchAdministrativeExpense ? administrativeExpense : operationExpense;
+    if (!labels.some((label) => source.includes(label))) continue;
+    if (cfg.processCode && cfg.processCode !== processCode) continue;
+    if (hasTableField(fc, cfg.tableFieldId, cfg.tableFieldNames?.[0])) return true;
+  }
+
+  const taxExpense = String(valueOf('税费Impuestos') ?? valueOf('税费') ?? '');
+  return /个税|个人所得税|impuesto.*renta|income.*tax/i.test(taxExpense)
+    && hasTableField(fc, '', '薪酬税费总支出');
+}
+
 function relatedApprovalLinks(field: FormComponentValue | null): MonthlySettlementLinkData[] {
   if (!field) return [];
   const parsed = parseJsonValue(field.extValue ?? field.extendValue ?? field.value);
@@ -335,6 +390,7 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
   {
     label: '工资中国',
     labelEs: 'Salario en China',
+    requiresCompletedApproved: true,
     tableFieldId: 'TableField_13B0RI3JBQXS0',
     moneyFieldId: 'MoneyField_T2TFVV7BXN40',
     textFieldId: 'TextField_SZ57CIDK9J40',
@@ -353,6 +409,7 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
   },
   {
     label: '社保公积金',
+    requiresCompletedApproved: true,
     tableFieldId: 'TableField_G2ELEALN0S80',
     moneyFieldId: 'MoneyField_X5KBWAODJ1S0',
     textFieldId: null,
@@ -360,12 +417,18 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
   },
   {
     label: '办公场地总费用',
+    requiresCompletedApproved: true,
     tableFieldId: 'TableField_9KUR3Y1BQYW0',
     moneyFieldId: 'MoneyField_O4L4S81Y0MO0',
     textFieldId: null,
     dbColumn: 'officeSpaceByDepartment',
   },
 ];
+
+function isGenericDepartmentDetailCategory(value: unknown): boolean {
+  const text = String(scalarValue(value) || '').trim();
+  return /工资中国|Salario en China|职工福利费|Gastos de beneficios laborales/i.test(text);
+}
 
 function isCompletedApprovedInstance(
   instance?: Pick<ApprovalInstance, 'status' | 'result'>,
@@ -820,9 +883,36 @@ export class ApprovalProcessor {
       }
     }
 
+    // The current form uses one generic detail table for salary and employee
+    // benefits. Only a completed, agreed approval may produce these splits.
+    const isTargetOperationProcess = String(instance?.processCode || '').trim() === RESERVE_FUND_SPLIT_PROCESS_CODE;
+    const genericCategory = isGenericDepartmentDetailCategory(operationExpense)
+      ? String(scalarValue(operationExpense) || '').trim()
+      : '';
+    if (isTargetOperationProcess && genericCategory && isCompletedApprovedInstance(instance)) {
+      const genericRows = this.extractTableFieldData(
+        fc,
+        GENERIC_DEPARTMENT_DETAIL_TABLE_ID,
+        '',
+        null,
+        GENERIC_DEPARTMENT_DETAIL_TABLE_NAME,
+      );
+      if (genericRows) {
+        if (/工资中国|Salario en China/i.test(genericCategory)) {
+          deptSplitResults.salaryByDepartment = genericRows;
+        } else {
+          deptSplitResults.administrativeByDepartment = genericRows.map((row) => ({
+            ...row,
+            categoryKey: 'employee_benefits',
+            categoryName: '职工福利费',
+          }));
+        }
+      }
+    }
+
     const taxExpense = this.extractFormValue(fc, '税费Impuestos') || this.extractFormValue(fc, '税费');
     const isIndividualIncomeTax = /个税|个人所得税|impuesto.*renta|income.*tax/i.test(String(taxExpense || ''));
-    const individualIncomeTaxByDepartment = isIndividualIncomeTax
+    const individualIncomeTaxByDepartment = isIndividualIncomeTax && isCompletedApprovedInstance(instance)
       ? this.extractTableFieldData(fc, '', '', null, '薪酬税费总支出')
       : null;
     const administrativeByDepartment = this.extractAdministrativeDepartmentDetails(
@@ -830,7 +920,7 @@ export class ApprovalProcessor {
       instance,
       operationExpense,
       administrativeExpense,
-    );
+    ) ?? deptSplitResults.administrativeByDepartment ?? null;
 
     const monthlyBudgetRemainingAmount = this.normalizeNumber(
       this.extractFormValueExact(fc, '本月预算剩余金额')

@@ -31,7 +31,8 @@ test('department split writes the selected department id and source', async () =
       processInstanceId: `pid-${businessId}`,
       processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
       processType: '运营支出',
-      status: 'RUNNING',
+      status: 'COMPLETED',
+      result: 'AGREE',
       createTime: '2026-07-22T10:00:00+08:00',
       formComponentValues: [
         { name: '管理支出', value: '工资中国' },
@@ -92,7 +93,8 @@ test('department split writes a path snapshot when OA has an unambiguous departm
       processInstanceId: `pid-${businessId}`,
       processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
       processType: '运营支出',
-      status: 'RUNNING',
+      status: 'COMPLETED',
+      result: 'AGREE',
       createTime: '2026-07-22T10:00:00+08:00',
       formComponentValues: [
         { name: '管理支出', value: '工资中国' },
@@ -141,7 +143,8 @@ test('department splits keep same-name departments separate when their ids diffe
       processInstanceId: `pid-${businessId}`,
       processCode: 'PROC-0DC5DE17-A29A-497C-8A1F-1324298A04AA',
       processType: '运营支出',
-      status: 'RUNNING',
+      status: 'COMPLETED',
+      result: 'AGREE',
       createTime: '2026-07-22T10:00:00+08:00',
       formComponentValues: [
         { name: '管理支出', value: '工资中国' },
