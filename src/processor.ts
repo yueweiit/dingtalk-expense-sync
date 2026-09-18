@@ -264,8 +264,8 @@ interface DeptSplitTypeConfig {
   dbColumn: string;
 }
 
-// Newer operation forms reuse one generic department-detail table for salary
-// and employee benefits. The row schema matches the legacy salary table.
+// The current Lingxiang-Xingming operation form uses this table for every
+// management-expense option except the three dedicated split tables.
 const GENERIC_DEPARTMENT_DETAIL_TABLE_ID = 'TableField_1T6MS9XEQUE80';
 const GENERIC_DEPARTMENT_DETAIL_TABLE_NAME = '明细detalle';
 
@@ -322,6 +322,17 @@ function hasTableField(
   ));
 }
 
+function isGenericDepartmentDetailTable(item: FormComponentValue): boolean {
+  if (item?.componentType !== 'TableField') return false;
+  if (String(item.id || '') === GENERIC_DEPARTMENT_DETAIL_TABLE_ID) return true;
+  const name = String(item.name || '').replace(/\s+/g, '').toLowerCase();
+  return name === '明细' || name === '明细detalle';
+}
+
+function isDedicatedDepartmentDetailSelection(value: unknown): boolean {
+  return /备用金|奖金|Bonificaciones|社保公积金|办公场地总费用/i.test(String(scalarValue(value) || ''));
+}
+
 /**
  * The configured department-detail categories are accounted only from detail
  * rows after completion. This guard also protects pending forms from comment
@@ -337,8 +348,9 @@ function hasDepartmentSplitInput(instance: Pick<ApprovalInstance, 'processCode' 
   if (isReserveFundSplitSelection(instance)) return true;
   if (
     processCode === RESERVE_FUND_SPLIT_PROCESS_CODE
-    && isGenericDepartmentDetailCategory(operationExpense)
-    && hasTableField(fc, GENERIC_DEPARTMENT_DETAIL_TABLE_ID, GENERIC_DEPARTMENT_DETAIL_TABLE_NAME)
+    && operationExpense
+    && !isDedicatedDepartmentDetailSelection(operationExpense)
+    && fc.some(isGenericDepartmentDetailTable)
   ) return true;
   if (
     processCode === RESERVE_FUND_SPLIT_PROCESS_CODE
@@ -424,11 +436,6 @@ const DEPT_SPLIT_TYPES: DeptSplitTypeConfig[] = [
     dbColumn: 'officeSpaceByDepartment',
   },
 ];
-
-function isGenericDepartmentDetailCategory(value: unknown): boolean {
-  const text = String(scalarValue(value) || '').trim();
-  return /工资中国|Salario en China|职工福利费|Gastos de beneficios laborales/i.test(text);
-}
 
 function isCompletedApprovedInstance(
   instance?: Pick<ApprovalInstance, 'status' | 'result'>,
@@ -622,6 +629,20 @@ export class ApprovalProcessor {
     if (!text) return null;
     const chinesePrefix = text.match(/^[\u4e00-\u9fff0-9&()（）、，\s-]+/u)?.[0].trim();
     return (chinesePrefix || text).slice(0, 500) || null;
+  }
+
+  private extractGenericDepartmentDetails(
+    fc: FormComponentValue[] | undefined | null,
+  ): ReturnType<ApprovalProcessor['extractTableFieldData']> {
+    const table = (fc || []).find(isGenericDepartmentDetailTable);
+    if (!table) return null;
+    return this.extractTableFieldData(
+      [table],
+      String(table.id || ''),
+      '',
+      null,
+      String(table.name || '') || null,
+    );
   }
 
   private extractAdministrativeDepartmentDetails(
@@ -883,29 +904,34 @@ export class ApprovalProcessor {
       }
     }
 
-    // The current form uses one generic detail table for salary and employee
-    // benefits. Only a completed, agreed approval may produce these splits.
+    // The current form has three dedicated tables. Every other top-level
+    // management-expense option uses the one generic detail table; when the
+    // top-level option is management fees, the child option names the category.
     const isTargetOperationProcess = String(instance?.processCode || '').trim() === RESERVE_FUND_SPLIT_PROCESS_CODE;
-    const genericCategory = isGenericDepartmentDetailCategory(operationExpense)
-      ? String(scalarValue(operationExpense) || '').trim()
-      : '';
-    if (isTargetOperationProcess && genericCategory && isCompletedApprovedInstance(instance)) {
-      const genericRows = this.extractTableFieldData(
-        fc,
-        GENERIC_DEPARTMENT_DETAIL_TABLE_ID,
-        '',
-        null,
-        GENERIC_DEPARTMENT_DETAIL_TABLE_NAME,
-      );
+    const operationExpenseValue = String(scalarValue(operationExpense) || '').trim();
+    const usesGenericDetails = operationExpenseValue && !isDedicatedDepartmentDetailSelection(operationExpenseValue);
+    if (isTargetOperationProcess && usesGenericDetails && isCompletedApprovedInstance(instance)) {
+      const genericRows = this.extractGenericDepartmentDetails(fc);
       if (genericRows) {
-        if (/工资中国|Salario en China/i.test(genericCategory)) {
+        if (/工资中国|Salario en China/i.test(operationExpenseValue)) {
           deptSplitResults.salaryByDepartment = genericRows;
         } else {
-          deptSplitResults.administrativeByDepartment = genericRows.map((row) => ({
-            ...row,
-            categoryKey: 'employee_benefits',
-            categoryName: '职工福利费',
-          }));
+          const categorySource = /管理费用|gastos administrativos/i.test(operationExpenseValue)
+            ? administrativeExpense
+            : operationExpenseValue;
+          const categoryName = this.administrativeCategoryName(categorySource);
+          const categoryKey = /职工福利费|Gastos de beneficios laborales/i.test(operationExpenseValue)
+            ? 'employee_benefits'
+            : categoryName?.replace(/\s+/g, '').toLowerCase().slice(0, 255);
+          if (!categoryName || !categoryKey) {
+            deptSplitResults.administrativeByDepartment = null;
+          } else {
+            deptSplitResults.administrativeByDepartment = genericRows.map((row) => ({
+              ...row,
+              categoryKey,
+              categoryName,
+            }));
+          }
         }
       }
     }

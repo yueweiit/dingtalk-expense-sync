@@ -284,6 +284,91 @@ test('parses the current generic detail table for completed employee-benefit for
   );
 });
 
+test('parses the current generic detail table for completed tax forms', () => {
+  const processor = getProcessor();
+  const components = [
+    { name: '管理支出Gastos de operación', value: '税费Impuestos' },
+    { name: '税费Impuestos', value: '个人所得税' },
+    {
+      componentType: 'TableField',
+      id: 'TableField_1T6MS9XEQUE80',
+      name: '明细detalle',
+      value: JSON.stringify([
+        { rowValue: [
+          { label: '部门Departamento', value: '凌翔', key: 'DepartmentField_1', extendValue: [{ id: 'dept-1' }] },
+          { label: '金额（元）Monto (yuan)', value: '318.41', key: 'MoneyField_1' },
+        ] },
+        { rowValue: [
+          { label: '部门Departamento', value: '星铭', key: 'DepartmentField_1', extendValue: [{ id: 'dept-2' }] },
+          { label: '金额（元）Monto (yuan)', value: '232.25', key: 'MoneyField_1' },
+        ] },
+        { rowValue: [
+          { label: '部门Departamento', value: '柠檬树', key: 'DepartmentField_1', extendValue: [{ id: 'dept-3' }] },
+          { label: '金额（元）Monto (yuan)', value: '382.94', key: 'MoneyField_1' },
+        ] },
+        { rowValue: [
+          { label: '部门Departamento', value: '悦为智能', key: 'DepartmentField_1', extendValue: [{ id: 'dept-4' }] },
+          { label: '金额（元）Monto (yuan)', value: '657.54', key: 'MoneyField_1' },
+        ] },
+        { rowValue: [
+          { label: '部门Departamento', value: '拉丁购', key: 'DepartmentField_1', extendValue: [{ id: 'dept-5' }] },
+          { label: '金额（元）Monto (yuan)', value: '224.26', key: 'MoneyField_1' },
+        ] },
+      ]),
+    },
+  ];
+  const completed = {
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    status: 'COMPLETED',
+    result: 'AGREE',
+  };
+
+  const result = processor.parseOperationExpenseData(components, completed);
+
+  assert.deepEqual(result.administrativeByDepartment, [
+    { department: '凌翔', departmentId: 'dept-1', departmentSource: 'id', amount: 318.41, note: '', categoryKey: '税费', categoryName: '税费' },
+    { department: '星铭', departmentId: 'dept-2', departmentSource: 'id', amount: 232.25, note: '', categoryKey: '税费', categoryName: '税费' },
+    { department: '柠檬树', departmentId: 'dept-3', departmentSource: 'id', amount: 382.94, note: '', categoryKey: '税费', categoryName: '税费' },
+    { department: '悦为智能', departmentId: 'dept-4', departmentSource: 'id', amount: 657.54, note: '', categoryKey: '税费', categoryName: '税费' },
+    { department: '拉丁购', departmentId: 'dept-5', departmentSource: 'id', amount: 224.26, note: '', categoryKey: '税费', categoryName: '税费' },
+  ]);
+  assert.equal(result.individualIncomeTaxByDepartment, null);
+  assert.equal(
+    processor.parseOperationExpenseData(components, { ...completed, status: 'RUNNING' }).administrativeByDepartment,
+    null,
+  );
+  assert.equal(
+    processor.parseOperationExpenseData(components, { ...completed, processCode: 'PROC-OTHER' }).administrativeByDepartment,
+    null,
+  );
+});
+
+test('keeps the three dedicated selections out of the generic detail category', () => {
+  const processor = getProcessor();
+  const completed = {
+    processCode: 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B',
+    status: 'COMPLETED',
+    result: 'AGREE',
+  };
+  const genericTable = {
+    componentType: 'TableField',
+    id: 'TableField_1T6MS9XEQUE80',
+    name: '明细detalle',
+    details: [[
+      { id: 'DepartmentField_1', value: '不应读取部门' },
+      { id: 'MoneyField_1', name: '金额', value: '999' },
+    ]],
+  };
+
+  for (const selection of ['备用金', '社保公积金', '办公场地总费用']) {
+    const result = processor.parseOperationExpenseData([
+      { name: '管理支出Gastos de operación', value: selection },
+      genericTable,
+    ], completed);
+    assert.equal(result.administrativeByDepartment, null);
+  }
+});
+
 test('does not parse department details before the approval is completed and agreed', () => {
   const processor = getProcessor();
   const pending = {

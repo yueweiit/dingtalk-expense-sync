@@ -177,6 +177,12 @@ class Scheduler {
       const text = String(parsedData[configItem.sourceField || 'operationExpense'] || '');
       const labels = [configItem.label, configItem.labelEs, ...(configItem.labelAliases || [])].filter(Boolean) as string[];
       const matchesLabel = labels.some((label) => text.includes(label));
+      if (type === 'administrative') {
+        const rows = parsedData[configItem.dbColumn];
+        return Array.isArray(rows)
+          && rows.length > 0
+          && String(processCode || '').trim() === 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B';
+      }
       if (type !== 'bonus' && type !== 'office_equipment') return matchesLabel;
       const rows = parsedData[configItem.dbColumn];
       return matchesLabel

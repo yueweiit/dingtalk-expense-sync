@@ -311,6 +311,30 @@ test('manual operation split sync reads every operation process code', async (t)
   );
 });
 
+test('manual operation split sync recognizes generic administrative rows for any category', async (t) => {
+  const fixtureSrc = createSchedulerFixture();
+  t.after(() => {
+    fs.rmSync(path.dirname(fixtureSrc), { recursive: true, force: true });
+  });
+  const schedulerModule = await import(pathToFileURL(path.join(fixtureSrc, 'scheduler.ts')).href);
+  const scheduler = schedulerModule.default?.default ?? schedulerModule.default ?? schedulerModule;
+
+  assert.deepEqual(
+    scheduler.findMatchedSplitTypes({
+      operationExpense: '税费Impuestos',
+      administrativeByDepartment: [{ department: '凌翔', amount: 318.41 }],
+    }, ['administrative'], 'PROC-E7BC3316-E618-4812-BDCC-7A655A7C694B'),
+    ['administrative'],
+  );
+  assert.deepEqual(
+    scheduler.findMatchedSplitTypes({
+      operationExpense: '税费Impuestos',
+      administrativeByDepartment: [{ department: '凌翔', amount: 318.41 }],
+    }, ['administrative'], 'PROC-OTHER'),
+    [],
+  );
+});
+
 test('manual operation split sync reports failure when one operation process cannot be fetched', async (t) => {
   const fixtureSrc = createSchedulerFixture({ failingProcessCode: 'PROC-OP-1' });
   t.after(() => {
