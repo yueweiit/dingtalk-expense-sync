@@ -209,6 +209,7 @@ function parseUserIds(envValue: string | undefined, fileValue: string[] | undefi
 const AUTHORIZED_PAYMENT_EVENT_USER_IDS = Object.freeze([
   '57521312381178275',
   '02183637680221426194',
+  '031632176526733808021',
 ]);
 
 function validatePaymentEventUserIds(configuredUserIds: string[]): void {

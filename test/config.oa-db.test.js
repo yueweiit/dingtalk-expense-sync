@@ -88,7 +88,11 @@ test('config loads with OA database credentials and a complete process type map'
   assert.equal(parsed.appkey, null);
   assert.equal(parsed.appsecret, null);
   assert.equal(parsed.allProcessCodes.length, 15);
-  assert.deepEqual(parsed.paymentEventUserIds, ['57521312381178275', '02183637680221426194']);
+  assert.deepEqual(parsed.paymentEventUserIds, [
+    '57521312381178275',
+    '02183637680221426194',
+    '031632176526733808021',
+  ]);
   assert.equal(parsed.schedulerCron, '7,37 * * * *');
 });
 

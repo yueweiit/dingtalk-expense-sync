@@ -2,7 +2,11 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { extractExplicitPaymentComments } = require('../src/payment-events.ts');
 
-const authorizedUserIds = ['57521312381178275', '02183637680221426194'];
+const authorizedUserIds = [
+  '57521312381178275',
+  '02183637680221426194',
+  '031632176526733808021',
+];
 
 function extract(records, fallbackAmount) {
   return extractExplicitPaymentComments(records, authorizedUserIds, fallbackAmount);
@@ -32,6 +36,17 @@ test('records a partial payment as this payment only', () => {
   assert.equal(events.length, 1);
   assert.equal(events[0].amount, 14500);
   assert.equal(events[0].phrase, 'partial');
+});
+
+test('records payment comments from the newly authorized user', () => {
+  const events = extract([{
+    date: '2026-09-28T10:00:00+08:00',
+    userId: '031632176526733808021',
+    remark: '\u5df2\u652f\u4ed8 300 \u5143',
+  }]);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].amount, 300);
 });
 
 test('records separate comments as separate payment events', () => {
